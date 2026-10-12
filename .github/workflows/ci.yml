@@ -80,11 +80,11 @@ jobs:
         run: |
           exec > >(tee "$RUNNER_TEMP/check.log") 2>&1
           set -x
-          R="--resolve ops.localtest.me:443:127.0.0.1 --resolve erp.ops.localtest.me:443:127.0.0.1"
-          curl -fsk $R https://ops.localtest.me/api/health | tee health.json
+          R=(--resolve ops.localtest.me:443:127.0.0.1 --resolve erp.ops.localtest.me:443:127.0.0.1)
+          curl -fsk "${R[@]}" https://ops.localtest.me/api/health | tee health.json
           python3 -c "import json; h=json.load(open('health.json')); assert h['ok'] and set(h['checks'].values())=={'ok'}, h"
-          curl -fsk $R https://ops.localtest.me/ | grep -q "Harbor Lane Supply (Demo)"
-          curl -fsk $R https://erp.ops.localtest.me/api/method/ping | grep -q pong
+          curl -fsk "${R[@]}" https://ops.localtest.me/ | grep -q "Harbor Lane Supply (Demo)"
+          curl -fsk "${R[@]}" https://erp.ops.localtest.me/api/method/ping | grep -q pong
           erp() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" exec -T erp-backend \
                   bench --site frontend execute "$@" 2>/dev/null | tail -n 1; }
           [ "$(erp frappe.db.get_value --args "['Company', 'Harbor Lane Supply (Demo)', 'default_currency']")" = USD ]
@@ -96,7 +96,7 @@ jobs:
           ls "$WQO_DIR"/backups/wqo-*.tar.gz
           b=$("$WQO_DIR/backup.sh" | tail -n 1)
           "$WQO_DIR/restore.sh" "$b" --yes
-          for i in $(seq 1 30); do curl -fsk $R https://ops.localtest.me/api/health >/dev/null && break; sleep 5; done
+          for _ in $(seq 1 30); do curl -fsk "${R[@]}" https://ops.localtest.me/api/health >/dev/null && break; sleep 5; done
           [ "$(erp frappe.db.exists --args "['Warehouse', 'Main Stock - HLS']")" = "Main Stock - HLS" ]
           "$WQO_DIR/install.sh" --no-pull 2>&1 | tail -n 5        # running again is safe
           "$WQO_DIR/status.sh"

@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -41,3 +42,11 @@ def test_runbook_covers_every_script():
         assert s in runbook, f"docs/ops/README.md should explain {s}"
     for topic in ("Requirements", "Backup", "Restore", "Upgrade", "Monitoring", "Troubleshooting"):
         assert topic in runbook
+
+
+def test_shellcheck_warnings():
+    exe = shutil.which("shellcheck")
+    assert exe, "shellcheck is missing: pip install -e '.[dev]'"
+    files = [str(D / s) for s in [*SCRIPTS, "lib.sh"]] + [str(ROOT / ".github" / "scripts" / "ci_scope.sh")]
+    r = subprocess.run([exe, "-S", "warning", "-x", *files], capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stdout
