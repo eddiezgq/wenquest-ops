@@ -5,8 +5,13 @@ Each domain needs its view permission (ADR-0005); linked objects of domains a pe
 
 from __future__ import annotations
 
+import datetime as dt
+from zoneinfo import ZoneInfo
+
 from fastapi import Depends, FastAPI, HTTPException
 
+from wqops.hub import permissions as P
+from wqops.hub.ont import metrics as M
 from wqops.hub.ont import schema as S
 
 MAX_NODES = 150
@@ -125,3 +130,32 @@ def mount(app: FastAPI, conn_dep, user_dep, onto_fn=S.get) -> None:
                   "known": (t, k) in found} for t, k in sorted(seen)]
         return {"nodes": nodes, "edges": [{"from": a, "link": ln, "label": onto.link(a[0], ln)["l"], "to": b}
                                           for a, ln, b in sorted(edges)], "truncated": len(seen) >= MAX_NODES}
+
+
+def today(manifest: dict | None) -> dt.date:
+    tz = ZoneInfo(manifest["company"]["timezone"]) if manifest else dt.UTC
+    return dt.datetime.now(tz).date()
+
+
+def mount_dashboard(app: FastAPI, conn_dep, user_dep, company) -> None:
+    @app.get("/api/dashboard")
+    def dashboard(days: int = 30, as_of: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
+        """The metrics this person may see (ADR-0007 items 3-4), with weekly trends."""
+        if days not in (7, 30, 90):
+            raise HTTPException(400, "days must be 7, 30 or 90")
+        try:
+            day = dt.date.fromisoformat(as_of) if as_of else today(company()[0])
+        except ValueError as exc:
+            raise HTTPException(400, "as_of must be a date like 2026-10-12") from exc
+        names = [n for n in M.LABELS if P.allows(u["roles"], M.VIEW[n])]
+        return {"as_of": str(day), "days": days, "metrics": [M.compute(c, n, day, days) for n in names],
+                "trends": {n: M.weekly(c, n, day) for n in M.TRENDS if n in names}}
+
+    @app.get("/api/dashboard/{name}")
+    def metric(name: str, days: int = 30, as_of: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
+        if name not in M.LABELS:
+            raise HTTPException(404, f"no metric {name}")
+        if not P.allows(u["roles"], M.VIEW[name]):
+            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[M.VIEW[name]]}")
+        day = dt.date.fromisoformat(as_of) if as_of else today(company()[0])
+        return M.compute(c, name, day, days) | {"as_of": str(day), "days": days}
