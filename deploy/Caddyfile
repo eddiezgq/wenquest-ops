@@ -1,0 +1,14 @@
+# WenQuest Ops entry point: automatic HTTPS (docs/ops/README.md)
+# WQO_TLS: an email for Let's Encrypt (the domains must point at this server, ports 80/443 open),
+#          or "internal" for Caddy's own self-signed certificate (intranet, testing).
+{$WQO_DOMAIN} {
+	tls {$WQO_TLS}
+	encode gzip
+	reverse_proxy hub:8100
+}
+
+{$WQO_ERP_DOMAIN} {
+	tls {$WQO_TLS}
+	encode gzip
+	reverse_proxy erp-frontend:8080
+}

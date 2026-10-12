@@ -1,11 +1,15 @@
 name: CI
 
 # Private repository: Actions minutes are billed (same approach as freecad-ai-parts ADR-0067).
-# Light checks run on every push; heavier jobs (install, browser tests) will run nightly or on demand once they exist.
+# Lint and unit tests run on every push; the full install runs when deployment files change, nightly when main has
+# new commits, on manual runs, or with the PR label full-ci.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: "23 7 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -28,3 +32,79 @@ jobs:
         run: python -m ruff check .
       - name: Tests
         run: python -m pytest -v
+
+  scope:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      install: ${{ steps.s.outputs.install }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: s
+        env:
+          WF: ci.yml
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/ci_scope.sh
+
+  install:
+    # Phase 1 item 3: one command on a clean machine installs ERPNext + WenQuest Ops for the demo company;
+    # health check, the business in ERPNext, backup and restore.
+    needs: [test, scope]
+    if: needs.scope.outputs.install == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      WQO_DIR: ${{ runner.temp }}/wqo
+    steps:
+      - uses: actions/checkout@v5
+      - name: Free disk (ERPNext images are large)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - name: Build the hub image (same Dockerfile as the published one; not pushed)
+        run: docker build -q -t wenquest-ops-hub:ci .
+      - name: Install with one command
+        env:
+          WQO_HUB_IMAGE: wenquest-ops-hub:ci
+          WQO_MIN_DISK_GB: "8"
+        run: |
+          set -o pipefail
+          mkdir -p "$WQO_DIR" && cp -r deploy/. "$WQO_DIR/"
+          "$WQO_DIR/install.sh" --company companies/demo-harbor-lane.yaml --domain ops.localtest.me --tls-internal --no-pull \
+            2>&1 | tee "$RUNNER_TEMP/install.log"
+      - name: Check health, the company in ERPNext, backup and restore
+        run: |
+          exec > >(tee "$RUNNER_TEMP/check.log") 2>&1
+          set -x
+          R="--resolve ops.localtest.me:443:127.0.0.1 --resolve erp.ops.localtest.me:443:127.0.0.1"
+          curl -fsk $R https://ops.localtest.me/api/health | tee health.json
+          python3 -c "import json; h=json.load(open('health.json')); assert h['ok'] and set(h['checks'].values())=={'ok'}, h"
+          curl -fsk $R https://ops.localtest.me/ | grep -q "Harbor Lane Supply (Demo)"
+          curl -fsk $R https://erp.ops.localtest.me/api/method/ping | grep -q pong
+          erp() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" exec -T erp-backend \
+                  bench --site frontend execute "$@" 2>/dev/null | tail -n 1; }
+          [ "$(erp frappe.db.get_value --args "['Company', 'Harbor Lane Supply (Demo)', 'default_currency']")" = USD ]
+          for w in "Receiving Dock - HLS" "Main Stock - HLS" "QC Hold - HLS" "Shipping Dock - HLS"; do
+            [ "$(erp frappe.db.exists --args "['Warehouse', '$w']")" = "$w" ]
+          done
+          [ -n "$(erp frappe.db.exists --args "['Department', {'department_name': 'Quality', 'company': 'Harbor Lane Supply (Demo)'}]")" ]
+          [ -n "$(erp frappe.db.exists --args "['Address', {'address_title': 'Tampa Distribution Center'}]")" ]
+          ls "$WQO_DIR"/backups/wqo-*.tar.gz
+          b=$("$WQO_DIR/backup.sh" | tail -n 1)
+          "$WQO_DIR/restore.sh" "$b" --yes
+          for i in $(seq 1 30); do curl -fsk $R https://ops.localtest.me/api/health >/dev/null && break; sleep 5; done
+          [ "$(erp frappe.db.exists --args "['Warehouse', 'Main Stock - HLS']")" = "Main Stock - HLS" ]
+          "$WQO_DIR/install.sh" --no-pull 2>&1 | tail -n 5        # running again is safe
+          "$WQO_DIR/status.sh"
+      - name: Show the end of the logs as one annotation on failure
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log"; do
+            [ -f "$f" ] && echo "::error title=$(basename "$f")::$(tail -n 40 "$f" | tr -d '\r' | sed ':a;N;$!ba;s/\n/%0A/g')"
+          done
+          docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" ps -a || true
+          docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" logs --tail 60 hub || true
