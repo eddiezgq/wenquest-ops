@@ -6,7 +6,7 @@ types:
   SalesInvoice:
     label: Sales invoice
     maturity: erp
-    source: ERPNext Sales Invoice (not synced yet)
+    source: ERPNext Sales Invoice
     key: ERPNext sales invoice number
     title: "{key}"
     props:
@@ -18,7 +18,7 @@ types:
   PurchaseInvoice:
     label: Purchase invoice
     maturity: erp
-    source: ERPNext Purchase Invoice (not synced yet)
+    source: ERPNext Purchase Invoice
     key: ERPNext purchase invoice number
     title: "{key}"
     props:
