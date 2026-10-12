@@ -1,0 +1,179 @@
+# WenQuest Ops - one server deployment (docs/plan.md, Phase 1 item 3; runbook: docs/ops/README.md)
+#   Public: Caddy on 80/443 -> the hub (https://<WQO_DOMAIN>) and ERPNext (https://<WQO_ERP_DOMAIN>)
+#   Internal only: PostgreSQL (hub), the ERPNext services, MariaDB, Redis
+# install.sh writes .env (passwords, keys) and starts it.
+name: wqo
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+x-erpnext: &erpnext
+  image: frappe/erpnext:v16.34.1
+  restart: unless-stopped
+  networks: [erp]
+  logging: *logging
+  volumes:
+    - erp-sites:/home/frappe/frappe-bench/sites
+    - erp-logs:/home/frappe/frappe-bench/logs
+
+x-erp-redis-env: &erp-redis-env
+  FRAPPE_REDIS_CACHE: redis://erp-redis-cache:6379
+  FRAPPE_REDIS_QUEUE: redis://erp-redis-queue:6379
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    logging: *logging
+    ports: ["80:80", "443:443"]
+    environment:
+      WQO_DOMAIN: ${WQO_DOMAIN:?}
+      WQO_ERP_DOMAIN: ${WQO_ERP_DOMAIN:?}
+      WQO_TLS: ${WQO_TLS:?}               # Let's Encrypt contact email, or "internal" for a self-signed certificate
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [default, erp]
+    depends_on: [hub]
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: wqo
+      POSTGRES_PASSWORD: ${WQO_DB_PASSWORD:?}
+      POSTGRES_DB: wqo
+    volumes: [db-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wqo -d wqo"]
+      interval: 5s
+      retries: 20
+
+  hub:
+    image: ${WQO_HUB_IMAGE:-ghcr.io/eddiezgq/wenquest-ops-hub:latest}
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      WQO_DB: postgresql://wqo:${WQO_DB_PASSWORD:?}@db:5432/wqo
+      WQO_COMPANY_FILE: /company/company.yaml
+      WQO_ERP_URL: http://erp-frontend:8080
+      WQO_ERP_SITE: frontend
+      WQO_ERP_API_KEY: ${WQO_ERP_API_KEY:-}
+      WQO_ERP_API_SECRET: ${WQO_ERP_API_SECRET:-}
+      WQO_SECRET: ${WQO_SECRET:?}
+    volumes: [./company:/company:ro]
+    networks: [default, erp]
+    depends_on:
+      db: { condition: service_healthy }
+
+  # ------------------------------------------------------------------ ERPNext (official images, unmodified; ADR-0001)
+  erp-configurator:
+    <<: *erpnext
+    restart: "no"
+    entrypoint: ["bash", "-c"]
+    command:
+      - >
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host erp-db;
+        bench set-config -gp db_port 3306;
+        bench set-config -g redis_cache "redis://erp-redis-cache:6379";
+        bench set-config -g redis_queue "redis://erp-redis-queue:6379";
+        bench set-config -g redis_socketio "redis://erp-redis-queue:6379";
+        bench set-config -gp socketio_port 9000;
+    depends_on:
+      erp-db: { condition: service_healthy }
+
+  erp-backend:
+    <<: *erpnext
+    depends_on:
+      erp-configurator: { condition: service_completed_successfully }
+
+  erp-frontend:
+    <<: *erpnext
+    command: ["nginx-entrypoint.sh"]
+    environment:
+      BACKEND: erp-backend:8000
+      FRAPPE_SITE_NAME_HEADER: frontend
+      SOCKETIO: erp-websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 0.0.0.0/0
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    depends_on: [erp-backend, erp-websocket]
+
+  erp-websocket:
+    <<: *erpnext
+    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    environment: *erp-redis-env
+    depends_on:
+      erp-configurator: { condition: service_completed_successfully }
+
+  erp-queue-short:
+    <<: *erpnext
+    command: ["bench", "worker", "--queue", "short,default"]
+    environment: *erp-redis-env
+    depends_on:
+      erp-configurator: { condition: service_completed_successfully }
+
+  erp-queue-long:
+    <<: *erpnext
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    environment: *erp-redis-env
+    depends_on:
+      erp-configurator: { condition: service_completed_successfully }
+
+  erp-scheduler:
+    <<: *erpnext
+    command: ["bench", "schedule"]
+    depends_on:
+      erp-configurator: { condition: service_completed_successfully }
+
+  erp-db:
+    image: mariadb:11.8
+    restart: unless-stopped
+    logging: *logging
+    networks: [erp]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --innodb-buffer-pool-size=512M
+    environment:
+      MARIADB_ROOT_PASSWORD: ${ERP_DB_ROOT_PASSWORD:?}
+    volumes: [erp-db-data:/var/lib/mysql]
+
+  erp-redis-queue:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+    logging: *logging
+    networks: [erp]
+    volumes: [erp-redis-queue-data:/data]
+
+  erp-redis-cache:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+    logging: *logging
+    networks: [erp]
+
+volumes:
+  caddy-data:
+  caddy-config:
+  db-data:
+  erp-sites:
+  erp-logs:
+  erp-db-data:
+  erp-redis-queue-data:
+
+networks:
+  default: {}
+  erp: {}
