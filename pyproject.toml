@@ -25,6 +25,7 @@ dev = [
     "wenquest-ops[hub]",
     "pytest>=8",
     "ruff>=0.16.9,<0.17",
+    "actionlint-py>=1.7",
 ]
 
 [tool.setuptools.packages.find]
