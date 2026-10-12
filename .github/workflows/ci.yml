@@ -149,6 +149,10 @@ jobs:
           assert p['actual_qty'] == 10 and p['stock_value'] == 25, o; print(o['title'])"
           curl -fsk "${R[@]}" -b jar "https://ops.localtest.me/api/ont/search?q=CI-WIDGET-01&type=PurchaseOrder" \
             | python3 -c "import json,sys; r=json.load(sys.stdin); assert len(r) == 2, r; print(r)"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/dashboard | python3 -c "import json,sys
+          d=json.load(sys.stdin); m={x['name']: x['value'] for x in d['metrics']}; assert len(m) == 6, d; print(m)"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/anomalies | python3 -c "import json,sys
+          a=json.load(sys.stdin); assert isinstance(a, list), a; print(len(a), 'active anomalies')"
           ls "$WQO_DIR"/backups/wqo-*.tar.gz
           b=$("$WQO_DIR/backup.sh" | tail -n 1)
           "$WQO_DIR/restore.sh" "$b" --yes
