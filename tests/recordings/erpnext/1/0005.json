@@ -1,0 +1,56 @@
+{
+ "method": "GET",
+ "path": "/api/resource/Stock Ledger Entry",
+ "params": {
+  "filters": "[]",
+  "fields": "[\"*\"]",
+  "order_by": "modified asc, name asc",
+  "limit_start": "0",
+  "limit_page_length": "20"
+ },
+ "status": 200,
+ "body": {
+  "data": [
+   {
+    "name": "4ddb6953e2",
+    "owner": "Administrator",
+    "creation": "2026-10-12 15:06:57.196889",
+    "modified": "2026-10-12 15:06:57.215381",
+    "modified_by": "Administrator",
+    "docstatus": 1,
+    "idx": 0,
+    "item_code": "CI-WIDGET-01",
+    "warehouse": "Main Stock - HLS",
+    "posting_date": "2026-10-12",
+    "posting_time": "15:06:57.112667",
+    "posting_datetime": "2026-10-12 15:06:57.112667",
+    "is_adjustment_entry": 0,
+    "auto_created_serial_and_batch_bundle": 0,
+    "voucher_type": "Stock Entry",
+    "voucher_no": "MAT-STE-2026-00001",
+    "voucher_detail_no": "nhag72q6re",
+    "serial_and_batch_bundle": null,
+    "dependant_sle_voucher_detail_no": null,
+    "recalculate_rate": 0,
+    "actual_qty": 10.0,
+    "qty_after_transaction": 10.0,
+    "incoming_rate": 2.5,
+    "outgoing_rate": 0.0,
+    "valuation_rate": 2.5,
+    "stock_value": 25.0,
+    "stock_value_difference": 25.0,
+    "stock_queue": "[[10.0, 2.5]]",
+    "company": "Harbor Lane Supply (Demo)",
+    "stock_uom": "Nos",
+    "project": null,
+    "fiscal_year": "2026",
+    "has_batch_no": 0,
+    "has_serial_no": 0,
+    "is_cancelled": 0,
+    "to_rename": 1,
+    "serial_no": null,
+    "batch_no": null
+   }
+  ]
+ }
+}
