@@ -20,6 +20,17 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wqo
+          POSTGRES_PASSWORD: wqo
+          POSTGRES_DB: wqo_test
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U wqo" --health-interval 5s --health-retries 20
+    env:
+      WQO_TEST_DB: postgresql://wqo:wqo@localhost:5432/wqo_test
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -71,6 +82,7 @@ jobs:
         env:
           WQO_HUB_IMAGE: wenquest-ops-hub:ci
           WQO_MIN_DISK_GB: "8"
+          WQO_OWNER_PASSWORD: Ci-owner-pass-2026
         run: |
           set -o pipefail
           mkdir -p "$WQO_DIR" && cp -r deploy/. "$WQO_DIR/"
@@ -83,7 +95,15 @@ jobs:
           R=(--resolve ops.localtest.me:443:127.0.0.1 --resolve erp.ops.localtest.me:443:127.0.0.1)
           curl -fsk "${R[@]}" https://ops.localtest.me/api/health | tee health.json
           python3 -c "import json; h=json.load(open('health.json')); assert h['ok'] and set(h['checks'].values())=={'ok'}, h"
-          curl -fsk "${R[@]}" https://ops.localtest.me/ | grep -q "Harbor Lane Supply (Demo)"
+          curl -fsk "${R[@]}" https://ops.localtest.me/login | grep -q "Harbor Lane Supply (Demo)"
+          code=$(curl -sk "${R[@]}" -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+                 -d '{"email":"dana@demo.example","password":"wrong pass 1"}' https://ops.localtest.me/api/login)
+          [ "$code" = 401 ]
+          curl -fsk "${R[@]}" -c jar -H 'content-type: application/json' \
+               -d '{"email":"dana@demo.example","password":"Ci-owner-pass-2026"}' https://ops.localtest.me/api/login
+          grep -q wqo_session jar
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/users | python3 -c "
+          import json,sys; u=json.load(sys.stdin); assert len(u)==7, u; print([x['email'] for x in u])"
           curl -fsk "${R[@]}" https://erp.ops.localtest.me/api/method/ping | grep -q pong
           erp() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" exec -T erp-backend \
                   bench --site frontend execute "$@" 2>/dev/null | tail -n 1; }

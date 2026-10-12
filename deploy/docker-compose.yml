@@ -64,6 +64,7 @@ services:
       WQO_ERP_API_KEY: ${WQO_ERP_API_KEY:-}
       WQO_ERP_API_SECRET: ${WQO_ERP_API_SECRET:-}
       WQO_SECRET: ${WQO_SECRET:?}
+      WQO_ERP_PUBLIC_URL: https://${WQO_ERP_DOMAIN:?}
     volumes: [./company:/company:ro]
     networks: [default, erp]
     depends_on:

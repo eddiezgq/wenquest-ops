@@ -20,6 +20,7 @@ hub = [
     "uvicorn>=0.30",
     "httpx>=0.27",
     "psycopg[binary]>=3.2",
+    "python-multipart>=0.0.9",
 ]
 dev = [
     "wenquest-ops[hub]",
@@ -45,4 +46,5 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "PL", "RUF", "DTZ"]
 ignore = ["PLR2004", "PLR0913", "S101", "RUF001", "RUF002", "RUF003"]  # RUF00x: Chinese text in docs and tests
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "PLR"]
+"tests/**" = ["S", "PLR", "PLC0415"]
+"wqops/hub/app.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
