@@ -65,6 +65,15 @@ services:
       WQO_ERP_API_SECRET: ${WQO_ERP_API_SECRET:-}
       WQO_SECRET: ${WQO_SECRET:?}
       WQO_ERP_PUBLIC_URL: https://${WQO_ERP_DOMAIN:?}
+      WQO_PUBLIC_URL: https://${WQO_DOMAIN:?}
+      WQO_ERP_SSO_SECRET: ${WQO_ERP_SSO_SECRET:?}    # ERPNext signs people in through WenQuest Ops (ADR-0005)
+      # Microsoft 365 / Google sign-in (docs/ops/README.md); empty = not offered
+      WQO_OIDC_MICROSOFT_TENANT: ${WQO_OIDC_MICROSOFT_TENANT:-}
+      WQO_OIDC_MICROSOFT_CLIENT_ID: ${WQO_OIDC_MICROSOFT_CLIENT_ID:-}
+      WQO_OIDC_MICROSOFT_CLIENT_SECRET: ${WQO_OIDC_MICROSOFT_CLIENT_SECRET:-}
+      WQO_OIDC_GOOGLE_CLIENT_ID: ${WQO_OIDC_GOOGLE_CLIENT_ID:-}
+      WQO_OIDC_GOOGLE_CLIENT_SECRET: ${WQO_OIDC_GOOGLE_CLIENT_SECRET:-}
+      WQO_OIDC_GOOGLE_DOMAIN: ${WQO_OIDC_GOOGLE_DOMAIN:-}
     volumes: [./company:/company:ro]
     networks: [default, erp]
     depends_on:

@@ -72,6 +72,17 @@ def apply(m: dict, erp: ErpClient) -> list[str]:
             continue
         erp.insert({"doctype": "Department", "department_name": d["name"], "company": company})
         done.append(f"department {d['name']}: created")
+    public, secret = os.environ.get("WQO_PUBLIC_URL"), os.environ.get("WQO_ERP_SSO_SECRET")
+    if public and secret:
+        from wqops.hub import erp_sso as S  # noqa: PLC0415
+
+        key = S.social_login_key(public, secret)
+        if erp.get("Social Login Key", S.PROVIDER) is None:
+            erp.insert(key)
+            done.append("ERPNext sign-in through WenQuest Ops: created")
+        else:
+            erp.update("Social Login Key", S.PROVIDER, {k: v for k, v in key.items() if k != "doctype"})
+            done.append("ERPNext sign-in through WenQuest Ops: updated")
     for s in m["sites"]:
         a = s.get("address")
         if not a:

@@ -53,7 +53,7 @@ elif [ -n "$EMAIL" ]; then envset WQO_TLS "$EMAIL"
 elif [ -z "$(envval WQO_TLS)" ]; then die "give --email (Let's Encrypt) or --tls-internal"
 fi
 envset WQO_HUB_IMAGE "${WQO_HUB_IMAGE:-ghcr.io/eddiezgq/wenquest-ops-hub:$TAG}"
-for k in WQO_DB_PASSWORD WQO_SECRET ERP_DB_ROOT_PASSWORD; do
+for k in WQO_DB_PASSWORD WQO_SECRET WQO_ERP_SSO_SECRET ERP_DB_ROOT_PASSWORD; do
     [ -n "$(envval "$k")" ] || envset "$k" "$(rand 32)"
 done
 [ -n "$(envval ERP_ADMIN_PASSWORD)" ] || envset ERP_ADMIN_PASSWORD "$(rand 20)"
