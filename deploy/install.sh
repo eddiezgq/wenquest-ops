@@ -10,6 +10,7 @@
 #   --tls-internal      self-signed certificate instead (intranet, testing)
 #   --image TAG         hub image tag (default latest); --no-pull uses images already on this machine
 #   --registry-token T  token for pulling the private hub image
+# The first owner in the manifest gets a password: from WQO_OWNER_PASSWORD, or asked for when run in a terminal.
 . "$(dirname "$0")/lib.sh"
 
 COMPANY="" DOMAIN="" ERP_DOMAIN="" EMAIL="" TLS_INTERNAL=0 TAG=latest PULL=1 REG_TOKEN="${WQO_REGISTRY_TOKEN:-}"
@@ -111,10 +112,30 @@ for _ in $(seq 1 60); do
     sleep 5
 done
 
+# ---------------------------------------------------------------- 6 the first owner's password
+has_pw=$(dc exec -T hub python -c "
+import os
+from wqops.hub import db, accounts
+c = db.connect(os.environ['WQO_DB'])
+print(int(bool(c.execute(\"select 1 from users where 'owner' = any(roles) and password_hash is not null\").fetchone())))
+" 2>/dev/null | tail -n 1 || echo 0)
+if [ "$has_pw" != 1 ]; then
+    pw="${WQO_OWNER_PASSWORD:-}"
+    if [ -z "$pw" ] && [ -t 0 ]; then
+        read -r -s -p "Password for the owner in company.yaml (10+ characters, letters and digits): " pw; echo
+    fi
+    if [ -n "$pw" ]; then
+        printf '%s\n' "$pw" | dc exec -T hub python -m wqops.hub.accounts set-owner-password || die "could not set the owner password"
+    else
+        log "No owner password set yet. Set it with:"
+        log "  echo 'the password' | docker compose -p wqo exec -T hub python -m wqops.hub.accounts set-owner-password"
+    fi
+fi
+
 "$WD/backup.sh" >/dev/null && log "First backup done (backups/)"
 envset WQO_INSTALLED "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 log "Installed:"
-log "  WenQuest Ops  https://$DOMAIN"
+log "  WenQuest Ops  https://$DOMAIN (sign in as the owner in company.yaml)"
 log "  ERPNext       https://$ERP_DOMAIN (user Administrator; password is ERP_ADMIN_PASSWORD in $WD/.env)"
 log "  Health check  https://$DOMAIN/api/health"
 "$WD/status.sh"

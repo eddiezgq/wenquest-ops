@@ -61,7 +61,17 @@ The first run takes 15-25 minutes (images, the ERPNext site, the setup wizard). 
 Running `install.sh` again is safe: finished steps are skipped.
 
 The ERPNext administrator is `Administrator`; the password is `ERP_ADMIN_PASSWORD` in `.env`.
-Sign-in to WenQuest Ops arrives with the next release of Phase 1.
+
+### Sign-in
+
+The people in `company.yaml` are the people who can sign in; their roles come from it too. People removed from the
+manifest are deactivated at the next upgrade (`./upgrade.sh --company company.yaml`) or hub restart.
+
+- The first owner in the manifest gets a password during installation: set `WQO_OWNER_PASSWORD` before running
+  `install.sh`, or type it when asked.
+- The owner sets passwords for everyone else in the workspace; anyone can change their own.
+- From the server: `echo 'password' | docker compose -p wqo exec -T hub python -m wqops.hub.accounts set-password email`
+- Five wrong passwords lock an account for 10 minutes. Sign-in events are recorded.
 
 ## 3. Daily operation
 
