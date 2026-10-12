@@ -1,0 +1,20 @@
+{
+  "name": "wenquest-ops-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WenQuest Ops workspace: dashboard, objects, anomalies and root causes (ADR-0007)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "3.5.22",
+    "vue-router": "4.5.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.1",
+    "vite": "7.1.7"
+  }
+}

@@ -4,3 +4,6 @@
 !wqops/
 !companies/
 **/__pycache__
+!web/
+web/node_modules
+web/dist

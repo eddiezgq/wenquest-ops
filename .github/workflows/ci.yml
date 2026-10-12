@@ -42,8 +42,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - name: Install
-        run: pip install -e ".[dev]"
+        run: |
+          pip install -e ".[dev]"
+          npm ci --prefix web --no-audit --no-fund
       - name: Lint
         run: python -m ruff check .
       - name: Tests
@@ -153,6 +160,11 @@ jobs:
           d=json.load(sys.stdin); m={x['name']: x['value'] for x in d['metrics']}; assert len(m) == 6, d; print(m)"
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/anomalies | python3 -c "import json,sys
           a=json.load(sys.stdin); assert isinstance(a, list), a; print(len(a), 'active anomalies')"
+          # the web workspace (ADR-0007): pages and their assets come from the hub
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/anomalies | tee index.html | grep -q 'id="app"'
+          asset=$(grep -o '/assets/[^"]*\.js' index.html | head -n 1)
+          curl -fsk "${R[@]}" -o /dev/null "https://ops.localtest.me$asset"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/workspace | grep -q '"company":"Harbor Lane Supply (Demo)"'
           ls "$WQO_DIR"/backups/wqo-*.tar.gz
           b=$("$WQO_DIR/backup.sh" | tail -n 1)
           "$WQO_DIR/restore.sh" "$b" --yes

@@ -8,6 +8,7 @@ Environment:
     WQO_ERP_API_KEY / WQO_ERP_API_SECRET
     WQO_ERP_PUBLIC_URL  ERPNext address people open in the browser (e.g. https://erp.ops.example.com)
     WQO_SYNC_SECONDS    pull changes from ERPNext this often (default 300; 0 turns it off; ADR-0006)
+    WQO_WEB_DIR         the built web workspace (web/dist); without it "/" shows a plain page
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ from collections.abc import Callable
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 import wqops
 from wqops import company as C
@@ -84,7 +86,8 @@ def _page(title: str, body: str) -> str:
 
 def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0915 - routes are defined inside
                company: Callable[[], tuple[dict | None, str]] = load_company,
-               db_url: str | None = None, oidc_http=None, erp=None, *, sync_seconds: float = 0) -> FastAPI:
+               db_url: str | None = None, oidc_http=None, erp=None, *, sync_seconds: float = 0,
+               web_dir: str | None = None) -> FastAPI:
     """``sync_seconds`` > 0 pulls ERPNext changes in the background that often (the deployed app reads
     WQO_SYNC_SECONDS; tests leave it off)."""
     checks = checks if checks is not None else {"database": check_db, "erpnext": check_erp}
@@ -326,6 +329,15 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     OA.mount_dashboard(app, conn, current_user, company)
     OA.mount_anomalies(app, conn, current_user, company)
 
+    @app.get("/api/workspace")
+    def workspace(u=Depends(current_user)):
+        """What the web workspace needs to start: who is signed in, the company, where ERPNext is."""
+        m, _ = company()
+        c = (m or {}).get("company", {})
+        return {"company": c.get("name", "WenQuest Ops"), "demo": bool(m and m.get("demo")),
+                "currency": c.get("currency", "USD"), "timezone": c.get("timezone", "UTC"),
+                "erp_url": os.environ.get("WQO_ERP_PUBLIC_URL"), "user": A.public(u), "version": wqops.__version__}
+
     @app.get("/api/sync/status")
     def sync_status(_=Depends(require("dashboard:view")), c=Depends(conn)):
         return Y.status(c)
@@ -399,10 +411,30 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                      "<input id='password' name='password' type='password' required>"
                      "<button type='submit'>Sign in</button></form>")
 
+    web = web_dir if web_dir is not None else os.environ.get("WQO_WEB_DIR", "")
+    index = os.path.join(web, "index.html") if web else ""
+    has_web = bool(index) and os.path.isfile(index)
+    if has_web:
+        app.mount("/assets", StaticFiles(directory=os.path.join(web, "assets")), name="assets")
+
+    def spa(request: Request, u):
+        if u is None:
+            return RedirectResponse("/login?next=" + urllib.parse.quote(request.url.path), status_code=303)
+        return FileResponse(index, headers={"cache-control": "no-cache"})
+
+    def spa_page(request: Request, u=Depends(user_or_none)):
+        return spa(request, u)
+
+    if has_web:
+        for path in ("/objects", "/o/{rest:path}", "/anomalies", "/anomalies/{rest:path}"):
+            app.add_api_route(path, spa_page, methods=["GET"], include_in_schema=False)
+
     @app.get("/", response_class=HTMLResponse)
-    def home(u=Depends(user_or_none)):
+    def home(request: Request, u=Depends(user_or_none)):
         if u is None:
             return RedirectResponse("/login", status_code=303)
+        if has_web:
+            return spa(request, u)
         name, demo = company_name()
         tag = " <small class='muted'>(fictional demo company)</small>" if demo else ""
         roles = ", ".join(P_LABEL.get(r, r) for r in u["roles"])

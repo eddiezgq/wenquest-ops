@@ -23,7 +23,7 @@ fi
 files=$(git diff --name-only "$BASE" "$GITHUB_SHA")
 # Here-strings, not pipes: with pipefail, `echo | grep -q` fails when grep stops reading early (SIGPIPE).
 head -n 50 <<< "$files"
-if grep -qE '^(deploy/|Dockerfile|\.dockerignore|wqops/(erp|erp_setup|company)\.py|wqops/hub/|companies/|pyproject\.toml|\.github/)' <<< "$files"; then
+if grep -qE '^(deploy/|Dockerfile|\.dockerignore|wqops/(erp|erp_setup|company)\.py|wqops/hub/|wqops/ontology/|web/|companies/|pyproject\.toml|\.github/)' <<< "$files"; then
   emit true
 else
   emit false
