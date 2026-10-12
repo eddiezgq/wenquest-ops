@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: "23 7 * * *"
   workflow_dispatch:
+    inputs:
+      save_recordings:
+        description: Push ERPNext's replies from the sync check to the branch ci/erp-recordings
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -70,6 +75,8 @@ jobs:
     if: needs.scope.outputs.install == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: write   # only used by the save_recordings step on manual runs
     steps:
       - uses: actions/checkout@v5
       - name: Install directory
@@ -122,6 +129,19 @@ jobs:
           curl -fsk "${R[@]}" -b erpjar https://erp.ops.localtest.me/api/method/frappe.auth.get_logged_user | tee who.json
           grep -q dana@demo.example who.json
           [ "$(erp frappe.db.get_value --args "['Has Role', {'parent': 'dana@demo.example', 'role': 'System Manager'}, 'role']")" = "System Manager" ]
+          # ERPNext sync (ADR-0006): the owner pulls changes now; then created, changed and deleted documents in the
+          # real ERPNext become events (own schema; ERPNext's replies are saved for the replay test)
+          dc() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" "$@"; }
+          for _ in $(seq 1 20); do
+            code=$(curl -sk "${R[@]}" -b jar -o sync.json -w '%{http_code}' -X POST https://ops.localtest.me/api/sync/run)
+            [ "$code" = 409 ] || break; sleep 3
+          done
+          cat sync.json; [ "$code" = 200 ]
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/sync/status | python3 -c "
+          import json,sys; s=json.load(sys.stdin); d={x['doctype']: x['documents'] for x in s['doctypes']}
+          assert d['Warehouse'] >= 4 and s['last_run']['status'] == 'ok', s; print(d)"
+          dc exec -T hub python - < .github/scripts/erp_sync_e2e.py
+          dc cp hub:/tmp/erp-recordings "$RUNNER_TEMP/erp-recordings"
           ls "$WQO_DIR"/backups/wqo-*.tar.gz
           b=$("$WQO_DIR/backup.sh" | tail -n 1)
           "$WQO_DIR/restore.sh" "$b" --yes
@@ -129,6 +149,24 @@ jobs:
           [ "$(erp frappe.db.exists --args "['Warehouse', 'Main Stock - HLS']")" = "Main Stock - HLS" ]
           "$WQO_DIR/install.sh" --no-pull 2>&1 | tail -n 5        # running again is safe
           "$WQO_DIR/status.sh"
+      - name: Keep ERPNext's replies from the sync check (for tests/recordings/erpnext)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-recordings
+          path: ${{ runner.temp }}/erp-recordings
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Push the recordings to ci/erp-recordings (manual runs only)
+        if: github.event_name == 'workflow_dispatch' && inputs.save_recordings
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          d="$RUNNER_TEMP/rec-branch"; mkdir -p "$d" && cp -r "$RUNNER_TEMP/erp-recordings/." "$d/" && cd "$d"
+          git init -q -b ci/erp-recordings && git add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "ERPNext replies recorded by run $GITHUB_RUN_ID ($GITHUB_SHA)"
+          git push -q -f "https://x-access-token:$TOKEN@github.com/$GITHUB_REPOSITORY" HEAD:ci/erp-recordings
       - name: Show the end of the logs as one annotation on failure
         if: failure()
         run: |

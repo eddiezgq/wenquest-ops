@@ -1,0 +1,15 @@
+{
+ "method": "GET",
+ "path": "/api/resource/Purchase Order",
+ "params": {
+  "filters": "[[\"modified\", \"=\", \"2026-10-12 15:06:57.769161\"], [\"name\", \">\", \"PUR-ORD-2026-00001\"]]",
+  "fields": "[\"name\", \"modified\"]",
+  "order_by": "name asc",
+  "limit_start": "0",
+  "limit_page_length": "20"
+ },
+ "status": 200,
+ "body": {
+  "data": []
+ }
+}

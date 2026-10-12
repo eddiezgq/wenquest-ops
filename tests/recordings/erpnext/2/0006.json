@@ -1,0 +1,15 @@
+{
+ "method": "GET",
+ "path": "/api/resource/Customer",
+ "params": {
+  "filters": "[[\"modified\", \">\", \"2026-10-12 15:06:56.978563\"]]",
+  "fields": "[\"*\"]",
+  "order_by": "modified asc, name asc",
+  "limit_start": "0",
+  "limit_page_length": "20"
+ },
+ "status": 200,
+ "body": {
+  "data": []
+ }
+}

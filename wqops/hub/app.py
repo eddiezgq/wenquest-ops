@@ -7,12 +7,15 @@ Environment:
     WQO_ERP_SITE        ERPNext site name sent as Host header (default frontend)
     WQO_ERP_API_KEY / WQO_ERP_API_SECRET
     WQO_ERP_PUBLIC_URL  ERPNext address people open in the browser (e.g. https://erp.ops.example.com)
+    WQO_SYNC_SECONDS    pull changes from ERPNext this often (default 300; 0 turns it off; ADR-0006)
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import html
+import logging
 import os
 import urllib.parse
 from collections.abc import Callable
@@ -29,6 +32,9 @@ from wqops.hub import db as DB
 from wqops.hub import erp_sso as S
 from wqops.hub import oidc as O
 from wqops.hub import permissions as P
+from wqops.hub import sync as Y
+
+log = logging.getLogger("wqops.hub")
 
 COOKIE = "wqo_session"
 
@@ -74,18 +80,44 @@ def _page(title: str, body: str) -> str:
 
 def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0915 - routes are defined inside
                company: Callable[[], tuple[dict | None, str]] = load_company,
-               db_url: str | None = None, oidc_http=None, erp=None) -> FastAPI:
+               db_url: str | None = None, oidc_http=None, erp=None, *, sync_seconds: float = 0) -> FastAPI:
+    """``sync_seconds`` > 0 pulls ERPNext changes in the background that often (the deployed app reads
+    WQO_SYNC_SECONDS; tests leave it off)."""
     checks = checks if checks is not None else {"database": check_db, "erpnext": check_erp}
     db_url = db_url if db_url is not None else os.environ.get("WQO_DB")
+
+    def sync_now(trigger: str) -> dict:
+        with DB.connect(db_url) as c:
+            return Y.run(c, erp_client(), trigger=trigger)
+
+    async def sync_loop():
+        await asyncio.sleep(min(15.0, sync_seconds))
+        while True:
+            try:
+                out = await asyncio.to_thread(sync_now, "schedule")
+                log.info("ERPNext sync: %s", out["events"])
+            except Y.SyncBusy:
+                pass
+            except Exception:  # keep the loop alive; the run log has the error
+                log.exception("ERPNext sync failed")
+            await asyncio.sleep(sync_seconds)
+
     @contextlib.asynccontextmanager
     async def lifespan(_app):
+        task = None
         if db_url:
             with DB.connect(db_url) as c:
                 DB.migrate(c)
                 m, _state = company()
                 if m:
                     A.sync(c, m)
+            if sync_seconds > 0:
+                task = asyncio.create_task(sync_loop())
         yield
+        if task:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     app = FastAPI(title="WenQuest Ops", version=wqops.__version__, lifespan=lifespan)
 
@@ -280,6 +312,19 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
             raise HTTPException(400, str(exc)) from exc
         return {"ok": True}
 
+    @app.get("/api/sync/status")
+    def sync_status(_=Depends(require("dashboard:view")), c=Depends(conn)):
+        return Y.status(c)
+
+    @app.post("/api/sync/run")
+    async def sync_run(u=Depends(require("settings:edit"))):
+        try:
+            return await asyncio.to_thread(sync_now, f"person:{u['email']}")
+        except Y.SyncBusy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (ErpError, httpx.HTTPError) as exc:
+            raise HTTPException(502, f"ERPNext did not answer as expected: {exc}") from exc
+
     @app.get("/login", response_class=HTMLResponse)
     def login_page(error: str = "", next: str = ""):
         name, demo = company_name()
@@ -322,4 +367,4 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
 
 
 P_LABEL = C.ROLE_LABELS
-app = create_app()
+app = create_app(sync_seconds=float(os.environ.get("WQO_SYNC_SECONDS", "300")))

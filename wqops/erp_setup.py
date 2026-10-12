@@ -100,9 +100,10 @@ def apply(m: dict, erp: ErpClient) -> list[str]:
     return done
 
 
-def client_from_env() -> ErpClient:
+def client_from_env(transport=None) -> ErpClient:
     return ErpClient(os.environ.get("WQO_ERP_URL", "http://erp-frontend:8080"), os.environ.get("WQO_ERP_API_KEY", ""),
-                     os.environ.get("WQO_ERP_API_SECRET", ""), site=os.environ.get("WQO_ERP_SITE", "frontend"))
+                     os.environ.get("WQO_ERP_API_SECRET", ""), site=os.environ.get("WQO_ERP_SITE", "frontend"),
+                     transport=transport)
 
 
 def main(argv=None) -> int:
