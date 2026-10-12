@@ -1,0 +1,30 @@
+name: CI
+
+# Private repository: Actions minutes are billed (same approach as freecad-ai-parts ADR-0067).
+# Light checks run on every push; heavier jobs (install, browser tests) will run nightly or on demand once they exist.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Lint
+        run: python -m ruff check .
+      - name: Tests
+        run: python -m pytest -v
