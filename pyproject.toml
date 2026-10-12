@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wenquest-ops"
+version = "0.1.0"
+description = "AI-native operations platform for small and mid-sized businesses, built on ERPNext"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Guoqing (Eddie) Zhang" }]
+dependencies = [
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.16.9,<0.17",
+]
+
+[tool.setuptools.packages.find]
+include = ["wqops*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "PL", "RUF", "DTZ"]
+ignore = ["PLR2004", "PLR0913", "S101", "RUF001", "RUF002", "RUF003"]  # RUF00x: Chinese text in docs and tests
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "PLR"]
