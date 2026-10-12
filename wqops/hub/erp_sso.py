@@ -19,7 +19,7 @@ import secrets
 from wqops.erp import ErpClient
 
 CLIENT_ID = "wenquest-ops-erp"
-PROVIDER = "wenquestops"                       # ERPNext's Social Login Key name (provider name "WenQuest Ops")
+PROVIDER = "wenquest_ops"                      # ERPNext names the Social Login Key frappe.scrub("WenQuest Ops")
 PROVIDER_LABEL = "WenQuest Ops"
 CALLBACK_PATH = "/api/method/frappe.integrations.oauth2_logins.custom/" + PROVIDER
 HUB_INTERNAL = "http://hub:8100"

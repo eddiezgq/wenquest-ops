@@ -42,7 +42,7 @@ class FakeErp:
         elif doctype == "Department":
             doc["name"] = f"{doc['department_name']} - HLS"
         elif doctype == "Social Login Key":
-            doc["name"] = "wenquestops"
+            doc["name"] = "wenquest_ops"
         else:
             doc["name"] = f"{doc['address_title']}-{doc['address_type']}"
         if request.method == "PUT":
@@ -136,6 +136,6 @@ def test_apply_sets_up_erpnext_sign_in(monkeypatch):
     m = C.load(C.DEMO_FILE)
     erp = FakeErp()
     assert "ERPNext sign-in through WenQuest Ops: created" in S.apply(m, erp.client())
-    key = erp.docs["Social Login Key"]["wenquestops"]
+    key = erp.docs["Social Login Key"]["wenquest_ops"]
     assert key["client_secret"] == "s3cret" and key["base_url"] == "https://ops.example.com"
     assert "ERPNext sign-in through WenQuest Ops: updated" in S.apply(m, erp.client())
