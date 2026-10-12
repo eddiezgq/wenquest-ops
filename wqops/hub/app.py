@@ -320,6 +320,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         return {"ok": True}
 
     OA.mount(app, conn, current_user)
+    OA.mount_dashboard(app, conn, current_user, company)
 
     @app.get("/api/sync/status")
     def sync_status(_=Depends(require("dashboard:view")), c=Depends(conn)):
