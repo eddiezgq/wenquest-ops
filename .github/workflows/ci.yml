@@ -113,6 +113,15 @@ jobs:
           done
           [ -n "$(erp frappe.db.exists --args "['Department', {'department_name': 'Quality', 'company': 'Harbor Lane Supply (Demo)'}]")" ]
           [ -n "$(erp frappe.db.exists --args "['Address', {'address_title': 'Tampa Distribution Center'}]")" ]
+          # Open ERPNext without signing in again (ADR-0005): ERPNext's login link -> WenQuest Ops -> back, signed in
+          url=$(erp frappe.utils.oauth.get_oauth2_authorize_url --args "['wenquest_ops', '/app']")
+          echo "$url" | grep -q "^https://ops.localtest.me/api/oauth/authorize"
+          back=$(curl -sk "${R[@]}" -b jar -o /dev/null -w '%{redirect_url}' "$url")
+          echo "$back" | grep -q "^https://erp.ops.localtest.me/api/method/frappe.integrations.oauth2_logins.custom/wenquest_ops?code="
+          curl -sk "${R[@]}" -c erpjar -o /dev/null "$back"
+          curl -fsk "${R[@]}" -b erpjar https://erp.ops.localtest.me/api/method/frappe.auth.get_logged_user | tee who.json
+          grep -q dana@demo.example who.json
+          [ "$(erp frappe.db.get_value --args "['Has Role', {'parent': 'dana@demo.example', 'role': 'System Manager'}, 'role']")" = "System Manager" ]
           ls "$WQO_DIR"/backups/wqo-*.tar.gz
           b=$("$WQO_DIR/backup.sh" | tail -n 1)
           "$WQO_DIR/restore.sh" "$b" --yes

@@ -73,6 +73,29 @@ manifest are deactivated at the next upgrade (`./upgrade.sh --company company.ya
 - From the server: `echo 'password' | docker compose -p wqo exec -T hub python -m wqops.hub.accounts set-password email`
 - Five wrong passwords lock an account for 10 minutes. Sign-in events are recorded.
 
+### Microsoft 365 and Google sign-in (optional)
+
+People can sign in with their work account instead of a password. Only people in `company.yaml` get in, and the
+email from Microsoft or Google must match theirs. Register WenQuest Ops with the identity provider, add the values
+to `.env`, then run `docker compose -p wqo up -d hub`.
+
+Redirect URI to register: `https://<your domain>/auth/oidc/microsoft/callback` (or `.../google/callback`).
+
+| Provider | Where to register | `.env` lines |
+| --- | --- | --- |
+| Microsoft 365 (Entra ID) | Entra admin center, App registrations, New registration: single tenant, web redirect URI as above; then Certificates & secrets, New client secret | `WQO_OIDC_MICROSOFT_TENANT=<Directory (tenant) ID>`, `WQO_OIDC_MICROSOFT_CLIENT_ID=<Application (client) ID>`, `WQO_OIDC_MICROSOFT_CLIENT_SECRET=<secret value>` |
+| Google Workspace | Google Cloud console, APIs & Services, Credentials, OAuth client ID (Web application), authorized redirect URI as above | `WQO_OIDC_GOOGLE_CLIENT_ID=...`, `WQO_OIDC_GOOGLE_CLIENT_SECRET=...`, optionally `WQO_OIDC_GOOGLE_DOMAIN=example.com` to accept only your domain |
+
+### Opening ERPNext
+
+People open ERPNext from WenQuest Ops and choose **Login with WenQuest Ops** on the ERPNext sign-in page; they are not
+asked for a second password. Their ERPNext account and standard roles are created or updated from their WenQuest Ops
+roles each time (for example Warehouse becomes Stock User, Quality becomes Quality Manager and Stock User). People
+deactivated in WenQuest Ops can no longer get in this way. The Administrator account keeps its own password.
+
+Microsoft sign-in accepts only accounts of the one tenant you configure. Client secrets expire: put the renewal date
+in your calendar.
+
 ## 3. Daily operation
 
 | Task | Command |

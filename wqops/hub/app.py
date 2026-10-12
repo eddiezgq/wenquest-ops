@@ -14,15 +14,20 @@ from __future__ import annotations
 import contextlib
 import html
 import os
+import urllib.parse
 from collections.abc import Callable
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import wqops
 from wqops import company as C
+from wqops.erp import ErpError
 from wqops.hub import accounts as A
 from wqops.hub import db as DB
+from wqops.hub import erp_sso as S
+from wqops.hub import oidc as O
 from wqops.hub import permissions as P
 
 COOKIE = "wqo_session"
@@ -69,7 +74,7 @@ def _page(title: str, body: str) -> str:
 
 def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0915 - routes are defined inside
                company: Callable[[], tuple[dict | None, str]] = load_company,
-               db_url: str | None = None) -> FastAPI:
+               db_url: str | None = None, oidc_http=None, erp=None) -> FastAPI:
     checks = checks if checks is not None else {"database": check_db, "erpnext": check_erp}
     db_url = db_url if db_url is not None else os.environ.get("WQO_DB")
     @contextlib.asynccontextmanager
@@ -124,9 +129,61 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         ok = all(v == "ok" for v in result.values())
         return JSONResponse({"ok": ok, "version": wqops.__version__, "checks": result}, status_code=200 if ok else 503)
 
+    def erp_client():
+        if erp is not None:
+            return erp
+        from wqops.erp_setup import client_from_env  # noqa: PLC0415
+
+        return client_from_env()
+
+    def safe_next(url: str | None) -> str | None:
+        """Only same-site paths, so a crafted link cannot send people elsewhere after signing in."""
+        return url if url and url.startswith("/") and not url.startswith("//") and "\\" not in url else None
+
+    def oidc_client(provider: str) -> O.Client:
+        p = O.providers().get(provider)
+        if p is None:
+            raise HTTPException(404, f"sign-in with {provider} is not set up")
+        return O.Client(p, oidc_http)
+
+    def public_url(request: Request) -> str:
+        return os.environ.get("WQO_PUBLIC_URL") or str(request.base_url).rstrip("/")
+
+    def start_session(request: Request, c, u: dict, method: str, resp):
+        token = A.create_session(c, u, method)
+        resp.set_cookie(COOKIE, token, max_age=A.SESSION_DAYS * 86400, httponly=True, samesite="lax",
+                        secure=secure(request), path="/")
+        return resp
+
     @app.get("/api/auth/methods")
     def methods():
-        return {"password": True}
+        return {"password": True, "providers": [{"name": p.name, "label": p.label} for p in O.providers().values()]}
+
+    @app.get("/auth/oidc/{provider}/start")
+    def oidc_start(provider: str, request: Request, next: str = "", c=Depends(conn)):
+        cl = oidc_client(provider)
+        url = cl.start(c, O.redirect_uri(public_url(request), provider), safe_next(next))
+        return RedirectResponse(url, status_code=303)
+
+    @app.get("/auth/oidc/{provider}/callback")
+    def oidc_callback(provider: str, request: Request, *, code: str = "", state: str = "", error: str = "",
+                      c=Depends(conn)):
+        cl = oidc_client(provider)
+
+        def fail(msg: str):
+            A.event(c, None, "login_failed", f"{provider}: {msg}")
+            return RedirectResponse(f"/login?error={urllib.parse.quote(msg)}", status_code=303)
+
+        if error:
+            return fail(f"{cl.p.label} sign-in was cancelled or refused ({error})")
+        try:
+            email, nxt = cl.finish(c, state, code, O.redirect_uri(public_url(request), provider))
+        except (O.OidcError, httpx.HTTPError) as exc:
+            return fail(str(exc))
+        u = A.get(c, email)
+        if u is None or not u["active"]:
+            return fail(f"{email} is not on the list of people for this company; ask the owner to add you")
+        return start_session(request, c, u, f"oidc:{provider}", RedirectResponse(nxt or "/", status_code=303))
 
     @app.post("/api/login")
     async def login(request: Request, c=Depends(conn)):
@@ -136,13 +193,11 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
             u = A.authenticate(c, str(data.get("email", "")), str(data.get("password", "")))
         except A.AccountError as exc:
             if is_form:
-                return RedirectResponse(f"/login?error={html.escape(str(exc))}", status_code=303)
+                return RedirectResponse(f"/login?error={urllib.parse.quote(str(exc))}", status_code=303)
             raise HTTPException(401, str(exc)) from exc
-        token = A.create_session(c, u, "password")
-        resp = RedirectResponse("/", status_code=303) if is_form else JSONResponse(A.public(u))
-        resp.set_cookie(COOKIE, token, max_age=A.SESSION_DAYS * 86400, httponly=True, samesite="lax",
-                        secure=secure(request), path="/")
-        return resp
+        resp = RedirectResponse(safe_next(str(data.get("next") or "")) or "/", status_code=303) if is_form \
+            else JSONResponse(A.public(u))
+        return start_session(request, c, u, "password", resp)
 
     @app.post("/api/logout")
     def logout(request: Request, c=Depends(conn)):
@@ -151,6 +206,55 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
             else JSONResponse({"ok": True})
         resp.delete_cookie(COOKIE, path="/")
         return resp
+
+    def sso_secret() -> str:
+        return os.environ.get("WQO_ERP_SSO_SECRET", "")
+
+    @app.get("/api/oauth/authorize")
+    def oauth_authorize(request: Request, *, client_id: str = "", redirect_uri: str = "", state: str = "",
+                        u=Depends(user_or_none), c=Depends(conn)):
+        if client_id != S.CLIENT_ID:
+            raise HTTPException(400, "unknown client")
+        try:
+            S.check_redirect(redirect_uri, os.environ.get("WQO_ERP_PUBLIC_URL", ""))
+        except S.SsoError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if u is None:
+            here = request.url.path + "?" + request.url.query
+            return RedirectResponse("/login?next=" + urllib.parse.quote(here), status_code=303)
+        try:
+            S.ensure_erp_user(erp_client(), u)
+        except (ErpError, httpx.HTTPError) as exc:
+            raise HTTPException(502, f"could not prepare your ERPNext account: {exc}") from exc
+        code = S.issue_code(c, u, redirect_uri)
+        sep = "&" if "?" in redirect_uri else "?"
+        return RedirectResponse(f"{redirect_uri}{sep}{urllib.parse.urlencode({'code': code, 'state': state})}",
+                                status_code=303)
+
+    @app.post("/api/oauth/token")
+    async def oauth_token(request: Request, c=Depends(conn)):
+        f = dict(await request.form())
+        cid, csec = f.get("client_id", ""), f.get("client_secret", "")
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("basic "):
+            import base64  # noqa: PLC0415
+
+            cid, _, csec = base64.b64decode(auth[6:]).decode().partition(":")
+        try:
+            token = S.exchange(c, str(f.get("code", "")), client_id=str(cid), client_secret=str(csec),
+                               redirect_uri=str(f.get("redirect_uri", "")), secret=sso_secret())
+        except S.SsoError as exc:
+            return JSONResponse({"error": "invalid_grant", "error_description": str(exc)}, status_code=400)
+        return {"access_token": token, "token_type": "Bearer", "expires_in": S.TOKEN_SECONDS}
+
+    @app.get("/api/oauth/userinfo")
+    def oauth_userinfo(request: Request, c=Depends(conn)):
+        auth = request.headers.get("authorization", "")
+        token = auth[7:] if auth.lower().startswith("bearer ") else request.query_params.get("access_token", "")
+        try:
+            return S.userinfo(c, token)
+        except S.SsoError as exc:
+            raise HTTPException(401, str(exc)) from exc
 
     @app.get("/api/me")
     def me(u=Depends(current_user)):
@@ -177,12 +281,19 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         return {"ok": True}
 
     @app.get("/login", response_class=HTMLResponse)
-    def login_page(error: str = ""):
+    def login_page(error: str = "", next: str = ""):
         name, demo = company_name()
         err = f"<p class='err'>{html.escape(error)}</p>" if error else ""
         tag = " <small class='muted'>(fictional demo company)</small>" if demo else ""
-        return _page(f"Sign in - {name}", f"<h1>{html.escape(name)}{tag}</h1><h2>Sign in to WenQuest Ops</h2>{err}"
-                     "<form method='post' action='/api/login'>"
+        nxt = safe_next(next)
+        q = f"?next={urllib.parse.quote(nxt)}" if nxt else ""
+        sso = "".join(f"<p><a class='sso' href='/auth/oidc/{p.name}/start{q}'>"
+                      f"Sign in with {html.escape(p.label)}</a></p>" for p in O.providers().values())
+        hidden = f"<input type='hidden' name='next' value='{html.escape(nxt)}'>" if nxt else ""
+        if sso:
+            sso += "<p class='muted'>or with a password:</p>"
+        return _page(f"Sign in - {name}", f"<h1>{html.escape(name)}{tag}</h1><h2>Sign in to WenQuest Ops</h2>{err}{sso}"
+                     f"<form method='post' action='/api/login'>{hidden}"
                      "<label for='email'>Email</label><input id='email' name='email' type='email' required autofocus>"
                      "<label for='password'>Password</label>"
                      "<input id='password' name='password' type='password' required>"
@@ -195,8 +306,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         name, demo = company_name()
         tag = " <small class='muted'>(fictional demo company)</small>" if demo else ""
         roles = ", ".join(P_LABEL.get(r, r) for r in u["roles"])
-        erp = os.environ.get("WQO_ERP_PUBLIC_URL")
-        erp_link = f"<p><a href='{html.escape(erp)}'>Open ERPNext</a></p>" if erp else ""
+        erp_url = os.environ.get("WQO_ERP_PUBLIC_URL")
+        erp_link = (f"<p><a href='{html.escape(erp_url)}/login'>Open ERPNext</a> "
+                    "(choose “Login with WenQuest Ops”)</p>") if erp_url else ""
         perms = "".join(f"<li>{html.escape(P.PERMISSIONS[p])}</li>" for p in sorted(P.of(u["roles"])))
         return _page(f"{name} - WenQuest Ops",
                      f"<h1>{html.escape(name)}{tag}</h1><p>Signed in as <b>{html.escape(u['name'])}</b> "

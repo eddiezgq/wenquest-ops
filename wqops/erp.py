@@ -53,5 +53,8 @@ class ErpClient:
                   "fields": json.dumps(fields or ["name"]), "limit_page_length": 0}
         return self._check(self.http.get(f"/api/resource/{doctype}", params=params))["data"]
 
+    def update(self, doctype: str, name: str, values: dict) -> dict:
+        return self._check(self.http.put(f"/api/resource/{doctype}/{name}", json=values))["data"]
+
     def insert(self, doc: dict) -> dict:
         return self._check(self.http.post(f"/api/resource/{doc['doctype']}", json=doc))["data"]

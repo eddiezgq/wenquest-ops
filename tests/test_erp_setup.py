@@ -41,8 +41,13 @@ class FakeErp:
             doc["name"] = f"{doc['warehouse_name']} - HLS"
         elif doctype == "Department":
             doc["name"] = f"{doc['department_name']} - HLS"
+        elif doctype == "Social Login Key":
+            doc["name"] = "wenquest_ops"
         else:
             doc["name"] = f"{doc['address_title']}-{doc['address_type']}"
+        if request.method == "PUT":
+            store[parts[4]].update(doc)
+            return httpx.Response(200, json={"data": store[parts[4]]})
         store[doc["name"]] = doc
         self.inserted.append(doc)
         return httpx.Response(200, json={"data": doc})
@@ -123,3 +128,14 @@ def test_cli(tmp_path, capsys):
     bad.write_text("version: 1\n", encoding="utf-8")
     assert S.main(["apply", str(bad)]) == 1
     assert S.main(["nope"]) == 2
+
+
+def test_apply_sets_up_erpnext_sign_in(monkeypatch):
+    monkeypatch.setenv("WQO_PUBLIC_URL", "https://ops.example.com")
+    monkeypatch.setenv("WQO_ERP_SSO_SECRET", "s3cret")
+    m = C.load(C.DEMO_FILE)
+    erp = FakeErp()
+    assert "ERPNext sign-in through WenQuest Ops: created" in S.apply(m, erp.client())
+    key = erp.docs["Social Login Key"]["wenquest_ops"]
+    assert key["client_secret"] == "s3cret" and key["base_url"] == "https://ops.example.com"
+    assert "ERPNext sign-in through WenQuest Ops: updated" in S.apply(m, erp.client())
