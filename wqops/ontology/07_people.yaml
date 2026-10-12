@@ -1,0 +1,25 @@
+domain: people
+order: 7
+label: People
+view: dashboard:view
+types:
+  Person:
+    label: Person
+    maturity: have
+    source: Company manifest (people)
+    key: Email
+    title: "{name}"
+    props:
+      name: {t: str, l: Name}
+      roles: {t: json, l: Roles}
+      active: {t: bool, l: Can sign in}
+    links:
+      department: {to: Department, l: Department, inv: People}
+  Department:
+    label: Department
+    maturity: have
+    source: Company manifest (departments)
+    key: Department ID in the manifest
+    title: "{name}"
+    props:
+      name: {t: str, l: Name}

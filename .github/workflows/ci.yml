@@ -142,6 +142,13 @@ jobs:
           assert d['Warehouse'] >= 4 and s['last_run']['status'] == 'ok', s; print(d)"
           dc exec -T hub python - < .github/scripts/erp_sync_e2e.py
           dc cp hub:/tmp/erp-recordings "$RUNNER_TEMP/erp-recordings"
+          # Ops hub objects (ADR-0007): the documents made above become objects with links and stock levels
+          curl -fsk "${R[@]}" -b jar -X POST https://ops.localtest.me/api/sync/run | tee sync2.json
+          curl -fsk "${R[@]}" -b jar "https://ops.localtest.me/api/ont/objects/StockLevel/CI-WIDGET-01@Main%20Stock%20-%20HLS" \
+            | python3 -c "import json,sys; o=json.load(sys.stdin); p={x['name']: x['value'] for x in o['props']}
+          assert p['actual_qty'] == 10 and p['stock_value'] == 25, o; print(o['title'])"
+          curl -fsk "${R[@]}" -b jar "https://ops.localtest.me/api/ont/search?q=CI-WIDGET-01&type=PurchaseOrder" \
+            | python3 -c "import json,sys; r=json.load(sys.stdin); assert len(r) == 2, r; print(r)"
           ls "$WQO_DIR"/backups/wqo-*.tar.gz
           b=$("$WQO_DIR/backup.sh" | tail -n 1)
           "$WQO_DIR/restore.sh" "$b" --yes

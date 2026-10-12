@@ -1,0 +1,40 @@
+domain: sales
+order: 2
+label: Sales & delivery
+view: sales:view
+types:
+  SalesOrder:
+    label: Sales order
+    maturity: have
+    source: ERPNext Sales Order
+    key: ERPNext sales order number
+    title: "{key} {customer_name}"
+    props:
+      customer_name: {t: str, l: Customer}
+      transaction_date: {t: date, l: Order date}
+      delivery_date: {t: date, l: Delivery date}
+      status: {t: str, l: Status}
+      docstatus: {t: int, l: Document state}
+      grand_total: {t: num, l: Total, u: currency}
+      per_delivered: {t: num, l: Delivered, u: "%"}
+      lines: {t: json, l: Lines}
+    links:
+      customer: {to: Customer, l: Customer, inv: Sales orders}
+      items: {to: Item, l: Items, inv: Sales orders}
+  DeliveryNote:
+    label: Delivery note
+    maturity: have
+    source: ERPNext Delivery Note
+    key: ERPNext delivery note number
+    title: "{key} {customer_name}"
+    props:
+      customer_name: {t: str, l: Customer}
+      posting_date: {t: date, l: Shipped on}
+      status: {t: str, l: Status}
+      docstatus: {t: int, l: Document state}
+      is_return: {t: bool, l: Return}
+      lines: {t: json, l: Lines}
+    links:
+      customer: {to: Customer, l: Customer, inv: Deliveries}
+      sales_orders: {to: SalesOrder, l: For orders, inv: Deliveries}
+      items: {to: Item, l: Items, inv: Deliveries}

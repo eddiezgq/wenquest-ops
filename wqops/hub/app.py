@@ -34,6 +34,8 @@ from wqops.hub import erp_sso as S
 from wqops.hub import oidc as O
 from wqops.hub import permissions as P
 from wqops.hub import sync as Y
+from wqops.hub.ont import api as OA
+from wqops.hub.ont import project as OP
 
 log = logging.getLogger("wqops.hub")
 
@@ -88,8 +90,11 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     db_url = db_url if db_url is not None else os.environ.get("WQO_DB")
 
     def sync_now(trigger: str) -> dict:
+        """Pull ERPNext changes, then bring the ops hub objects up to date (ADR-0006, ADR-0007)."""
         with DB.connect(db_url) as c:
-            return Y.run(c, erp_client(), trigger=trigger)
+            out = Y.run(c, erp_client(), trigger=trigger)
+            out["objects"] = OP.project(c, manifest=company()[0])
+            return out
 
     async def sync_loop():
         await asyncio.sleep(min(15.0, sync_seconds))
@@ -112,6 +117,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 m, _state = company()
                 if m:
                     A.sync(c, m)
+                OP.project(c, manifest=m)
             if sync_seconds > 0:
                 task = asyncio.create_task(sync_loop())
         yield
@@ -312,6 +318,8 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         except A.AccountError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"ok": True}
+
+    OA.mount(app, conn, current_user)
 
     @app.get("/api/sync/status")
     def sync_status(_=Depends(require("dashboard:view")), c=Depends(conn)):

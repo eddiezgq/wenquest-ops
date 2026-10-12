@@ -107,6 +107,7 @@ in your calendar.
 | Logs | `docker compose -p wqo logs -f hub` |
 | Pull ERPNext changes now | `docker compose -p wqo exec hub python -m wqops.hub.sync run` |
 | Sync status | `docker compose -p wqo exec hub python -m wqops.hub.sync status` |
+| Rebuild the ops hub objects from the event log | `docker compose -p wqo exec hub python -m wqops.hub.ont.project --rebuild` |
 
 ### Backup
 
@@ -140,6 +141,8 @@ inspections, plus deletions. Each change is kept as an event. Only changes since
 interrupted run continues where it stopped. The first run after installation may take a few minutes on a large
 ERPNext. People with "Change platform settings" can start a run at once (`POST /api/sync/run`);
 `GET /api/sync/status` shows what has been read and the last run, including its error if it failed.
+After each run the ops hub turns the new events into objects and links (items, orders, receipts, stock levels, ...);
+the ontology that defines them is in `wqops/ontology/`.
 
 ### Monitoring
 
