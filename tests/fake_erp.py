@@ -60,8 +60,8 @@ class FakeErp:
                 doc = self.put(doctype, parts[1], **json.loads(request.content))
             return httpx.Response(200, json={"data": doc})
         if request.method == "POST":
-            body = json.loads(request.content)
-            name = body.get("name") or f"{doctype[:3].upper()}-{len(store) + 1:05d}"
+            body = {k: v for k, v in json.loads(request.content).items() if k not in ("doctype", "name", "modified")}
+            name = f"{doctype[:3].upper()}-{len(store) + 1:05d}"
             return httpx.Response(200, json={"data": self.put(doctype, name, **body)})
         q = request.url.params
         rows = list(store.values())

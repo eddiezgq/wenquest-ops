@@ -1,4 +1,4 @@
-"""ERPNext sync against the real ERPNext of a fresh install (ADR-0006). Runs inside the hub container:
+"""ERPNext sync and drafts against the real ERPNext of a fresh install (ADR-0006). Runs inside the hub container:
 
     docker compose exec -T hub python - < .github/scripts/erp_sync_e2e.py
 
@@ -102,3 +102,17 @@ assert sum(third.values()) == 0, third
 summary = {"runs": [first, second, third], "page": 20}
 (OUT / "summary.json").write_text(json.dumps(summary, indent=1) + "\n", encoding="utf-8")
 print("ERPNext sync end to end: ok")
+
+# Drafts (ADR-0006 item 5): proposed, confirmed by a person, created in ERPNext as a Draft - never submitted
+from wqops.hub import drafts as D  # noqa: E402
+
+buyer = {"email": "pat@demo.example", "roles": ["purchasing"]}
+d = D.propose(conn, buyer, "Purchase Order", {
+    "supplier": supplier["name"], "company": company["name"], "transaction_date": str(today),
+    "schedule_date": str(today + dt.timedelta(days=10)),
+    "items": [{"item_code": item["name"], "qty": 7, "rate": 2.5, "warehouse": wh,
+               "schedule_date": str(today + dt.timedelta(days=10))}]}, summary="CI restock", source="ai", ai_run="ci")
+done = D.confirm(conn, buyer, d["id"], erp)
+made = erp.get("Purchase Order", done["erp_name"])
+assert made["docstatus"] == 0 and made["items"][0]["qty"] == 7, made
+print("draft written to ERPNext:", done["erp_name"])
