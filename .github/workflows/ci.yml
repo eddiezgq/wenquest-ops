@@ -59,10 +59,10 @@ jobs:
     if: needs.scope.outputs.install == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    env:
-      WQO_DIR: ${{ runner.temp }}/wqo
     steps:
       - uses: actions/checkout@v5
+      - name: Install directory
+        run: echo "WQO_DIR=$RUNNER_TEMP/wqo" >> "$GITHUB_ENV"
       - name: Free disk (ERPNext images are large)
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - name: Build the hub image (same Dockerfile as the published one; not pushed)
