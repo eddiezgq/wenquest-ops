@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: "23 7 * * *"
   workflow_dispatch:
+    inputs:
+      save_recordings:
+        description: Push ERPNext's replies from the sync check to the branch ci/erp-recordings
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -70,6 +75,8 @@ jobs:
     if: needs.scope.outputs.install == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: write   # only used by the save_recordings step on manual runs
     steps:
       - uses: actions/checkout@v5
       - name: Install directory
@@ -150,6 +157,16 @@ jobs:
           path: ${{ runner.temp }}/erp-recordings
           if-no-files-found: ignore
           retention-days: 7
+      - name: Push the recordings to ci/erp-recordings (manual runs only)
+        if: github.event_name == 'workflow_dispatch' && inputs.save_recordings
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          d="$RUNNER_TEMP/rec-branch"; mkdir -p "$d" && cp -r "$RUNNER_TEMP/erp-recordings/." "$d/" && cd "$d"
+          git init -q -b ci/erp-recordings && git add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "ERPNext replies recorded by run $GITHUB_RUN_ID ($GITHUB_SHA)"
+          git push -q -f "https://x-access-token:$TOKEN@github.com/$GITHUB_REPOSITORY" HEAD:ci/erp-recordings
       - name: Show the end of the logs as one annotation on failure
         if: failure()
         run: |
