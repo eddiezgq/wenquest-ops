@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -43,7 +44,7 @@ class ErpClient:
             return False
 
     def get(self, doctype: str, name: str) -> dict | None:
-        r = self.http.get(f"/api/resource/{doctype}/{name}")
+        r = self.http.get(f"/api/resource/{doctype}/{quote(name, safe='')}")
         if r.status_code == 404:
             return None
         return self._check(r)["data"]
@@ -53,8 +54,15 @@ class ErpClient:
                   "fields": json.dumps(fields or ["name"]), "limit_page_length": 0}
         return self._check(self.http.get(f"/api/resource/{doctype}", params=params))["data"]
 
+    def list(self, doctype: str, *, filters: list | None = None, fields: list[str] | None = None,
+             order_by: str = "modified asc, name asc", limit: int = 100, start: int = 0) -> list[dict]:
+        """One page of ``doctype`` (all document states: draft, submitted, cancelled)."""
+        params = {"filters": json.dumps(filters or []), "fields": json.dumps(fields or ["name"]),
+                  "order_by": order_by, "limit_start": start, "limit_page_length": limit}
+        return self._check(self.http.get(f"/api/resource/{doctype}", params=params))["data"]
+
     def update(self, doctype: str, name: str, values: dict) -> dict:
-        return self._check(self.http.put(f"/api/resource/{doctype}/{name}", json=values))["data"]
+        return self._check(self.http.put(f"/api/resource/{doctype}/{quote(name, safe='')}", json=values))["data"]
 
     def insert(self, doc: dict) -> dict:
         return self._check(self.http.post(f"/api/resource/{doc['doctype']}", json=doc))["data"]

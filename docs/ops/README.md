@@ -105,6 +105,8 @@ in your calendar.
 | Restore | `./restore.sh backups/wqo-<time>.tar.gz` |
 | Upgrade | `./upgrade.sh [tag] [--company company.yaml]` |
 | Logs | `docker compose -p wqo logs -f hub` |
+| Pull ERPNext changes now | `docker compose -p wqo exec hub python -m wqops.hub.sync run` |
+| Sync status | `docker compose -p wqo exec hub python -m wqops.hub.sync status` |
 
 ### Backup
 
@@ -130,6 +132,15 @@ not copied over the current `.env`.
 (nothing changes if it has errors) and then creates new warehouses, departments and addresses. The company name,
 currency and time zone are fixed at installation.
 
+### ERPNext sync
+
+WenQuest Ops reads ERPNext every 5 minutes (`WQO_SYNC_SECONDS` in `.env`; `0` turns it off): items, warehouses,
+customers, suppliers, the stock ledger, sales orders, delivery notes, purchase orders, purchase receipts and quality
+inspections, plus deletions. Each change is kept as an event. Only changes since the last run are fetched; an
+interrupted run continues where it stopped. The first run after installation may take a few minutes on a large
+ERPNext. People with "Change platform settings" can start a run at once (`POST /api/sync/run`);
+`GET /api/sync/status` shows what has been read and the last run, including its error if it failed.
+
 ### Monitoring
 
 - `https://<domain>/api/health` returns 200 with `{"ok": true, ...}` when the database, ERPNext and the company
@@ -144,6 +155,7 @@ currency and time zone are fixed at installation.
 | `/api/health` says `erpnext: error` | `docker compose -p wqo ps`; ERPNext needs a few minutes after a restart |
 | `/api/health` says `database: error` | `docker compose -p wqo logs db`; free disk |
 | Setup wizard fails | country, currency and time zone in `company.yaml` must be valid ERPNext values |
+| Sync status shows an error | the error names the ERPNext call; check `WQO_ERP_API_KEY`/`SECRET` in `.env` and `/api/health` |
 | Out of memory | ERPNext needs 8 GB at least; check `free -h` |
 
 ## Security notes
