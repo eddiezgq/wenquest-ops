@@ -1,0 +1,17 @@
+domain: product
+order: 3
+label: Products & items
+view: inventory:view
+types:
+  Item:
+    label: Item
+    maturity: have
+    source: ERPNext Item
+    key: ERPNext item code
+    title: "{key} {item_name}"
+    props:
+      item_name: {t: str, l: Name}
+      item_group: {t: str, l: Group}
+      stock_uom: {t: str, l: Unit}
+      is_stock_item: {t: bool, l: Kept in stock}
+      disabled: {t: bool, l: Disabled}

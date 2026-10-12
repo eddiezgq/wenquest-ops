@@ -1,0 +1,29 @@
+domain: finance
+order: 8
+label: Finance
+view: settings:edit
+types:
+  SalesInvoice:
+    label: Sales invoice
+    maturity: erp
+    source: ERPNext Sales Invoice (not synced yet)
+    key: ERPNext sales invoice number
+    title: "{key}"
+    props:
+      posting_date: {t: date, l: Date}
+      grand_total: {t: num, l: Total, u: currency}
+      outstanding_amount: {t: num, l: Outstanding, u: currency}
+    links:
+      customer: {to: Customer, l: Customer, inv: Invoices}
+  PurchaseInvoice:
+    label: Purchase invoice
+    maturity: erp
+    source: ERPNext Purchase Invoice (not synced yet)
+    key: ERPNext purchase invoice number
+    title: "{key}"
+    props:
+      posting_date: {t: date, l: Date}
+      grand_total: {t: num, l: Total, u: currency}
+      outstanding_amount: {t: num, l: Outstanding, u: currency}
+    links:
+      supplier: {to: Supplier, l: Supplier, inv: Invoices}

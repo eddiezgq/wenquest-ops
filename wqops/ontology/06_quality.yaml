@@ -1,0 +1,25 @@
+domain: quality
+order: 6
+label: Quality
+view: quality:view
+types:
+  QualityInspection:
+    label: Quality inspection
+    maturity: have
+    source: ERPNext Quality Inspection
+    key: ERPNext quality inspection number
+    title: "{key} {item_code} {status}"
+    props:
+      inspection_type: {t: str, l: Type}
+      report_date: {t: date, l: Date}
+      status: {t: str, l: Result}
+      docstatus: {t: int, l: Document state}
+      item_code: {t: str, l: Item}
+      reference_type: {t: str, l: Inspected document type}
+      reference_name: {t: str, l: Inspected document}
+      sample_size: {t: num, l: Sample size}
+      inspected_by: {t: str, l: Inspected by}
+    links:
+      item: {to: Item, l: Item, inv: Inspections}
+      purchase_receipt: {to: PurchaseReceipt, l: Receipt, inv: Inspections}
+      delivery_note: {to: DeliveryNote, l: Delivery, inv: Inspections}

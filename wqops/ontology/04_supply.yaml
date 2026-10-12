@@ -1,0 +1,50 @@
+domain: supply
+order: 4
+label: Suppliers & purchasing
+view: purchasing:view
+types:
+  Supplier:
+    label: Supplier
+    maturity: have
+    source: ERPNext Supplier
+    key: ERPNext supplier ID
+    title: "{supplier_name}"
+    props:
+      supplier_name: {t: str, l: Name}
+      supplier_group: {t: str, l: Group}
+      disabled: {t: bool, l: Disabled}
+  PurchaseOrder:
+    label: Purchase order
+    maturity: have
+    source: ERPNext Purchase Order
+    key: ERPNext purchase order number
+    title: "{key} {supplier_name}"
+    props:
+      supplier_name: {t: str, l: Supplier}
+      transaction_date: {t: date, l: Order date}
+      schedule_date: {t: date, l: Required by}
+      status: {t: str, l: Status}
+      docstatus: {t: int, l: Document state}
+      grand_total: {t: num, l: Total, u: currency}
+      per_received: {t: num, l: Received, u: "%"}
+      lines: {t: json, l: Lines}
+    links:
+      supplier: {to: Supplier, l: Supplier, inv: Purchase orders}
+      items: {to: Item, l: Items, inv: Purchase orders}
+  PurchaseReceipt:
+    label: Purchase receipt
+    maturity: have
+    source: ERPNext Purchase Receipt
+    key: ERPNext purchase receipt number
+    title: "{key} {supplier_name}"
+    props:
+      supplier_name: {t: str, l: Supplier}
+      posting_date: {t: date, l: Received on}
+      status: {t: str, l: Status}
+      docstatus: {t: int, l: Document state}
+      is_return: {t: bool, l: Return}
+      lines: {t: json, l: Lines}
+    links:
+      supplier: {to: Supplier, l: Supplier, inv: Receipts}
+      purchase_orders: {to: PurchaseOrder, l: For orders, inv: Receipts}
+      items: {to: Item, l: Items, inv: Receipts}

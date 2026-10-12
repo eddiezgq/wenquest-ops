@@ -1,0 +1,52 @@
+domain: warehouse
+order: 5
+label: Warehouse & stock
+view: inventory:view
+types:
+  Warehouse:
+    label: Warehouse
+    maturity: have
+    source: ERPNext Warehouse; purpose from the company manifest
+    key: ERPNext warehouse name
+    title: "{key}"
+    props:
+      warehouse_name: {t: str, l: Name}
+      kind: {t: str, l: Purpose}
+      is_group: {t: bool, l: Group of warehouses}
+      disabled: {t: bool, l: Disabled}
+    links:
+      parent: {to: Warehouse, l: Part of, inv: Contains}
+  StockLevel:
+    label: Stock level
+    maturity: have
+    source: Sum of the ERPNext stock ledger (cancelled entries left out)
+    key: item code @ warehouse
+    title: "{item} @ {warehouse}"
+    props:
+      item: {t: str, l: Item}
+      warehouse: {t: str, l: Warehouse}
+      actual_qty: {t: num, l: On hand}
+      stock_value: {t: num, l: Value, u: currency}
+    links:
+      item: {to: Item, l: Item, inv: Stock levels}
+      warehouse: {to: Warehouse, l: Warehouse, inv: Stock levels}
+  StockMove:
+    label: Stock movement
+    maturity: have
+    source: ERPNext Stock Ledger Entry
+    key: ERPNext stock ledger entry ID
+    title: "{voucher_type} {voucher_no}: {item_code} {actual_qty}"
+    props:
+      posting_date: {t: date, l: Date}
+      item_code: {t: str, l: Item}
+      warehouse: {t: str, l: Warehouse}
+      actual_qty: {t: num, l: Quantity}
+      stock_value_difference: {t: num, l: Value change, u: currency}
+      voucher_type: {t: str, l: Document type}
+      voucher_no: {t: str, l: Document}
+      is_cancelled: {t: bool, l: Cancelled}
+    links:
+      item: {to: Item, l: Item, inv: Stock movements}
+      warehouse: {to: Warehouse, l: Warehouse, inv: Stock movements}
+      delivery_note: {to: DeliveryNote, l: Delivery, inv: Stock movements}
+      purchase_receipt: {to: PurchaseReceipt, l: Receipt, inv: Stock movements}

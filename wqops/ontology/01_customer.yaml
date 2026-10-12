@@ -1,0 +1,16 @@
+domain: customer
+order: 1
+label: Customers
+view: sales:view
+types:
+  Customer:
+    label: Customer
+    maturity: have
+    source: ERPNext Customer
+    key: ERPNext customer ID
+    title: "{customer_name}"
+    props:
+      customer_name: {t: str, l: Name}
+      customer_group: {t: str, l: Group}
+      territory: {t: str, l: Territory}
+      disabled: {t: bool, l: Disabled}
