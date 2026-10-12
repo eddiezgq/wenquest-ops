@@ -1,0 +1,42 @@
+# FICTIONAL demo company for WenQuest Ops. Names, addresses and people are invented; any resemblance is coincidental.
+version: 1
+demo: true
+company:
+  name: Harbor Lane Supply (Demo)
+  abbr: HLS
+  country: United States
+  currency: USD
+  timezone: America/New_York
+  fiscal_year_start: "01-01"
+  date_format: mm-dd-yyyy
+  units:
+    weight: lb
+    length: in
+sites:
+  - id: hq
+    name: Head Office
+    kind: office
+    address: {line1: 100 Demo Way, city: Tampa, state: FL, postal_code: "00000", country: United States}
+  - id: dc-tampa
+    name: Tampa Distribution Center
+    kind: warehouse
+    address: {line1: 200 Demo Way, city: Tampa, state: FL, postal_code: "00000", country: United States}
+warehouses:
+  - {id: receiving, name: Receiving Dock, site: dc-tampa, kind: receiving}
+  - {id: main, name: Main Stock, site: dc-tampa, kind: stores}
+  - {id: quarantine, name: QC Hold, site: dc-tampa, kind: quarantine}
+  - {id: shipping, name: Shipping Dock, site: dc-tampa, kind: shipping}
+departments:
+  - {id: leadership, name: Leadership}
+  - {id: operations, name: Operations}
+  - {id: sales, name: Sales}
+  - {id: quality, name: Quality}
+people:
+  - {name: Dana Owner, email: dana@demo.example, roles: [owner], department: leadership}
+  - {name: Sam Ops, email: sam@demo.example, roles: [ops_manager], department: operations}
+  - {name: Lee Warehouse, email: lee@demo.example, roles: [warehouse], department: operations}
+  - {name: Pat Buyer, email: pat@demo.example, roles: [purchasing], department: operations}
+  - {name: Alex Sales, email: alex@demo.example, roles: [sales], department: sales}
+  - {name: Jordan Quality, email: jordan@demo.example, roles: [quality], department: quality}
+  - {name: Riley AI, email: riley@demo.example, roles: [ai_specialist], department: operations}
+modules: [core, hub, ai, quality]
