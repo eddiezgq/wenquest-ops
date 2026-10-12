@@ -1,0 +1,45 @@
+# Anomaly rules (ADR-0007 item 5). Detection code: wqops/hub/ont/rules.py. Thresholds can be changed here.
+# severity: info | warn | critical; view: permission needed to see the anomaly; owner: role expected to act.
+rules:
+  order_late:
+    name: Sales order past its delivery date
+    severity: warn
+    critical_after_days: 7
+    view: sales:view
+    owner: ops_manager
+    hint: Check what is missing (root cause), tell the customer, and agree a new date.
+  order_at_risk:
+    name: Sales order due soon with items short
+    severity: warn
+    within_days: 7
+    view: sales:view
+    owner: ops_manager
+    hint: Expedite the purchase orders for the short items or reallocate stock.
+  item_short:
+    name: Item short for open orders
+    severity: warn
+    view: inventory:view
+    owner: purchasing
+    hint: Draft a purchase order for the shortfall or expedite one already open.
+  po_late:
+    name: Purchase order past its required-by date
+    severity: warn
+    view: purchasing:view
+    owner: purchasing
+    hint: Chase the supplier; check which sales orders wait for these items.
+  supplier_on_time_low:
+    name: Supplier on-time rate below target
+    severity: info
+    target_pct: 90
+    min_lines: 3
+    days: 90
+    view: purchasing:view
+    owner: purchasing
+    hint: Review with the supplier; consider safety stock or a second source.
+  inspection_rejected:
+    name: Quality inspection rejected
+    severity: warn
+    days: 30
+    view: quality:view
+    owner: quality
+    hint: Quarantine the lot, open a nonconformance report, and inform the supplier.

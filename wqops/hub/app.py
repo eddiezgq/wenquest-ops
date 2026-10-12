@@ -34,6 +34,7 @@ from wqops.hub import erp_sso as S
 from wqops.hub import oidc as O
 from wqops.hub import permissions as P
 from wqops.hub import sync as Y
+from wqops.hub.ont import anomaly as AN
 from wqops.hub.ont import api as OA
 from wqops.hub.ont import project as OP
 
@@ -94,6 +95,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         with DB.connect(db_url) as c:
             out = Y.run(c, erp_client(), trigger=trigger)
             out["objects"] = OP.project(c, manifest=company()[0])
+            out["anomalies"] = AN.detect(c, OA.today(company()[0]))
             return out
 
     async def sync_loop():
@@ -118,6 +120,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 if m:
                     A.sync(c, m)
                 OP.project(c, manifest=m)
+                AN.detect(c, OA.today(m))
             if sync_seconds > 0:
                 task = asyncio.create_task(sync_loop())
         yield
@@ -321,6 +324,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
 
     OA.mount(app, conn, current_user)
     OA.mount_dashboard(app, conn, current_user, company)
+    OA.mount_anomalies(app, conn, current_user, company)
 
     @app.get("/api/sync/status")
     def sync_status(_=Depends(require("dashboard:view")), c=Depends(conn)):

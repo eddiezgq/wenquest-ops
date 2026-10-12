@@ -6,9 +6,10 @@ Each domain needs its view permission (ADR-0005); linked objects of domains a pe
 from __future__ import annotations
 
 import datetime as dt
+import json
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 
 from wqops.hub import permissions as P
 from wqops.hub.ont import metrics as M
@@ -97,7 +98,14 @@ def mount(app: FastAPI, conn_dep, user_dep, onto_fn=S.get) -> None:
         hist = c.execute("select kind, at, changes, event_id from ont_history where type = %s and key = %s "
                          "order by id desc limit 50", (type_, key)).fetchall()
         spec = onto.types[type_]
+        from wqops.hub.ont import anomaly as AN  # noqa: PLC0415
+
+        rules = AN.load_rules()
+        about = c.execute("select * from anomalies where status in ('open', 'ack', 'doing') and rule = any(%s) and "
+                          "((subject_type = %s and subject_key = %s) or related @> %s::jsonb) order by id",
+                          (AN.visible_rules(u["roles"], rules), type_, key, json.dumps([[type_, key]]))).fetchall()
         return {**_brief(r), "label": spec["label"], "domain": spec["domain"], "source": spec["source"],
+                "anomalies": [AN.public(a, rules) for a in about],
                 "props": [{"name": p, "label": s["l"], "type": s["t"], "unit": s.get("u", ""),
                            "value": r["props"][p]} for p, s in spec["props"].items() if p in r["props"]],
                 "relations": relations(c, onto, u["roles"], type_, key), "history": hist}
@@ -159,3 +167,85 @@ def mount_dashboard(app: FastAPI, conn_dep, user_dep, company) -> None:
             raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[M.VIEW[name]]}")
         day = dt.date.fromisoformat(as_of) if as_of else today(company()[0])
         return M.compute(c, name, day, days) | {"as_of": str(day), "days": days}
+
+
+def visible_chain(onto: S.Ontology, roles, out: dict) -> dict:
+    """Keep the steps a person may see, and only those still connected to the root."""
+    for part in ("causes", "impact"):
+        reach = {tuple(out["root"])}
+        kept = []
+        for s in sorted(out[part], key=lambda s: s["depth"]):
+            frm = tuple(s["from"])
+            to = tuple(s["to"]) if s["to"] else None
+            if frm in reach and (to is None or onto.can_see(roles, to[0])):
+                kept.append(s)
+                if to:
+                    reach.add(to)
+        out[part] = kept
+    used = {tuple(out["root"])} | {tuple(s[e]) for p in ("causes", "impact") for s in out[p] for e in ("from", "to")
+                                    if s[e]}
+    out["nodes"] = [n for n in out["nodes"] if (n["type"], n["key"]) in used]
+    return out
+
+
+def mount_anomalies(app: FastAPI, conn_dep, user_dep, company, onto_fn=S.get) -> None:
+    from wqops.hub.ont import anomaly as AN  # noqa: PLC0415
+    from wqops.hub.ont import chain as CH  # noqa: PLC0415
+
+    def day() -> dt.date:
+        return today(company()[0])
+
+    def check(u: dict, row: dict, rules: dict) -> None:
+        if row["rule"] not in AN.visible_rules(u["roles"], rules):
+            raise HTTPException(403, "your role does not see this anomaly")
+
+    @app.get("/api/anomalies/rules")
+    def anomaly_rules(u=Depends(user_dep)):
+        rules = AN.load_rules()
+        return [{"id": rid, **r} for rid, r in rules.items() if rid in AN.visible_rules(u["roles"], rules)]
+
+    @app.get("/api/anomalies")
+    def anomalies(status: str = "active", u=Depends(user_dep), c=Depends(conn_dep)):
+        rules = AN.load_rules()
+        sql, args = "select * from anomalies where rule = any(%s)", [AN.visible_rules(u["roles"], rules)]
+        if status == "active":
+            sql += " and status in ('open', 'ack', 'doing')"
+        elif status != "all":
+            sql += " and status = %s"
+            args.append(status)
+        sql += " order by case severity when 'critical' then 0 when 'warn' then 1 else 2 end, id desc limit 500"
+        return [AN.public(r, rules) for r in c.execute(sql, args).fetchall()]
+
+    @app.get("/api/anomalies/{aid}")
+    def anomaly(aid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        rules = AN.load_rules()
+        row = c.execute("select * from anomalies where id = %s", (aid,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "no such anomaly")
+        check(u, row, rules)
+        log = c.execute("select at, email, action, note from anomaly_log where anomaly_id = %s order by id",
+                        (aid,)).fetchall()
+        chain = CH.explain(c, row["subject_type"], row["subject_key"], day())
+        return AN.public(row, rules) | {"log": [dict(x, at=x["at"].isoformat()) for x in log],
+                                        "explain": visible_chain(onto_fn(), u["roles"], chain)}
+
+    @app.post("/api/anomalies/{aid}/status")
+    async def anomaly_status(aid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        data = await request.json()
+        rules = AN.load_rules()
+        row = c.execute("select * from anomalies where id = %s", (aid,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "no such anomaly")
+        check(u, row, rules)
+        try:
+            row = AN.set_status(c, aid, str(data.get("status", "")), u["email"], str(data.get("note", "")))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return AN.public(row, rules)
+
+    @app.get("/api/explain/{type_}/{key:path}")
+    def explain(type_: str, key: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        onto = onto_fn()
+        if not onto.can_see(u["roles"], type_):
+            raise HTTPException(403 if type_ in onto.types else 404, f"cannot explain {type_}")
+        return visible_chain(onto, u["roles"], CH.explain(c, type_, key, day()))
