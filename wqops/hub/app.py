@@ -29,6 +29,7 @@ from wqops import company as C
 from wqops.erp import ErpError
 from wqops.hub import accounts as A
 from wqops.hub import db as DB
+from wqops.hub import drafts as D
 from wqops.hub import erp_sso as S
 from wqops.hub import oidc as O
 from wqops.hub import permissions as P
@@ -324,6 +325,47 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
             raise HTTPException(409, str(exc)) from exc
         except (ErpError, httpx.HTTPError) as exc:
             raise HTTPException(502, f"ERPNext did not answer as expected: {exc}") from exc
+
+    def draft_out(d: dict) -> dict:
+        base = os.environ.get("WQO_ERP_PUBLIC_URL")
+        if base and d["erp_name"]:
+            d["erp_url"] = D.erp_link(base, d["doctype"], d["erp_name"])
+        return d
+
+    def draft_call(fn):
+        try:
+            return draft_out(fn())
+        except D.NotAllowed as exc:
+            raise HTTPException(403, str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(404, "no such draft") from exc
+        except D.Conflict as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except D.DraftError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except (ErpError, httpx.HTTPError) as exc:
+            raise HTTPException(502, f"ERPNext did not accept the draft: {exc}") from exc
+
+    @app.post("/api/erp/drafts", status_code=201)
+    async def propose_draft(request: Request, u=Depends(current_user), c=Depends(conn)):
+        """Propose a draft (ADR-0006). Nothing is written to ERPNext until someone confirms it."""
+        data = await request.json()
+        return draft_call(lambda: D.propose(c, u, str(data.get("doctype", "")), data.get("payload"),
+                                            summary=str(data.get("summary", ""))))
+
+    @app.get("/api/erp/drafts")
+    def list_drafts(status: str = "", u=Depends(current_user), c=Depends(conn)):
+        return [draft_out(d) for d in D.visible(c, u, status or None)]
+
+    @app.post("/api/erp/drafts/{draft_id}/confirm")
+    async def confirm_draft(draft_id: int, u=Depends(current_user), c=Depends(conn)):
+        return await asyncio.to_thread(draft_call, lambda: D.confirm(c, u, draft_id, erp_client()))
+
+    @app.post("/api/erp/drafts/{draft_id}/reject")
+    async def reject_draft(draft_id: int, request: Request, u=Depends(current_user), c=Depends(conn)):
+        body = await request.body()
+        reason = str((await request.json()).get("reason", "")) if body else ""
+        return draft_call(lambda: D.reject(c, u, draft_id, reason))
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(error: str = "", next: str = ""):
