@@ -96,3 +96,8 @@ textarea { font: inherit; padding: .4rem .5rem; border: 1px solid var(--line); b
 @media (max-width: 760px) { .eightd { grid-template-columns: 1fr; } }
 .eightd label { font-size: .85rem; color: var(--muted); }
 tr.warn td { color: var(--warn); }
+.stages { display: flex; gap: .3rem; flex-wrap: wrap; margin: .2rem 0 1rem; }
+.stages span { font-size: .8rem; padding: .15rem .6rem; border: 1px solid var(--line); border-radius: 1rem; color: var(--muted); }
+.stages span.done { color: var(--ink); }
+.stages span.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.form label { display: grid; gap: .2rem; }

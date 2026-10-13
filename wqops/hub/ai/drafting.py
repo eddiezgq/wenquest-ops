@@ -125,6 +125,10 @@ def nonconformance(ctx: T.Ctx, inspection: str) -> dict:
     p = qi["props"]
     if p.get("status") != "Rejected":
         raise T.ToolError(f"{inspection} was not rejected ({p.get('status', 'no result')}); no NCR needed")
+    existing = ctx.conn.execute("select name from ncr_records where inspection = %s and status <> 'cancelled'",
+                                (inspection,)).fetchone()
+    if existing:
+        raise T.ToolError(f"{inspection} already has {existing['name']} (opened automatically or by a person)")
     item = p.get("item_code")
     receipt = p.get("reference_name") if p.get("reference_type") == "Purchase Receipt" else None
     supplier = _link(ctx, "PurchaseReceipt", receipt, "supplier") if receipt else None

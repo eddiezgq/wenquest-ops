@@ -102,8 +102,14 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         """Pull ERPNext changes, then bring the ops hub objects up to date (ADR-0006, ADR-0007)."""
         with DB.connect(db_url) as c:
             out = Y.run(c, erp_client(), trigger=trigger)
-            out["objects"] = OP.project(c, manifest=company()[0])
-            out["anomalies"] = AN.detect(c, OA.today(company()[0]))
+            m = company()[0]
+            out["objects"] = OP.project(c, manifest=m)
+            from wqops.hub.quality import auto as QAUTO  # noqa: PLC0415
+
+            out["ncrs_opened"] = QAUTO.open_for_rejected(c, OA.today(m))
+            if out["ncrs_opened"]:
+                OP.project(c, manifest=m)
+            out["anomalies"] = AN.detect(c, OA.today(m))
             return out
 
     def brief_if_due() -> None:
