@@ -77,8 +77,16 @@ def test_sign_in_flow(db_url):
     assert c.post("/api/users/password", json={"current": "Warehouse pass 1", "password": "New warehouse 2"}).json()
     assert c.get("/api/me").status_code == 401                 # changing the password ended the session
     c.post("/api/login", json={"email": "dana@demo.example", "password": "Owner pass 2026"})
-    assert len(c.get("/api/users").json()) == 7
+    people = {u["email"]: u for u in c.get("/api/users").json()}
+    assert len(people) == 7
+    assert people["lee@demo.example"]["last_login"] and not people["lee@demo.example"]["locked"]
+    assert people["sam@demo.example"]["last_login"] is None and not people["sam@demo.example"]["has_password"]
     assert c.post("/api/users/password", json={"email": "sam@demo.example", "password": "Set by owner 1"}).json()
+    assert {u["email"]: u for u in c.get("/api/users").json()}["sam@demo.example"]["has_password"]
+    with DB.connect(db_url) as conn:
+        e = conn.execute("select detail from auth_events where email = 'sam@demo.example' "
+                         "and event = 'password_set'").fetchone()
+    assert e["detail"] == "by dana@demo.example"          # who set someone else's password is recorded
     assert c.post("/api/logout").json() == {"ok": True}
     assert c.get("/api/me").status_code == 401
 

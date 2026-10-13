@@ -50,7 +50,7 @@ cd ~/wqo && docker compose -p wqo --env-file .env -f docker-compose.yml exec -T 
 | 9 | 质量 · 来料检验 | CBL-12-50 的收货单草稿在等检验；能起草检验单 | |
 | 10 | 质量 · SPC | HX-BOLT-M8 螺纹中径控制图：一批超上限（被拒那批），末段逐步上漂并被判异 | |
 | 11 | 质量 · 签字 | 新开一张不合格品，选 “Use as is” → 自己不能批，要另一人（如 Sam）用口令批；关闭要口令 | |
-| 12 | 角色 | 在 `~/wqo` 里给 Alex（销售）设口令：`echo 'Alex pass 2026' \| docker compose -p wqo --env-file .env -f docker-compose.yml exec -T hub python -m wqops.hub.accounts set-password alex@demo.example`（网页里还没有设口令的页面，见 #35）；用 Alex 登录：菜单里没有 Quality | |
+| 12 | 人员与角色 | 菜单 People 里给 Alex（销售）设口令；退出，用 Alex 登录：菜单里没有 Quality 和 People；点右上角名字进 My account 改自己的口令 | |
 | 13 | 进 ERPNext | 菜单 “ERPNext ↗” 直接进入，不用再登录 | |
 | 14 | 帮助 | Help 8 页英文，质量、仪表盘等页有截图 | |
 | 15 | 运维 | `~/wqo/status.sh` 全绿；`~/wqo/backup.sh` 出备份文件；按 `docs/ops/README.md` 恢复一次 | |

@@ -37,7 +37,7 @@ def test_spa_needs_sign_in_and_serves_every_route(db_url, web):
     assert c.get("/api/workspace").status_code == 401
     c.post("/api/login", json={"email": "alex@demo.example", "password": "Demo pass 2026"})
     for path in ("/", "/objects", "/o/Item/WIDGET%2FA", "/anomalies", "/anomalies/3", "/drafts", "/assistant",
-                 "/quality", "/quality/ncr/1", "/quality/capa/2", "/help", "/help/quality"):
+                 "/quality", "/quality/ncr/1", "/quality/capa/2", "/help", "/help/quality", "/account", "/people"):
         r = c.get(path)
         assert r.status_code == 200 and "id=app" in r.text, path
     assert c.get("/assets/app.js").text == "console.log(1)"

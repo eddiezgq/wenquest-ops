@@ -56,6 +56,8 @@ def test_login_lockout_and_sessions(conn):
         A.authenticate(conn, "dana@demo.example", "nope", now=NOW)        # the 5th locks
     with pytest.raises(A.AccountError, match="too many"):
         A.authenticate(conn, "dana@demo.example", "Harbor lane 2026", now=NOW + dt.timedelta(minutes=5))
+    shown = {p["email"]: p for p in A.people(conn, now=NOW + dt.timedelta(minutes=5))}
+    assert shown["dana@demo.example"]["locked"] and not shown["sam@demo.example"]["locked"]   # on the people page
     assert A.authenticate(conn, "dana@demo.example", "Harbor lane 2026", now=NOW + dt.timedelta(minutes=11))
     with pytest.raises(A.AccountError, match="wrong email or password"):
         A.authenticate(conn, "nobody@demo.example", "x", now=NOW)

@@ -3,9 +3,10 @@ flows end to end on the installed system with the demo business loaded.
 
     python smoke_p1.py https://ops.localtest.me <owner email> <owner password>
 
-1. The owner sets a password for each demo person (the install sets only the owner's).
+1. The owner sets a password for each demo person on the People page (the install sets only the owner's).
 2. Each role signs in, opens every page in its menu without a script error, sees Quality only if allowed, and is
-   refused the APIs it may not use.
+   refused the APIs it may not use; the People page only for those who may see users. One person changes their
+   own password on My account and signs in with it.
 3. Purchasing drafts a replenishment purchase order from an item page and confirms it: it is created in ERPNext.
 4. Sales drafts a delay message for a late order and confirms it.
 5. Quality drafts an incoming inspection for the receipt waiting for one and confirms it: created in ERPNext.
@@ -101,12 +102,46 @@ def roles(b: Browser, people: list[dict]) -> None:
                 s.go(path, "main h1, main .help-nav")
             except Exception as exc:
                 check(False, f"{u['email']}: {path} did not load ({str(exc).splitlines()[0]})")
+        check(("People" in nav) == ("users:view" in perms), f"{u['email']}: People in the menu only if allowed")
+        if "users:view" in perms:
+            try:
+                s.go("/people", "table.grid")
+            except Exception as exc:
+                check(False, f"{u['email']}: /people did not load ({str(exc).splitlines()[0]})")
+        s.go("/account", "main h1")
         check(not s.errors, f"{u['email']}: no script errors ({s.errors[:2]})")
         if "quality:view" not in perms:
             check(s.status("/api/quality/ncrs") == 403, f"{u['email']}: quality API refused")
         if "users:view" not in perms:
             check(s.status("/api/users") == 403, f"{u['email']}: user list refused")
         s.close()
+
+
+def set_passwords(owner: Session, people: list[dict]) -> None:
+    p = owner.go("/people", "table.grid")
+    for u in people:
+        if u["email"] == OWNER:
+            continue
+        row = p.locator("table.grid tbody tr", has_text=u["email"])
+        row.locator("input[type=password]").fill(PW)
+        row.get_by_role("button", name="Set").click()
+        p.wait_for_selector(f"text=Password set for {u['name']}", timeout=30_000)
+    now = {x["email"]: x for x in owner.get("/api/users")}
+    check(all(now[u["email"]]["has_password"] for u in people), "owner: passwords set on the People page")
+
+
+def own_password(b: Browser) -> None:
+    s = Session(b, "riley@demo.example", PW)
+    p = s.go("/account", "main h1")
+    p.fill("input[placeholder='Current password']", PW)
+    p.fill("input[placeholder='New password']", "Riley changed 2026")
+    p.fill("input[placeholder='New password again']", "Riley changed 2026")
+    p.get_by_role("button", name="Save password").click()
+    p.wait_for_url("**/login**", timeout=30_000)
+    s.close()
+    again = Session(b, "riley@demo.example", "Riley changed 2026")
+    check(again.me["email"] == "riley@demo.example", "riley: changed own password on My account and signed in")
+    again.close()
 
 
 def confirm_newest(s: Session, doctype: str) -> dict:
@@ -212,11 +247,10 @@ def main() -> int:
         b = pw.chromium.launch(args=[f"--host-resolver-rules=MAP {HOST} 127.0.0.1"])
         owner = Session(b, OWNER, OWNER_PW)
         people = owner.get("/api/users")
-        for u in people:
-            if u["email"] != OWNER:
-                owner.post("/api/users/password", {"email": u["email"], "password": PW})
+        step("people page", lambda: set_passwords(owner, people))
         owner.close()
         step("roles", lambda: roles(b, people))
+        step("my account", lambda: own_password(b))
         step("purchasing", lambda: purchasing(b))
         step("sales", lambda: sales(b))
         step("incoming inspection", lambda: incoming(b))

@@ -93,7 +93,9 @@ def get(conn, email: str) -> dict | None:
     return conn.execute("select * from users where email=%s", (email.lower(),)).fetchone()
 
 
-def set_password(conn, email: str, pw: str) -> None:
+def set_password(conn, email: str, pw: str, *, by: str | None = None) -> None:
+    """Set the password, unlock, and end all the person's sessions (they sign in again with the new password).
+    ``by`` is who set it, when not the person."""
     u = get(conn, email)
     if u is None or not u["active"]:
         raise AccountError(f"no active person with email {email}")
@@ -103,7 +105,16 @@ def set_password(conn, email: str, pw: str) -> None:
     conn.execute("update users set password_hash=%s, failed_logins=0, locked_until=null, updated_at=now() "
                  "where id=%s", (hash_password(pw), u["id"]))
     conn.execute("delete from sessions where user_id=%s", (u["id"],))
-    event(conn, u["email"], "password_set")
+    event(conn, u["email"], "password_set", f"by {by}" if by and by != u["email"] else "")
+
+
+def people(conn, now: dt.datetime | None = None) -> list[dict]:
+    """Everyone in the manifest with what the people page shows (ADR-0005 item 6)."""
+    now = now or dt.datetime.now(dt.UTC)
+    rows = conn.execute("select u.*, (select max(at) from auth_events e where e.email = u.email and e.event = 'login')"
+                        " as last_login from users u order by u.active desc, u.name").fetchall()
+    return [public(u) | {"locked": bool(u["locked_until"] and u["locked_until"] > now),
+                         "last_login": u["last_login"].isoformat() if u["last_login"] else None} for u in rows]
 
 
 def authenticate(conn, email: str, pw: str, now: dt.datetime | None = None) -> dict:

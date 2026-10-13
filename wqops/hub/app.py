@@ -332,7 +332,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
 
     @app.get("/api/users")
     def users(_=Depends(require("users:view")), c=Depends(conn)):
-        return [A.public(u) for u in c.execute("select * from users order by name").fetchall()]
+        return A.people(c)
 
     @app.post("/api/users/password")
     async def set_password(request: Request, u=Depends(current_user), c=Depends(conn)):
@@ -345,7 +345,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                                                                                 u["password_hash"]):
             raise HTTPException(400, "current password is wrong")
         try:
-            A.set_password(c, email, str(data.get("password", "")))
+            A.set_password(c, email, str(data.get("password", "")), by=u["email"])
         except A.AccountError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"ok": True}
@@ -367,7 +367,8 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         c = (m or {}).get("company", {})
         return {"company": c.get("name", "WenQuest Ops"), "demo": bool(m and m.get("demo")),
                 "currency": c.get("currency", "USD"), "timezone": c.get("timezone", "UTC"),
-                "erp_url": os.environ.get("WQO_ERP_PUBLIC_URL"), "user": A.public(u), "version": wqops.__version__}
+                "erp_url": os.environ.get("WQO_ERP_PUBLIC_URL"), "user": A.public(u), "version": wqops.__version__,
+                "may": [P.PERMISSIONS[p] for p in sorted(P.of(u["roles"]))]}
 
     @app.get("/api/sync/status")
     def sync_status(_=Depends(require("dashboard:view")), c=Depends(conn)):
@@ -458,7 +459,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
 
     if has_web:
         for path in ("/objects", "/o/{rest:path}", "/anomalies", "/anomalies/{rest:path}", "/drafts", "/assistant",
-                     "/quality", "/quality/{rest:path}", "/help", "/help/{rest:path}"):
+                     "/quality", "/quality/{rest:path}", "/help", "/help/{rest:path}", "/account", "/people"):
             app.add_api_route(path, spa_page, methods=["GET"], include_in_schema=False)
 
     @app.get("/", response_class=HTMLResponse)

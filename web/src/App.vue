@@ -45,11 +45,12 @@ async function signOut() {
       <RouterLink v-if="ws.user.permissions.includes('quality:view')" to="/quality" active-class="on">Quality</RouterLink>
       <RouterLink to="/objects" active-class="on">Objects</RouterLink>
       <RouterLink to="/drafts" active-class="on">Drafts</RouterLink>
+      <RouterLink v-if="ws.user.permissions.includes('users:view')" to="/people" active-class="on">People</RouterLink>
       <RouterLink to="/help" active-class="on">Help</RouterLink>
       <a v-if="ws.erp_url" :href="ws.erp_url + '/login'" target="_blank" rel="noopener">ERPNext ↗</a>
     </nav>
     <div class="me">
-      <span>{{ ws.user.name }}</span>
+      <RouterLink to="/account" title="My account">{{ ws.user.name }}</RouterLink>
       <button class="link" @click="signOut">Sign out</button>
     </div>
   </header>
