@@ -91,6 +91,7 @@ def test_only_for_demo_companies():
 @pytest.fixture
 def loaded(conn):
     fake = FakeErp()
+    fake.put("Stock Settings", "Stock Settings")
     erp = ErpClient("http://erp", transport=fake.transport())
     for kind, name in (("Supplier Group", "Distributor"), ("Customer Group", "Commercial"),
                        ("Territory", "United States")):
@@ -115,6 +116,7 @@ def test_writes_everything_in_order(loaded):
     qi = fake.docs["Quality Inspection"][out["rejected_inspection"]]
     assert qi["reference_type"] == "Purchase Receipt" and len(qi["readings"]) == 1
     assert fake.docs["Item"]["CBL-12-50"]["inspection_required_before_purchase"] == 1
+    assert fake.docs["Stock Settings"]["Stock Settings"]["action_if_quality_inspection_is_rejected"] == "Warn"
     with pytest.raises(LD.DemoError, match="already loaded"):
         LD.Loader(erp, DEMO, TODAY).run()
 

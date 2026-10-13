@@ -54,7 +54,8 @@ LINE_QTY = 38                     # mean units per order line; with ~2.2 lines a
 KEY_ITEM = "HX-BOLT-M8"           # runs out at the end; its inspection parameter drifts
 INSPECTED = {"HX-BOLT-M8": ("Pitch diameter (mm)", 7.160, 7.212, 7.186, 0.004),
              "CBL-12-50": ("Insulation thickness (mm)", 0.38, 0.52, 0.45, 0.012)}
-REQUIRED_BEFORE_RECEIPT = {"CBL-12-50"}   # ERPNext asks for the inspection before the receipt is submitted
+REQUIRED_BEFORE_RECEIPT = set(INSPECTED)   # ERPNext asks for the inspection before the receipt is submitted
+WAITING_ITEM = "CBL-12-50"                  # its last receipt waits for inspection
 REJECT_FROM_DAY = 45              # the first bolt lot received from this day on is rejected
 DRIFT_FROM_DAY = 55               # bolt pitch diameter drifts upwards from here (still inside the limits)
 
@@ -104,7 +105,7 @@ def build(today: dt.date, seed: int = SEED) -> list[Doc]:  # noqa: PLR0912, PLR0
         for po in [p for p in open_pos if p["arrives"] == day]:
             open_pos.remove(po)
             code, qty = po["item"], po["qty"]
-            if day >= today - dt.timedelta(days=2) and code in REQUIRED_BEFORE_RECEIPT:  # waiting for inspection
+            if day >= today - dt.timedelta(days=2) and code == WAITING_ITEM:  # waiting for inspection
                 docs.append(Doc(day, "receipt_draft", nid("R"), {"po": po["ref"], "item": code, "qty": qty,
                                                                  "supplier": po["supplier"], "rate": po["rate"]}))
                 continue
@@ -167,7 +168,7 @@ def build(today: dt.date, seed: int = SEED) -> list[Doc]:  # noqa: PLR0912, PLR0
             demand = sum(ln["qty"] for s in open_so for ln in s["lines"] if ln["item"] == code and not ln["shipped"])
             rp, oq = reorder_point(code), order_qty(code)
             window = day >= today - dt.timedelta(days=20)
-            forced = code in REQUIRED_BEFORE_RECEIPT and day == today - dt.timedelta(days=6) and not on_order
+            forced = code == WAITING_ITEM and day == today - dt.timedelta(days=6) and not on_order
             if code == KEY_ITEM and window and on_order:
                 continue                                            # waiting on the supplier's promise
             if stock[code] + on_order - demand >= rp and not forced:

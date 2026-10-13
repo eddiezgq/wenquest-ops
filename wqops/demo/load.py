@@ -70,6 +70,9 @@ class Loader:
                              if fy_start.year != fy_end.year else str(fy_start.year),
                              "year_start_date": str(fy_start), "year_end_date": str(fy_end),
                              "companies": [{"company": self.company}]})
+        # a rejected incoming lot is still received and then moved to QC Hold; ERPNext's default would refuse the
+        # receipt, so the demo site warns instead (demo sites only)
+        self.erp.update("Stock Settings", "Stock Settings", {"action_if_quality_inspection_is_rejected": "Warn"})
         for group in sorted({i[2] for i in S.ITEMS}):
             if self.erp.get("Item Group", group) is None:
                 self.erp.insert({"doctype": "Item Group", "item_group_name": group,
