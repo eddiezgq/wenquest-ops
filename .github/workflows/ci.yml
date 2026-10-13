@@ -176,6 +176,27 @@ jobs:
           [ "$(erp frappe.db.exists --args "['Warehouse', 'Main Stock - HLS']")" = "Main Stock - HLS" ]
           "$WQO_DIR/install.sh" --no-pull 2>&1 | tail -n 5        # running again is safe
           "$WQO_DIR/status.sh"
+      - name: Load the demo business and check the ops hub shows its problems (ADR-0012)
+        run: |
+          exec > >(tee "$RUNNER_TEMP/demo.log") 2>&1
+          set -x -o pipefail
+          R=(--resolve ops.localtest.me:443:127.0.0.1)
+          dc() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" "$@"; }
+          time dc exec -T hub python -m wqops.demo.load | tee demo.json
+          curl -fsk "${R[@]}" -c jar -H 'content-type: application/json' \
+               -d '{"email":"dana@demo.example","password":"Ci-owner-pass-2026"}' https://ops.localtest.me/api/login
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/anomalies | python3 -c "import json,sys
+          rules = {a['rule'] for a in json.load(sys.stdin)}; print(sorted(rules))
+          need = {'order_late', 'item_short', 'po_late', 'supplier_on_time_low', 'capa_overdue'}
+          assert need <= rules, need - rules"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/dashboard | python3 -c "import json,sys
+          m = {x['name']: x['value'] for x in json.load(sys.stdin)['metrics']}; print(m)
+          assert m['on_time_delivery'] is not None and m['inventory_value'] and m['supplier_on_time'] is not None, m"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/quality/incoming | grep -q CBL-12-50
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/quality/spc/parameters | grep -q HX-BOLT-M8
+          curl -fsk "${R[@]}" -b jar -H 'content-type: application/json' -d '{"question":"Which orders are late?"}' \
+            https://ops.localtest.me/api/ai/ask | python3 -c "import json,sys; a=json.load(sys.stdin); print(a['answer'])
+          assert '[SalesOrder:' in a['answer'], a"
       - name: Keep ERPNext's replies from the sync check (for tests/recordings/erpnext)
         if: always()
         uses: actions/upload-artifact@v4
@@ -197,7 +218,7 @@ jobs:
       - name: Show the end of the logs as one annotation on failure
         if: failure()
         run: |
-          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log"; do
+          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log" "$RUNNER_TEMP/demo.log"; do
             [ -f "$f" ] && echo "::error title=$(basename "$f")::$(tail -n 40 "$f" | tr -d '\r' | sed ':a;N;$!ba;s/\n/%0A/g')"
           done
           docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" ps -a || true

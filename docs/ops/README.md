@@ -107,6 +107,7 @@ in your calendar.
 | Logs | `docker compose -p wqo logs -f hub` |
 | Pull ERPNext changes now | `docker compose -p wqo exec hub python -m wqops.hub.sync run` |
 | Sync status | `docker compose -p wqo exec hub python -m wqops.hub.sync status` |
+| Load the fictional demo business (demo manifest only, once) | `docker compose -p wqo exec hub python -m wqops.demo.load` |
 | Rebuild the ops hub objects from the event log | `docker compose -p wqo exec hub python -m wqops.hub.ont.project --rebuild` |
 
 ### Backup

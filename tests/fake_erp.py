@@ -61,7 +61,12 @@ class FakeErp:
             return httpx.Response(200, json={"data": doc})
         if request.method == "POST":
             body = {k: v for k, v in json.loads(request.content).items() if k not in ("doctype", "name", "modified")}
-            name = f"{doctype[:3].upper()}-{len(store) + 1:05d}"
+            named_by = {"Item": "item_code", "Customer": "customer_name", "Supplier": "supplier_name",
+                        "Item Group": "item_group_name", "Quality Inspection Parameter": "parameter"}.get(doctype)
+            name = body.get(named_by) if named_by else None
+            name = name or f"{doctype[:3].upper()}-{len(store) + 1:05d}"
+            for i, row in enumerate(body.get("items") or [], start=1):   # child rows get names, as in ERPNext
+                row.setdefault("name", f"{name}-{i}")
             return httpx.Response(200, json={"data": self.put(doctype, name, **body)})
         q = request.url.params
         rows = list(store.values())
