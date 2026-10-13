@@ -156,7 +156,7 @@ def test_anomaly_api_by_role(db_url):
                                                                    "supplier_on_time_low"}
     login("dana@demo.example")
     assert len(c.get("/api/anomalies").json()) == 7
-    assert len(c.get("/api/anomalies/rules").json()) == 6
+    assert len(c.get("/api/anomalies/rules").json()) == len(AN.load_rules()) == 7   # capa_overdue from ADR-0009
     item = c.get("/api/ont/objects/Item/WIDGET-A").json()
     assert {a["rule"] for a in item["anomalies"]} == {"item_short", "po_late"}   # subject, and related to PO-3
     full = c.get("/api/explain/SalesOrder/SO-8").json()

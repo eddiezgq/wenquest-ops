@@ -184,6 +184,23 @@ def inspection_rejected(conn, rule: dict, today: dt.date) -> list[Finding]:
     return out
 
 
+def capa_overdue(conn, rule: dict, today: dt.date) -> list[Finding]:
+    out = []
+    for c in M._objs(conn, "Capa"):
+        due = _d(c["props"].get("next_due"))
+        if c["props"].get("status") != "closed" and due and due < today:
+            out.append(
+                Finding(
+                    ("Capa", c["key"]),
+                    f"{c['title']}: action {(today - due).days} days overdue",
+                    f"An action was due {due} and is not done.",
+                    rule["severity"],
+                    {"due": str(due), "days_overdue": (today - due).days},
+                )
+            )
+    return out
+
+
 DETECTORS = {
     "order_late": order_late,
     "order_at_risk": order_at_risk,
@@ -191,6 +208,7 @@ DETECTORS = {
     "po_late": po_late,
     "supplier_on_time_low": supplier_on_time_low,
     "inspection_rejected": inspection_rejected,
+    "capa_overdue": capa_overdue,
 }
 
 

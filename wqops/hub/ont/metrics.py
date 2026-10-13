@@ -22,8 +22,8 @@ DEFINITIONS = {
                          f"last {DOI_DAYS} days.",
     "supplier_on_time": "Purchase receipt lines in the period received on or before the required-by date of their "
                         "purchase order line, out of all receipt lines in the period that name their order line.",
-    "open_nonconformances": "Submitted quality inspections in the period with the result Rejected. From Phase 1 "
-                            "item 8 they close when their nonconformance report is closed.",
+    "open_nonconformances": "Nonconformance reports not yet closed or cancelled, plus submitted quality inspections in "
+                            "the period with the result Rejected that have no nonconformance report yet.",
 }
 
 
@@ -188,15 +188,28 @@ def supplier_on_time(conn, as_of: dt.date, days: int) -> dict:
 
 
 def open_nonconformances(conn, as_of: dt.date, days: int) -> dict:
+    """Open NCRs (any age) plus inspections rejected in the period that have no NCR yet (ADR-0009 item 7)."""
     start, end = window(as_of, days)
+    with_ncr = {}
     rows = []
+    for o in _objs(conn, "Nonconformance"):
+        p = o["props"]
+        insp = conn.execute("select dst_key from ont_links where src_type = 'Nonconformance' and src_key = %s and "
+                            "type = 'inspection'", (o["key"],)).fetchone()
+        if insp:
+            with_ncr[insp["dst_key"]] = o["key"]
+        if p.get("status") not in ("closed", "cancelled"):
+            rows.append({"key": o["key"], "type": "Nonconformance", "title": o["title"], "status": p.get("status"),
+                         "date": p.get("opened"), "inspection": insp["dst_key"] if insp else None})
+    inspections = []
     for o in _objs(conn, "QualityInspection"):
         p = o["props"]
         d = _d(p.get("report_date"))
-        if _submitted(p) and p.get("status") == "Rejected" and d and start <= d <= end:
-            rows.append({"key": o["key"], "title": o["title"], "item": p.get("item_code"), "date": str(d),
-                         "reference": p.get("reference_name")})
-    return {"value": len(rows), "unit": "inspections", "inspections": rows, "period": [str(start), str(end)]}
+        if _submitted(p) and p.get("status") == "Rejected" and d and start <= d <= end and o["key"] not in with_ncr:
+            inspections.append({"key": o["key"], "title": o["title"], "item": p.get("item_code"), "date": str(d),
+                                "reference": p.get("reference_name")})
+    return {"value": len(rows) + len(inspections), "unit": "open", "ncrs": rows, "inspections": inspections,
+            "period": [str(start), str(end)]}
 
 
 # metric -> permission needed to see it (ADR-0005)

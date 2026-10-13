@@ -151,13 +151,12 @@ def _confirm_hub(conn, user: dict, row: dict) -> dict:
     with conn.transaction():
         record, note = None, "ready to send"
         if row["doctype"] == "Nonconformance Report":
-            n = conn.execute("select coalesce(max(id), 0) + 1 as n from ncr_records").fetchone()["n"]
-            record = f"NCR-{n:05d}"
-            conn.execute("insert into ncr_records (name, draft_id, title, description, inspection, item_code, receipt, "
-                         "supplier, quantity, created_by) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                         (record, row["id"], p["title"], p["description"], p.get("inspection"), p.get("item_code"),
-                          p.get("receipt"), p.get("supplier"), p.get("quantity"), user["email"]))
-            note = record
+            from wqops.hub.quality import records as Q  # noqa: PLC0415
+
+            n = Q.create_ncr(conn, user["email"], title=p["title"], description=p["description"],
+                             inspection=p.get("inspection"), item_code=p.get("item_code"), receipt=p.get("receipt"),
+                             supplier=p.get("supplier"), quantity=p.get("quantity"), draft_id=row["id"])
+            record = note = n["name"]
         out = conn.execute("update erp_drafts set status = 'confirmed', record = %s, error = null, decided_by = %s, "
                            "decided_at = now() where id = %s returning *",
                            (record, user["email"], row["id"])).fetchone()
