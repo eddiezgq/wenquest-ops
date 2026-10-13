@@ -192,7 +192,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         need(u, "quality:view")
         if days not in (30, 90, 180, 365):
             raise HTTPException(400, "days must be 30, 90, 180 or 365")
-        return IN.supplier_scores(c, OA.today(company()[0]), days)
+        m = company()[0]
+        return IN.supplier_scores(c, OA.today(m), days, m["company"]["timezone"] if m else "UTC")
 
     @app.get("/api/quality/spc/parameters")
     def spc_parameters(u=Depends(user_dep), c=Depends(conn_dep)):
