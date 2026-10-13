@@ -13,7 +13,7 @@ PERMISSIONS = {
     "ai:use": "Ask the AI assistant and receive drafts",
     "ai:configure": "Configure the AI assistant",
     "users:view": "See who has access",
-    "users:manage": "Set passwords, activate and deactivate people",
+    "users:manage": "Set other people's passwords (who has access comes from the company manifest)",
     "settings:edit": "Change platform settings",
 }
 

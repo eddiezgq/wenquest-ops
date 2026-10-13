@@ -12,3 +12,10 @@
 
 Everyone can use the assistant, with their own role's view. Roles come from the company manifest; ask the owner to
 change yours.
+
+**Your password.** Click your name at the top right (*My account*) to see what your role allows and to change your
+password. If you sign in with Microsoft or Google, set a password there too: quality signatures use it.
+
+**People.** The owner, the operations manager and the AI specialist see who can sign in, when they last did, and
+whether an account is locked. The owner sets passwords for others on the *People* page (this also unlocks the
+account). Adding people or changing roles is done in the company manifest by whoever runs the system.
