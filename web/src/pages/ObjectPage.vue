@@ -1,11 +1,26 @@
 <script setup>
 import { ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api, apiObject, objectPath } from '../api'
 import { ago, docState, fmt } from '../format'
 import Chain from '../components/Chain.vue'
 
 const route = useRoute()
+const router = useRouter()
+const DRAFT = { Item: ['purchase_order', 'Draft a replenishment purchase order'],
+  SalesOrder: ['delay_message', 'Draft a delay message to the customer'],
+  QualityInspection: ['nonconformance', 'Draft a nonconformance report'] }
+const drafting = ref('')
+async function draft() {
+  drafting.value = 'Preparing…'
+  try {
+    const [kind] = DRAFT[route.params.type]
+    await api('/api/ai/draft', { method: 'POST', body: { kind, key: route.params.key } })
+    router.push('/drafts')
+  } catch (e) {
+    drafting.value = e.message
+  }
+}
 const o = ref(null)
 const explain = ref(null)
 const error = ref('')
@@ -39,6 +54,9 @@ function columns(lines) {
   <template v-if="o">
     <p class="muted small"><RouterLink :to="`/objects?type=${o.type}`">{{ o.label }}</RouterLink> · {{ o.source }}</p>
     <h1>{{ o.title }} <span v-if="o.deleted" class="tag">deleted in ERPNext</span></h1>
+    <div class="actions" v-if="DRAFT[o.type] && !o.deleted">
+      <button @click="draft">{{ DRAFT[o.type][1] }}</button><span class="muted small">{{ drafting }}</span>
+    </div>
     <ul v-if="o.anomalies.length" class="anoms">
       <li v-for="a in o.anomalies" :key="a.id" :class="a.severity">
         <span class="sev">{{ a.severity }}</span> <RouterLink :to="`/anomalies/${a.id}`">{{ a.title }}</RouterLink>

@@ -259,3 +259,24 @@ def ask(ctx: T.Ctx, question: str, model: L.Anthropic | None = None, extra_tools
     out.update(verified=not bad, unverified=bad, error=error)
     finish(ctx, out)
     return out | {"run_id": ctx.run_id, "refs": ctx.refs, "drafts": ctx.drafts}
+
+
+def draft(ctx: T.Ctx, kind: str, key: str) -> dict:
+    """Prepare one draft directly (a button on an object page); recorded as a run like a question."""
+    from wqops.hub.ai import drafting as DR  # noqa: PLC0415
+
+    if kind not in DR.KINDS:
+        raise T.ToolError(f"no draft kind {kind}; kinds: {', '.join(DR.KINDS)}")
+    start(ctx, "draft", f"{kind} {key}")
+    out = {"engine": "rules", "tool_calls": [], "unverified": [], "verified": True}
+    try:
+        res = DR.KINDS[kind](ctx, key)
+        out["answer"] = res["summary"]
+        out["tool_calls"].append({"tool": kind, "args": {"key": key}, "ok": True, "summary": res["summary"]})
+    except T.ToolError as exc:
+        out.update(answer=str(exc), error=str(exc))
+        out["tool_calls"].append({"tool": kind, "args": {"key": key}, "ok": False, "summary": str(exc)})
+        finish(ctx, out)
+        raise
+    finish(ctx, out)
+    return out | {"run_id": ctx.run_id, "drafts": ctx.drafts, "draft": res}

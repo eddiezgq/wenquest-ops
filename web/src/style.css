@@ -75,3 +75,6 @@ input, select { font: inherit; padding: .4rem .5rem; border: 1px solid var(--lin
 .why { font-size: .88rem; margin-top: .2rem; }
 .actions { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
 .actions input { flex: 1; min-width: 12rem; }
+.draft { margin: .8rem 0; }
+.msg { white-space: pre-wrap; font-family: inherit; background: var(--bg); border: 1px solid var(--line);
+       border-radius: 6px; padding: .6rem .8rem; }

@@ -6,6 +6,7 @@ import Objects from './pages/Objects.vue'
 import ObjectPage from './pages/ObjectPage.vue'
 import Anomalies from './pages/Anomalies.vue'
 import AnomalyPage from './pages/AnomalyPage.vue'
+import Drafts from './pages/Drafts.vue'
 import './style.css'
 
 const router = createRouter({
@@ -16,6 +17,7 @@ const router = createRouter({
     { path: '/o/:type/:key(.*)', component: ObjectPage, meta: { title: 'Object' } },
     { path: '/anomalies', component: Anomalies, meta: { title: 'Anomalies' } },
     { path: '/anomalies/:id', component: AnomalyPage, meta: { title: 'Anomaly' } },
+    { path: '/drafts', component: Drafts, meta: { title: 'Drafts' } },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })
