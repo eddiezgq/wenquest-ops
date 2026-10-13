@@ -188,7 +188,7 @@ def capa_overdue(conn, rule: dict, today: dt.date) -> list[Finding]:
     out = []
     for c in M._objs(conn, "Capa"):
         due = _d(c["props"].get("next_due"))
-        if c["props"].get("status") != "closed" and due and due < today:
+        if c["props"].get("status") not in ("closed", "cancelled") and due and due < today:
             out.append(
                 Finding(
                     ("Capa", c["key"]),

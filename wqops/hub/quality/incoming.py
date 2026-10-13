@@ -7,9 +7,6 @@ import datetime as dt
 from wqops.hub.ont import metrics as M
 from wqops.hub.quality import spc
 
-ACCEPT_WEIGHT, ON_TIME_WEIGHT = 0.6, 0.4
-GRADES = ((95, "A"), (85, "B"), (70, "C"))
-
 
 def _supplier_of_receipt(conn) -> dict[str, str]:
     return {r["src_key"]: r["dst_key"] for r in conn.execute(
@@ -39,14 +36,9 @@ def awaiting(conn) -> list[dict]:
     return sorted(out, key=lambda x: (x["received"] or "", x["receipt"]))
 
 
-def grade(score: float | None) -> str | None:
-    if score is None:
-        return None
-    return next((g for limit, g in GRADES if score >= limit), "D")
-
-
-def supplier_scores(conn, as_of: dt.date, days: int = 90, tz: str = "UTC") -> dict:
-    """Score = 60% lot acceptance + 40% on-time; unknown when either part is unknown."""
+def supplier_quality(conn, as_of: dt.date, days: int = 90, tz: str = "UTC") -> dict:
+    """Facts per supplier over the period (ADR-0010; no score): inspected and rejected lots, lot rejection rate,
+    on-time rate, NCRs, concessions (closed NCRs whose disposition needed approval) and open corrective actions."""
     start, end = M.window(as_of, days)
     sup = _supplier_of_receipt(conn)
     names = {o["key"]: o["props"].get("supplier_name") or o["key"] for o in M._objs(conn, "Supplier")}
@@ -60,30 +52,31 @@ def supplier_scores(conn, as_of: dt.date, days: int = 90, tz: str = "UTC") -> di
         s = sup.get(p.get("reference_name"))
         if s is None:
             continue
-        x = lots.setdefault(s, {"accepted": 0, "lots": 0})
+        x = lots.setdefault(s, {"lots": 0, "rejected": 0})
         x["lots"] += 1
-        x["accepted"] += p.get("status") == "Accepted"
+        x["rejected"] += p.get("status") == "Rejected"
     on_time = {s["supplier"]: s for s in M.supplier_on_time(conn, as_of, days)["suppliers"]}
-    ncrs: dict[str, int] = {}
-    for r in conn.execute("select supplier, count(*) as n from ncr_records where supplier is not null and "
-                          "(created_at at time zone %s)::date between %s and %s and status <> 'cancelled' "
-                          "group by supplier", (tz, start, end)).fetchall():
-        ncrs[r["supplier"]] = r["n"]
+    ncrs = {r["supplier"]: r for r in conn.execute(
+        "select n.supplier, count(*) as ncrs, count(*) filter (where n.status = 'closed' and t.requires_approval) "
+        "as concessions from ncr_records n left join ncr_disposition_types t on t.code = n.disposition "
+        "where n.supplier is not null and n.status <> 'cancelled' and "
+        "(n.created_at at time zone %s)::date between %s and %s group by n.supplier", (tz, start, end)).fetchall()}
+    capas = {r["supplier"]: r["n"] for r in conn.execute(
+        "select n.supplier, count(distinct c.id) as n from capas c join capa_ncrs l on l.capa_id = c.id join "
+        "ncr_records n on n.id = l.ncr_id where n.supplier is not null and c.status not in ('closed', 'cancelled') "
+        "group by n.supplier").fetchall()}
     key_of = {n: k for k, n in names.items()}
     rows = []
-    for key in sorted(set(lots) | {key_of.get(n, n) for n in on_time} | set(ncrs)):
-        lot = lots.get(key)
-        acc = round(100.0 * lot["accepted"] / lot["lots"], 1) if lot else None
+    for key in sorted(set(lots) | {key_of.get(n, n) for n in on_time} | set(ncrs) | set(capas)):
+        lot = lots.get(key, {"lots": 0, "rejected": 0})
         ot = on_time.get(names.get(key, key))
-        otv = ot["value"] if ot else None
-        score = round(ACCEPT_WEIGHT * acc + ON_TIME_WEIGHT * otv, 1) if acc is not None and otv is not None else None
-        rows.append({"supplier": key, "name": names.get(key, key), "lot_acceptance": acc,
-                     "lots": lot["lots"] if lot else 0, "accepted": lot["accepted"] if lot else 0,
-                     "on_time": otv, "on_time_lines": ot["total"] if ot else 0, "ncrs": ncrs.get(key, 0),
-                     "score": score, "grade": grade(score)})
-    rows.sort(key=lambda r: (r["score"] is None, r["score"] if r["score"] is not None else 0, r["name"]))
-    return {"period": [str(start), str(end)], "weights": {"lot_acceptance": ACCEPT_WEIGHT, "on_time": ON_TIME_WEIGHT},
-            "grades": {g: limit for limit, g in GRADES}, "suppliers": rows}
+        rows.append({"supplier": key, "name": names.get(key, key), "lots": lot["lots"], "rejected": lot["rejected"],
+                     "rejection_rate": round(100.0 * lot["rejected"] / lot["lots"], 1) if lot["lots"] else None,
+                     "on_time": ot["value"] if ot else None, "on_time_lines": ot["total"] if ot else 0,
+                     "ncrs": ncrs[key]["ncrs"] if key in ncrs else 0,
+                     "concessions": ncrs[key]["concessions"] if key in ncrs else 0, "open_capas": capas.get(key, 0)})
+    rows.sort(key=lambda r: (-(r["rejection_rate"] or 0), -r["ncrs"], r["name"]))
+    return {"period": [str(start), str(end)], "suppliers": rows}
 
 
 def parameters(conn) -> list[dict]:

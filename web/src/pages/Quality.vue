@@ -50,7 +50,7 @@ async function draftInspection(x) {
     router.push('/drafts')
   } catch (e) { error.value = e.message }
 }
-const TABS = { ncrs: 'Nonconformances', capas: 'Corrective actions', incoming: 'Incoming inspection', suppliers: 'Supplier scores', spc: 'SPC' }
+const TABS = { ncrs: 'Nonconformances', capas: 'Corrective actions', incoming: 'Incoming inspection', suppliers: 'Supplier quality', spc: 'SPC' }
 const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
 </script>
 
@@ -98,16 +98,15 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
   </template>
 
   <template v-if="tab === 'suppliers' && scores">
-    <p class="muted small">{{ scores.period[0] }} to {{ scores.period[1] }}. Score = {{ scores.weights.lot_acceptance * 100 }}% lot acceptance
-      + {{ scores.weights.on_time * 100 }}% on-time delivery; A ≥ {{ scores.grades.A }}, B ≥ {{ scores.grades.B }}, C ≥ {{ scores.grades.C }}, else D.
-      Unknown when either part has no data.</p>
+    <p class="muted small">{{ scores.period[0]}} to {{ scores.period[1] }}. Facts only: incoming lots inspected and rejected, on-time receipt lines,
+      nonconformance reports, concessions (closed reports whose disposition needed approval) and open corrective actions.</p>
     <table class="grid">
-      <thead><tr><th>Supplier</th><th>Grade</th><th>Score</th><th>Lot acceptance</th><th>On time</th><th>NCRs</th></tr></thead>
+      <thead><tr><th>Supplier</th><th>Lots</th><th>Rejected</th><th>Rejection rate</th><th>On time</th><th>NCRs</th><th>Concessions</th><th>Open CAPAs</th></tr></thead>
       <tbody><tr v-for="s in scores.suppliers" :key="s.supplier">
         <td><RouterLink :to="objectPath('Supplier', s.supplier)">{{ s.name }}</RouterLink></td>
-        <td><b>{{ s.grade || '—' }}</b></td><td>{{ fmt(s.score) }}</td>
-        <td>{{ fmt(s.lot_acceptance, '%') }} <span class="muted small">({{ s.accepted }}/{{ s.lots }} lots)</span></td>
-        <td>{{ fmt(s.on_time, '%') }} <span class="muted small">({{ s.on_time_lines }} lines)</span></td><td>{{ s.ncrs }}</td></tr></tbody>
+        <td>{{ s.lots }}</td><td>{{ s.rejected }}</td><td>{{ fmt(s.rejection_rate, '%') }}</td>
+        <td>{{ fmt(s.on_time, '%') }} <span class="muted small">({{ s.on_time_lines }} lines)</span></td>
+        <td>{{ s.ncrs }}</td><td>{{ s.concessions }}</td><td>{{ s.open_capas }}</td></tr></tbody>
     </table>
   </template>
 

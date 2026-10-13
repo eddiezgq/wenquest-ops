@@ -152,6 +152,15 @@ permissions of the person asking. To use Claude, put the company's Anthropic API
 Without a key a built-in rule engine answers common questions. Every run (question, tools used, answer, number
 check, token use) is kept and visible to people with "Configure the AI assistant" (`GET /api/ai/runs?everyone=true`).
 
+### Quality records and signatures
+
+Closing a nonconformance report, approving a disposition that needs approval, completing an 8D and closing a
+corrective action are signed: the person re-enters their own WenQuest Ops password. People who sign in only with
+Microsoft or Google set a password first (`POST /api/users/password`, or the owner sets one). Signatures and the
+quality history cannot be changed or deleted, also not in the database (a trigger rejects it). Disposition types
+(for example "Use as is (concession)", which needs approval by another person) are maintained by people who can
+change platform settings (`POST /api/quality/dispositions`).
+
 ### Monitoring
 
 - `https://<domain>/api/health` returns 200 with `{"ok": true, ...}` when the database, ERPNext and the company

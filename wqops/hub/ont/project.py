@@ -453,13 +453,14 @@ def quality(conn, onto: S.Ontology) -> None:
                  + _many("inspection", "QualityInspection", [r["inspection"]]))
         upsert(conn, onto, Obj("Nonconformance", r["name"], props, links), kind="updated",
                at=r["updated_at"].isoformat())
-    for c in conn.execute("select c.*, n.name as ncr_name, (select min(due) from capa_actions a where a.capa_id = c.id "
-                          "and not a.done) as next_due from capas c left join ncr_records n on n.id = c.ncr_id "
+    for c in conn.execute("select c.*, array(select n.name from capa_ncrs l join ncr_records n on n.id = l.ncr_id "
+                          "where l.capa_id = c.id) as ncr_names, (select min(due) from capa_actions a where "
+                          "a.capa_id = c.id and not a.done) as next_due from capas c "
                           "order by c.id").fetchall():
         props = _clean({"title": c["title"], "kind": c["kind"], "status": c["status"], "owner": c["owner"],
                         "next_due": c["next_due"].isoformat() if c["next_due"] else None,
                         "result": c["verification_result"]})
-        upsert(conn, onto, Obj("Capa", c["name"], props, _many("ncr", "Nonconformance", [c["ncr_name"]])),
+        upsert(conn, onto, Obj("Capa", c["name"], props, _many("ncr", "Nonconformance", c["ncr_names"])),
                kind="updated", at=c["updated_at"].isoformat())
 
 

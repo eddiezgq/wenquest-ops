@@ -75,17 +75,23 @@ def test_spc_from_inspections(world):
     assert IN.spc_for(world, "WIDGET-A", "Width")["enough_data"] is False
 
 
-def test_supplier_scores(world):
-    r = IN.supplier_scores(world, AS_OF, 90)
+def test_supplier_facts(world):
+    """ADR-0010: facts only, no score."""
+    from wqops.hub.quality import records as Q
+
+    n = Q.create_ncr(world, "jordan@demo.example", title="Bent", description="d", supplier="Gulf Fasteners",
+                     quantity=5)
+    world.execute("update ncr_records set created_at = '2026-10-05 12:00+00' where id = %s", (n["id"],))  # in period
+    Q.create_capa(world, "jordan@demo.example", kind="corrective", title="Supplier 8D", ncr_ids=[n["id"]])
+    r = IN.supplier_quality(world, AS_OF, 90)
     gulf, acme = r["suppliers"]
-    # Gulf: incoming lots in 90 days QI-1 rejected, QI-2 accepted, QI-3 rejected -> 33.3%; on time 1 of 3 -> 33.3%
-    assert (gulf["supplier"], gulf["lot_acceptance"], gulf["lots"], gulf["on_time"]) == \
-        ("Gulf Fasteners", 33.3, 3, 33.3)
-    assert gulf["score"] == round(0.6 * 33.3 + 0.4 * 33.3, 1) == 33.3 and gulf["grade"] == "D"
-    # Acme: on time 1 of 1 but no inspected lots -> score unknown
-    assert (acme["supplier"], acme["on_time"], acme["lot_acceptance"], acme["score"]) == ("Acme Cable", 100.0, None,
-                                                                                         None)
-    assert [IN.grade(s) for s in (95, 94.9, 85, 70, 69.9, None)] == ["A", "B", "B", "C", "D", None]
+    # Gulf: incoming lots in 90 days QI-1 rejected, QI-2 accepted, QI-3 rejected -> 2 of 3 = 66.7%; on time 1 of 3
+    assert (gulf["supplier"], gulf["lots"], gulf["rejected"], gulf["rejection_rate"], gulf["on_time"]) == \
+        ("Gulf Fasteners", 3, 2, 66.7, 33.3)
+    assert (gulf["ncrs"], gulf["concessions"], gulf["open_capas"]) == (1, 0, 1)
+    assert "score" not in gulf and "grade" not in gulf
+    # Acme: on time 1 of 1, no inspected lots -> rejection rate unknown, not 0
+    assert (acme["supplier"], acme["on_time"], acme["lots"], acme["rejection_rate"]) == ("Acme Cable", 100.0, 0, None)
 
 
 def test_awaiting_inspection(world):
@@ -106,7 +112,8 @@ def test_quality_data_api(db_url):
     c.post("/api/login", json={"email": "alex@demo.example", "password": "Demo pass 2026"})
     assert c.get("/api/quality/suppliers").status_code == 403
     c.post("/api/login", json={"email": "jordan@demo.example", "password": "Demo pass 2026"})
-    assert c.get("/api/quality/suppliers").json()["weights"] == {"lot_acceptance": 0.6, "on_time": 0.4}
+    assert [x["supplier"] for x in c.get("/api/quality/suppliers").json()["suppliers"]] == ["Gulf Fasteners",
+                                                                                        "Acme Cable"]
     assert c.get("/api/quality/spc", params={"item_code": "WIDGET-A", "parameter": "Length"}).json()["enough_data"]
     r = c.post("/api/quality/incoming/draft", json={"receipt": "PR-3", "item_code": "BOLT-B"})
     assert r.status_code == 400 and "sample size" in r.json()["detail"]
