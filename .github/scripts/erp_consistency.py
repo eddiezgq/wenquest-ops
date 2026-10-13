@@ -7,6 +7,7 @@ Compares every submitted sales order, purchase order and delivery note (modified
 uses) and prints the history of any document that differs, then fails.
 """
 
+import datetime as dt
 import os
 import sys
 import time
@@ -54,3 +55,13 @@ if bad:
                                                  "from erp_sync_runs order by id")])
     sys.exit(f"{bad} documents differ between ERPNext and the hub")
 print("the hub matches ERPNext")
+
+# orders long past due that ERPNext still has open, with the delivery note lines made against them
+old = erp.list("Sales Order", filters=[["docstatus", "=", 1], ["per_delivered", "<", 100],
+                                       ["delivery_date", "<", str(dt.date.today() - dt.timedelta(days=30))]],  # noqa: DTZ011
+               fields=["name", "per_delivered", "status", "delivery_date", "modified"], limit=0)
+for o in old:
+    dn = erp.list("Delivery Note", filters=[["Delivery Note Item", "against_sales_order", "=", o["name"]]],
+                  fields=["name", "docstatus", "posting_date", "modified"], limit=0)
+    o["delivery_notes"] = dn
+print(f"::notice title=open sales orders past due over 30 days in ERPNext::{old}")
