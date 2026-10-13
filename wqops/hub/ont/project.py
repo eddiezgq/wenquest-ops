@@ -83,6 +83,9 @@ def item(d):
                 "stock_uom": d.get("stock_uom"),
                 "is_stock_item": _bool(d.get("is_stock_item")),
                 "disabled": _bool(d.get("disabled")),
+                "inspection_required": None
+                if d.get("inspection_required_before_purchase") is None
+                else _bool(d["inspection_required_before_purchase"]),
             }
         ),
     )
@@ -276,6 +279,20 @@ def purchase_receipt(d):
     )
 
 
+def _readings(d: dict) -> list[dict]:
+    """Numeric readings of an inspection: parameter, the values entered (reading_1..reading_10), limits, result."""
+    out = []
+    for r in d.get("readings") or []:
+        if not r.get("specification") or not _bool(r.get("numeric", 1)):
+            continue
+        values = [v for v in (_num(r.get(f"reading_{i}")) for i in range(1, 11)) if v is not None]
+        if not values:
+            continue
+        out.append(_clean({"parameter": r["specification"], "values": values, "min": _num(r.get("min_value")),
+                           "max": _num(r.get("max_value")), "status": r.get("status")}))
+    return out
+
+
 def quality_inspection(d):
     rt, rn = d.get("reference_type"), d.get("reference_name")
     links = _many("item", "Item", [d.get("item_code")])
@@ -290,6 +307,7 @@ def quality_inspection(d):
             {
                 "inspection_type": d.get("inspection_type"),
                 "report_date": _date(d.get("report_date")),
+                "readings": _readings(d) or None,
                 "status": d.get("status"),
                 "docstatus": d.get("docstatus"),
                 "item_code": d.get("item_code"),
