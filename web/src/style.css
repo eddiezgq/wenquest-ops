@@ -78,3 +78,10 @@ input, select { font: inherit; padding: .4rem .5rem; border: 1px solid var(--lin
 .draft { margin: .8rem 0; }
 .msg { white-space: pre-wrap; font-family: inherit; background: var(--bg); border: 1px solid var(--line);
        border-radius: 6px; padding: .6rem .8rem; }
+.brief { margin-bottom: 1rem; border-left: 4px solid var(--accent); }
+.answer p { margin: .3rem 0; }
+.unverified { background: color-mix(in srgb, var(--warn) 12%, transparent); border-radius: 4px; }
+.tag.warn { color: var(--warn); border-color: var(--warn); margin-left: .4rem; }
+.turn .q { margin-top: 0; }
+.chip { display: inline-block; border: 1px solid var(--line); border-radius: 1rem; padding: .15rem .6rem; margin: 0 .4rem .4rem 0; }
+code { background: var(--bg); padding: 0 .3rem; border-radius: 3px; }

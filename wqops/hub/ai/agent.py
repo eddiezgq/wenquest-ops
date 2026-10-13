@@ -176,6 +176,13 @@ TOPICS = [
 ]
 
 
+def _cite(ref: str, title: str) -> str:
+    """'[SalesOrder:SO-8]' + 'SO-8 Bayside Hardware is late' -> '[SalesOrder:SO-8] Bayside Hardware is late'."""
+    key = ref[1:-1].split(":", 1)[1]
+    rest = title[len(key) :].strip() if title.startswith(key) else title
+    return f"{ref} {rest}".strip()
+
+
 def _fmt(v, unit) -> str:
     if v is None:
         return "unknown"
@@ -202,10 +209,10 @@ def with_rules(ctx: T.Ctx, question: str, tools: dict[str, T.Tool]) -> dict:
         if found:
             obj = use("get_object", type=found["type"], key=found["key"])
             ex = use("explain", type=found["type"], key=found["key"])
-            lines.append(f"{obj['ref']} {obj['title']}.")
+            lines.append(f"{_cite(obj['ref'], obj['title'])}.")
             lines += [f"Open: {a['title']} ({a['severity']})." for a in obj["open_anomalies"]]
             lines += [f"Cause: {s['why']}" for s in ex["causes"]]
-            lines += [f"Affects: {s['why']} {s['to'] or ''}".strip() for s in ex["impact"]]
+            lines += [f"Affects: {s['why']}" for s in ex["impact"]]
             if not obj["open_anomalies"] and not ex["causes"]:
                 lines.append("No open problems and no causes found in the synced data.")
             break
@@ -217,21 +224,25 @@ def with_rules(ctx: T.Ctx, question: str, tools: dict[str, T.Tool]) -> dict:
                 m = use("get_metric", name="on_time_delivery")
                 a = use("list_anomalies")
                 late = [x for x in (a or {}).get("anomalies", []) if x["rule"].startswith("Sales order past")]
-                lines += [f"{x['about']} {x['title']}." for x in late] or ["No sales order is past its delivery date."]
+                lines += [f"{_cite(x['about'], x['title'])}." for x in late] or [
+                    "No sales order is past its delivery date."
+                ]
                 if m:
                     lines.append(f"On-time delivery over 30 days: {_fmt(m['value'], '%')}.")
             elif topic == "anomalies":
                 a = use("list_anomalies")
-                lines += [f"{x['severity']}: {x['title']} {x['about']}." for x in (a or {}).get("anomalies", [])] or [
-                    "No open anomalies."
-                ]
+                lines += [
+                    f"{x['severity']}: {_cite(x['about'], x['title'])}." for x in (a or {}).get("anomalies", [])
+                ] or ["No open anomalies."]
             else:
                 m = use("get_metric", name=topic)
                 if m is None:
                     lines.append(calls[-1]["summary"])
                     break
                 lines.append(f"{m['label']}: {_fmt(m['value'], m['unit'])}. {m['definition']}")
-                lines += [f"{i['title']} [Item:{i['item']}] short {i['short']:g}." for i in m.get("items", [])]
+                lines += [
+                    f"{_cite('[Item:' + i['item'] + ']', i['title'])} short {i['short']:g}." for i in m.get("items", [])
+                ]
                 lines += [
                     f"{s['supplier']}: {_fmt(s['value'], '%')} ({s['on_time']} of {s['total']})."
                     for s in m.get("suppliers", [])
@@ -267,7 +278,7 @@ def draft(ctx: T.Ctx, kind: str, key: str) -> dict:
 
     if kind not in DR.KINDS:
         raise T.ToolError(f"no draft kind {kind}; kinds: {', '.join(DR.KINDS)}")
-    start(ctx, "draft", f"{kind} {key}")
+    start(ctx, "draft", f"Draft {kind.replace('_', ' ')} for {key}")
     out = {"engine": "rules", "tool_calls": [], "unverified": [], "verified": True}
     try:
         res = DR.KINDS[kind](ctx, key)

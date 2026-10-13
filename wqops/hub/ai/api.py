@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from wqops.hub import db as DB
 from wqops.hub import permissions as P
 from wqops.hub.ai import agent as AG
+from wqops.hub.ai import brief as BR
 from wqops.hub.ai import drafting as DR
 from wqops.hub.ai import tools as T
 from wqops.hub.ont import api as OA
@@ -18,7 +19,7 @@ def _run(r: dict) -> dict:
     return {**r, "created_at": r["created_at"].isoformat()}
 
 
-def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0917
+def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0915, PLR0917
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
             raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
@@ -97,3 +98,20 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
             return await asyncio.to_thread(work)
         except T.ToolError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/brief")
+    def get_brief(u=Depends(user_dep), c=Depends(conn_dep)):
+        """Today's brief (or the latest), showing only what this role may see."""
+        need(u, "dashboard:view")
+        row = c.execute("select * from briefs order by day desc limit 1").fetchone()
+        if row is None:
+            raise HTTPException(404, "no brief yet; the first one is made at 7:30 company time")
+        m = company()[0]
+        return BR.view(row, u["roles"], (m or {}).get("company", {}).get("name", "the company"))
+
+    @app.post("/api/brief/generate")
+    def make_brief(u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "ai:configure")
+        m = company()[0]
+        row = BR.generate(c, OA.today(m), m, model)
+        return BR.view(row, u["roles"], (m or {}).get("company", {}).get("name", "the company"))
