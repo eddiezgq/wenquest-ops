@@ -187,6 +187,7 @@ jobs:
           R=(--resolve ops.localtest.me:443:127.0.0.1)
           dc() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" "$@"; }
           time dc exec -T hub python -m wqops.demo.load | tee demo.json
+          dc exec -T hub python - < .github/scripts/erp_consistency.py   # the hub matches ERPNext after a sync
           curl -fsk "${R[@]}" -c jar -H 'content-type: application/json' \
                -d '{"email":"dana@demo.example","password":"Ci-owner-pass-2026"}' https://ops.localtest.me/api/login
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/anomalies | python3 -c "import json,sys
