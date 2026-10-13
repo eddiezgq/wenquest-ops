@@ -89,7 +89,7 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
     <table v-else class="grid">
       <thead><tr><th>Receipt</th><th>Item</th><th>Qty</th><th>Supplier</th><th>Received</th><th></th></tr></thead>
       <tbody><tr v-for="x in rows" :key="x.receipt + x.item_code">
-        <td><RouterLink :to="objectPath('PurchaseReceipt', x.receipt)">{{ x.receipt }}</RouterLink></td>
+        <td><RouterLink :to="objectPath('PurchaseReceipt', x.receipt)">{{ x.receipt }}</RouterLink> <span v-if="x.draft" class="tag">draft, waiting for inspection</span></td>
         <td><RouterLink :to="objectPath('Item', x.item_code)">{{ x.item_code }}</RouterLink></td><td>{{ fmt(x.qty) }}</td>
         <td>{{ x.supplier }}</td><td>{{ x.received }}</td>
         <td v-if="canEdit" class="row"><input v-model="sample[x.receipt + x.item_code]" type="number" min="1" placeholder="Sample size" style="width:7rem">

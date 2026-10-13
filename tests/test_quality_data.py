@@ -94,9 +94,17 @@ def test_supplier_facts(world):
     assert (acme["supplier"], acme["on_time"], acme["lots"], acme["rejection_rate"]) == ("Acme Cable", 100.0, 0, None)
 
 
-def test_awaiting_inspection(world):
-    # BOLT-B must be inspected: PR-2 has inspections; PR-3 and PR-4 do not
-    assert [(x["receipt"], x["item_code"]) for x in IN.awaiting(world)] == [("PR-4", "BOLT-B"), ("PR-3", "BOLT-B")]
+def test_awaiting_inspection(conn):
+    # BOLT-B must be inspected: PR-2 has inspections; PR-3, PR-4 and the draft PR-5 do not; a cancelled one is ignored
+    f = business()
+    f.put("Purchase Receipt", "PR-5", supplier="Acme Cable", posting_date="2026-10-12", docstatus=0,
+          items=[{"item_code": "BOLT-B", "qty": 3}])
+    f.put("Purchase Receipt", "PR-6", supplier="Acme Cable", posting_date="2026-10-12", docstatus=2,
+          items=[{"item_code": "BOLT-B", "qty": 3}])
+    Y.run(conn, ErpClient("http://erp", transport=f.transport()))
+    OP.project(conn, manifest=DEMO)
+    assert [(x["receipt"], x["item_code"], x["draft"]) for x in IN.awaiting(conn)] == [
+        ("PR-4", "BOLT-B", False), ("PR-3", "BOLT-B", False), ("PR-5", "BOLT-B", True)]
 
 
 def test_quality_data_api(db_url):

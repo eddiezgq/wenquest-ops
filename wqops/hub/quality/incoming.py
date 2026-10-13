@@ -14,7 +14,8 @@ def _supplier_of_receipt(conn) -> dict[str, str]:
 
 
 def awaiting(conn) -> list[dict]:
-    """Receipt lines of items marked 'inspect on receipt' with no quality inspection yet (draft or submitted)."""
+    """Receipt lines (draft or submitted receipts) of items marked 'inspect on receipt' that have no quality inspection
+    yet (draft or submitted inspection). ERPNext asks for the inspection before such a receipt is submitted."""
     need = {o["key"] for o in M._objs(conn, "Item") if o["props"].get("inspection_required")}
     done = set()
     for q in M._objs(conn, "QualityInspection"):
@@ -25,12 +26,13 @@ def awaiting(conn) -> list[dict]:
     out = []
     for r in M._objs(conn, "PurchaseReceipt"):
         p = r["props"]
-        if not M._submitted(p) or p.get("is_return"):
+        if p.get("docstatus") not in (0, 1) or p.get("is_return"):   # drafts too: ERPNext wants the inspection first
             continue
         for ln in p.get("lines", []):
             code = ln.get("item_code")
             if code in need and (r["key"], code) not in done:
-                out.append({"receipt": r["key"], "item_code": code, "qty": ln.get("qty"),
+                out.append({"receipt": r["key"], "draft": p.get("docstatus") == 0, "item_code": code,
+                            "qty": ln.get("qty"),
                             "supplier": sup.get(r["key"]), "received": p.get("posting_date")})
                 done.add((r["key"], code))
     return sorted(out, key=lambda x: (x["received"] or "", x["receipt"]))
