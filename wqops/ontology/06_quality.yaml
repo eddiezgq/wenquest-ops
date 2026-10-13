@@ -19,6 +19,7 @@ types:
       reference_name: {t: str, l: Inspected document}
       sample_size: {t: num, l: Sample size}
       inspected_by: {t: str, l: Inspected by}
+      readings: {t: json, l: Measured values}
     links:
       item: {to: Item, l: Item, inv: Inspections}
       purchase_receipt: {to: PurchaseReceipt, l: Receipt, inv: Inspections}

@@ -11,8 +11,11 @@ from decimal import Decimal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops.hub import drafts as D
 from wqops.hub import permissions as P
+from wqops.hub.ont import api as OA
 from wqops.hub.ont import project as OP
+from wqops.hub.quality import incoming as IN
 from wqops.hub.quality import records as Q
 
 
@@ -153,3 +156,50 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
                          "c.id = a.capa_id where a.owner = %s and not a.done order by a.due nulls last",
                          (u["email"],)).fetchall()
         return [_iso(r) for r in rows]
+
+    @app.get("/api/quality/incoming")
+    def incoming(u=Depends(user_dep), c=Depends(conn_dep)):
+        """Receipts of items to inspect on receipt that have no inspection yet (ADR-0009 item 4)."""
+        need(u, "quality:view")
+        return IN.awaiting(c)
+
+    @app.post("/api/quality/incoming/draft", status_code=201)
+    async def draft_inspection(request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        """Prepare an ERPNext quality inspection draft for a receipt line; Quality confirms it on the Drafts page."""
+        need(u, "quality:edit")
+        d = await body(request)
+        try:
+            size = float(d.get("sample_size"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, "give the sample size you will inspect") from exc
+        if size <= 0:
+            raise HTTPException(400, "the sample size must be above 0")
+        line = next((x for x in IN.awaiting(c) if x["receipt"] == d.get("receipt") and
+                     x["item_code"] == d.get("item_code")), None)
+        if line is None:
+            raise HTTPException(409, "that receipt line is not waiting for inspection")
+        payload = {"inspection_type": "Incoming", "reference_type": "Purchase Receipt",
+                   "reference_name": line["receipt"], "item_code": line["item_code"], "sample_size": size,
+                   "report_date": str(OA.today(company()[0]))}
+        try:
+            return D.propose(c, u, "Quality Inspection", payload,
+                             summary=f"Incoming inspection of {line['item_code']} from {line['receipt']}")
+        except D.DraftError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/quality/suppliers")
+    def supplier_scores(days: int = 90, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        if days not in (30, 90, 180, 365):
+            raise HTTPException(400, "days must be 30, 90, 180 or 365")
+        return IN.supplier_scores(c, OA.today(company()[0]), days)
+
+    @app.get("/api/quality/spc/parameters")
+    def spc_parameters(u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        return IN.parameters(c)
+
+    @app.get("/api/quality/spc")
+    def spc_chart(item_code: str, parameter: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        return IN.spc_for(c, item_code, parameter)

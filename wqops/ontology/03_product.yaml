@@ -15,3 +15,4 @@ types:
       stock_uom: {t: str, l: Unit}
       is_stock_item: {t: bool, l: Kept in stock}
       disabled: {t: bool, l: Disabled}
+      inspection_required: {t: bool, l: Inspect on receipt}
