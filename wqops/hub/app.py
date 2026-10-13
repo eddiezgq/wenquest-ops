@@ -92,6 +92,11 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     WQO_SYNC_SECONDS; tests leave it off)."""
     checks = checks if checks is not None else {"database": check_db, "erpnext": check_erp}
     db_url = db_url if db_url is not None else os.environ.get("WQO_DB")
+    if ai is None:
+        from wqops.hub.ai import llm as L  # noqa: PLC0415
+
+        ai = L.Anthropic()
+    ai_model = ai
 
     def sync_now(trigger: str) -> dict:
         """Pull ERPNext changes, then bring the ops hub objects up to date (ADR-0006, ADR-0007)."""
@@ -100,6 +105,16 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
             out["objects"] = OP.project(c, manifest=company()[0])
             out["anomalies"] = AN.detect(c, OA.today(company()[0]))
             return out
+
+    def brief_if_due() -> None:
+        from wqops.hub.ai import brief as BR  # noqa: PLC0415
+
+        m = company()[0]
+        with DB.connect(db_url) as c:
+            day = BR.due(c, m)
+            if day:
+                BR.generate(c, day, m, ai_model)
+                log.info("daily brief for %s made", day)
 
     async def sync_loop():
         await asyncio.sleep(min(15.0, sync_seconds))
@@ -111,6 +126,10 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 pass
             except Exception:  # keep the loop alive; the run log has the error
                 log.exception("ERPNext sync failed")
+            try:
+                await asyncio.to_thread(brief_if_due)
+            except Exception:
+                log.exception("daily brief failed")
             await asyncio.sleep(sync_seconds)
 
     @contextlib.asynccontextmanager
@@ -329,9 +348,8 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     OA.mount_dashboard(app, conn, current_user, company)
     OA.mount_anomalies(app, conn, current_user, company)
     from wqops.hub.ai import api as AIA  # noqa: PLC0415
-    from wqops.hub.ai import llm as L  # noqa: PLC0415
 
-    AIA.mount(app, conn, current_user, company, ai if ai is not None else L.Anthropic(), db_url)
+    AIA.mount(app, conn, current_user, company, ai_model, db_url)
 
     @app.get("/api/workspace")
     def workspace(u=Depends(current_user)):

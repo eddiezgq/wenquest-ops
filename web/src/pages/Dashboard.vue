@@ -3,8 +3,10 @@ import { onMounted, ref, watch } from 'vue'
 import { api, objectPath } from '../api'
 import { fmt } from '../format'
 import Trend from '../components/Trend.vue'
+import Answer from '../components/Answer.vue'
 
 const days = ref(30)
+const brief = ref(null)
 const data = ref(null)
 const active = ref([])
 const error = ref('')
@@ -14,6 +16,7 @@ async function load() {
   try {
     data.value = await api(`/api/dashboard?days=${days.value}`)
     active.value = await api('/api/anomalies')
+    brief.value = await api('/api/brief').catch(() => null)
   } catch (e) {
     error.value = e.message
   }
@@ -33,6 +36,10 @@ const unitOf = { on_time_delivery: '%', supplier_on_time: '%', open_nonconforman
     </label>
   </div>
   <p v-if="error" class="err">{{ error }}</p>
+  <article v-if="brief" class="card brief">
+    <h3>Daily brief <span class="muted small">{{ brief.day }}</span></h3>
+    <Answer :text="brief.text" />
+  </article>
   <template v-if="data">
     <p class="muted">As of {{ data.as_of }}. Hover a number to see how it is counted.</p>
     <section class="cards">

@@ -30,6 +30,7 @@ async function signOut() {
     </div>
     <nav>
       <RouterLink to="/" exact-active-class="on">Dashboard</RouterLink>
+      <RouterLink to="/assistant" active-class="on">Assistant</RouterLink>
       <RouterLink to="/anomalies" active-class="on">Anomalies</RouterLink>
       <RouterLink to="/objects" active-class="on">Objects</RouterLink>
       <RouterLink to="/drafts" active-class="on">Drafts</RouterLink>

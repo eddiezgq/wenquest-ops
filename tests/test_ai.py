@@ -77,7 +77,7 @@ def test_verify_numbers():
 def test_rule_engine_late_orders(world):
     out = AG.ask(ctx(world, DANA), "Which orders are late?")
     assert out["engine"] == "rules" and out["verified"]
-    assert "[SalesOrder:SO-8] SO-8 Bayside Hardware is 4 days late." in out["answer"]
+    assert "[SalesOrder:SO-8] Bayside Hardware is 4 days late." in out["answer"]   # the link shows SO-8
     assert "On-time delivery over 30 days: 50%." in out["answer"]
     assert [c["tool"] for c in out["tool_calls"]] == ["get_metric", "list_anomalies"]
     run = world.execute("select * from ai_runs where id = %s", (out["run_id"],)).fetchone()
