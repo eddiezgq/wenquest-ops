@@ -144,6 +144,14 @@ ERPNext. People with "Change platform settings" can start a run at once (`POST /
 After each run the ops hub turns the new events into objects and links (items, orders, receipts, stock levels, ...);
 the ontology that defines them is in `wqops/ontology/`.
 
+### AI assistant
+
+The assistant answers questions about orders, stock, suppliers and quality using only the hub's own tools, with the
+permissions of the person asking. To use Claude, put the company's Anthropic API key in `.env` as
+`WQO_ANTHROPIC_API_KEY` (optionally `WQO_AI_MODEL`) and restart the hub (`docker compose -p wqo up -d hub`).
+Without a key a built-in rule engine answers common questions. Every run (question, tools used, answer, number
+check, token use) is kept and visible to people with "Configure the AI assistant" (`GET /api/ai/runs?everyone=true`).
+
 ### Monitoring
 
 - `https://<domain>/api/health` returns 200 with `{"ok": true, ...}` when the database, ERPNext and the company

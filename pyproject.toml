@@ -50,3 +50,4 @@ ignore = ["PLR2004", "PLR0913", "S101", "RUF001", "RUF002", "RUF003"]  # RUF00x:
 "tests/**" = ["S", "PLR", "PLC0415"]
 "wqops/hub/app.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/ont/api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
+"wqops/hub/ai/api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
