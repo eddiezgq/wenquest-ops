@@ -1,6 +1,8 @@
-"""Drafts for ERPNext (ADR-0006 item 5): propose, then a person confirms; only then is a Draft created in ERPNext.
+"""Drafts (ADR-0006 item 5, ADR-0008 item 3): propose, then a person confirms; only then does anything happen.
 
-WenQuest Ops never submits, cancels or deletes ERPNext documents: the draft is submitted by a person in ERPNext.
+ERPNext drafts become Draft documents in ERPNext (docstatus 0); a person submits them in ERPNext. WenQuest Ops never
+submits, cancels or deletes ERPNext documents. Hub drafts stay in the hub: a confirmed customer message is ready for a
+person to send; a confirmed nonconformance report becomes an NCR record.
 """
 
 from __future__ import annotations
@@ -15,7 +17,10 @@ DRAFTABLE: dict[str, tuple[str, tuple[str, ...]]] = {
     "Purchase Order": ("purchasing:draft", ("supplier", "items")),
     "Material Request": ("purchasing:draft", ("material_request_type", "items")),
     "Quality Inspection": ("quality:edit", ("inspection_type", "reference_type", "reference_name", "item_code")),
+    "Customer Message": ("sales:view", ("customer", "sales_order", "subject", "body")),
+    "Nonconformance Report": ("quality:edit", ("inspection", "item_code", "title", "description")),
 }
+HUB_KINDS = {"Customer Message", "Nonconformance Report"}
 # set by ERPNext, or would turn a draft into something else
 _NOT_ALLOWED = {"name", "docstatus", "amended_from", "owner", "creation", "modified", "modified_by", "idx"}
 
@@ -73,7 +78,7 @@ def _log(conn, draft_id: int, email: str | None, action: str, detail: str = "") 
 
 def public(row: dict) -> dict:
     out = {k: row[k] for k in ("id", "doctype", "summary", "payload", "source", "ai_run", "proposed_by", "status",
-                               "decided_by", "erp_name", "error")}
+                               "decided_by", "erp_name", "error", "target", "record")}
     out["created_at"] = row["created_at"].isoformat()
     out["decided_at"] = row["decided_at"].isoformat() if row["decided_at"] else None
     return out
@@ -88,9 +93,10 @@ def propose(conn, user: dict, doctype: str, payload, *, summary: str = "", sourc
         raise DraftError("source must be person or ai")
     fields = clean(doctype, payload)
     with conn.transaction():
-        row = conn.execute("insert into erp_drafts (doctype, summary, payload, source, ai_run, proposed_by) "
-                           "values (%s, %s, %s, %s, %s, %s) returning *",
-                           (doctype, summary[:500], Jsonb(fields), source, ai_run, user["email"])).fetchone()
+        row = conn.execute("insert into erp_drafts (doctype, summary, payload, source, ai_run, proposed_by, target) "
+                           "values (%s, %s, %s, %s, %s, %s, %s) returning *",
+                           (doctype, summary[:500], Jsonb(fields), source, ai_run, user["email"],
+                            "hub" if doctype in HUB_KINDS else "erpnext")).fetchone()
         _log(conn, row["id"], user["email"], "proposed", source if not ai_run else f"ai run {ai_run}")
     return public(row)
 
@@ -119,6 +125,8 @@ def confirm(conn, user: dict, draft_id: int, erp: ErpClient) -> dict:
                            "('pending', 'failed') returning *", (draft_id,)).fetchone()
     if claimed is None:
         raise Conflict(f"this draft is already {row['status']}")
+    if row["doctype"] in HUB_KINDS:
+        return _confirm_hub(conn, user, row)
     try:
         doc = erp.insert({"doctype": row["doctype"], **row["payload"], "docstatus": 0})
         if int(doc.get("docstatus") or 0) != 0:  # never expected; would mean ERPNext submitted it
@@ -136,6 +144,25 @@ def confirm(conn, user: dict, draft_id: int, erp: ErpClient) -> dict:
                            (doc["name"], user["email"], draft_id)).fetchone()
         _log(conn, draft_id, user["email"], "confirmed", doc["name"])
     return public(row)
+
+
+def _confirm_hub(conn, user: dict, row: dict) -> dict:
+    p = row["payload"]
+    with conn.transaction():
+        record, note = None, "ready to send"
+        if row["doctype"] == "Nonconformance Report":
+            n = conn.execute("select coalesce(max(id), 0) + 1 as n from ncr_records").fetchone()["n"]
+            record = f"NCR-{n:05d}"
+            conn.execute("insert into ncr_records (name, draft_id, title, description, inspection, item_code, receipt, "
+                         "supplier, quantity, created_by) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                         (record, row["id"], p["title"], p["description"], p.get("inspection"), p.get("item_code"),
+                          p.get("receipt"), p.get("supplier"), p.get("quantity"), user["email"]))
+            note = record
+        out = conn.execute("update erp_drafts set status = 'confirmed', record = %s, error = null, decided_by = %s, "
+                           "decided_at = now() where id = %s returning *",
+                           (record, user["email"], row["id"])).fetchone()
+        _log(conn, row["id"], user["email"], "confirmed", note)
+    return public(out)
 
 
 def reject(conn, user: dict, draft_id: int, reason: str = "") -> dict:

@@ -32,6 +32,7 @@ async function signOut() {
       <RouterLink to="/" exact-active-class="on">Dashboard</RouterLink>
       <RouterLink to="/anomalies" active-class="on">Anomalies</RouterLink>
       <RouterLink to="/objects" active-class="on">Objects</RouterLink>
+      <RouterLink to="/drafts" active-class="on">Drafts</RouterLink>
       <a v-if="ws.erp_url" :href="ws.erp_url + '/login'" target="_blank" rel="noopener">ERPNext ↗</a>
     </nav>
     <div class="me">

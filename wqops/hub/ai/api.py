@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from wqops.hub import db as DB
 from wqops.hub import permissions as P
 from wqops.hub.ai import agent as AG
+from wqops.hub.ai import drafting as DR
 from wqops.hub.ai import tools as T
 from wqops.hub.ont import api as OA
 
@@ -17,7 +18,7 @@ def _run(r: dict) -> dict:
     return {**r, "created_at": r["created_at"].isoformat()}
 
 
-def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, extra_tools=None) -> None:  # noqa: PLR0917
+def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0917
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
             raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
@@ -42,7 +43,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
 
         def work():
             with DB.connect(db_url) as c:
-                return AG.ask(ctx(c, u), q, model, extra_tools() if extra_tools else None)
+                return AG.ask(ctx(c, u), q, model, DR.DRAFT_TOOLS)
 
         return await asyncio.to_thread(work)
 
@@ -80,3 +81,19 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
             raise HTTPException(400, "useful must be true or false")
         c.execute("update ai_runs set feedback = %s where id = %s", (1 if useful else -1, rid))
         return {"ok": True}
+
+    @app.post("/api/ai/draft")
+    async def ai_draft(request: Request, u=Depends(user_dep)):
+        """Prepare a draft from an object: purchase_order (item), delay_message (sales order), nonconformance
+        (inspection). It stays pending until a person confirms it."""
+        need(u, "ai:use")
+        data = await request.json()
+
+        def work():
+            with DB.connect(db_url) as c:
+                return AG.draft(ctx(c, u), str(data.get("kind", "")), str(data.get("key", "")))
+
+        try:
+            return await asyncio.to_thread(work)
+        except T.ToolError as exc:
+            raise HTTPException(400, str(exc)) from exc
