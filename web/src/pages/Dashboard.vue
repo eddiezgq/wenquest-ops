@@ -55,7 +55,7 @@ const unitOf = { on_time_delivery: '%', supplier_on_time: '%', open_nonconforman
         </p>
         <ul class="list small">
           <li v-for="o in (m.late || []).slice(0, 5)" :key="o.key">
-            <RouterLink :to="objectPath('SalesOrder', o.key)">{{ o.title }}</RouterLink> {{ o.days_late }} days late</li>
+            <RouterLink :to="objectPath('SalesOrder', o.key)">{{ o.title }}</RouterLink> {{ o.days_late }} day{{ o.days_late === 1 ? '' : 's' }} late</li>
           <li v-for="i in (m.items || []).slice(0, 5)" :key="i.item">
             <RouterLink :to="objectPath('Item', i.item)">{{ i.title }}</RouterLink> short {{ fmt(i.short) }}</li>
           <li v-for="s in (m.suppliers || []).slice(0, 5)" :key="s.supplier">{{ s.supplier }}: {{ fmt(s.value, '%') }}

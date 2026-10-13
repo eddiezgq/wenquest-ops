@@ -2,6 +2,8 @@
 
 The dashboard shows the last 7, 30 or 90 days. Hover a number to see exactly how it is counted.
 
+![The dashboard of the demo company](img/dashboard.webp)
+
 | Number | How it is counted |
 | --- | --- |
 | On-time delivery | Sales orders fully delivered in the period whose last delivery note is on or before the delivery date |

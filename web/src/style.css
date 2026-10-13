@@ -110,6 +110,7 @@ tr.warn td { color: var(--warn); }
 .prose h1 { margin-top: 0; }
 .prose table { border-collapse: collapse; width: 100%; margin: .6rem 0; }
 .prose th, .prose td { border-bottom: 1px solid var(--line); padding: .35rem .5rem; text-align: left; vertical-align: top; }
+.prose img { max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; margin: .4rem 0 .8rem; }
 .tour { position: fixed; z-index: 50; width: min(340px, calc(100vw - 24px)); background: var(--panel);
         border: 1px solid var(--accent); border-radius: 10px; padding: .8rem 1rem; box-shadow: 0 8px 28px rgba(0,0,0,.18); }
 .tour h3 { margin: .1rem 0 .3rem; }

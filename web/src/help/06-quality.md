@@ -2,6 +2,8 @@
 
 ## Nonconformance reports (NCR)
 
+![A nonconformance report](img/quality-ncr.webp)
+
 A rejected inspection opens a report automatically; you can also open one by hand.
 
 1. **Contain** — what was done so bad parts go no further (for example, moved to QC Hold).
@@ -36,6 +38,8 @@ Facts per supplier: lots inspected and rejected, rejection rate, on-time rate, N
 corrective actions. No made-up score.
 
 ## Control charts (SPC)
+
+![Control chart of a drifting parameter](img/quality-spc.webp)
 
 Numeric readings on ERPNext inspections become control charts per item and parameter: X-bar and R when every
 inspection has the same number of readings (2–10), otherwise individuals. Points that break a Western Electric rule

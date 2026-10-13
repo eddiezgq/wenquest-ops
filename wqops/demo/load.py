@@ -212,13 +212,14 @@ def main(argv=None) -> int:
 
     manifest = C.load(os.environ["WQO_COMPANY_FILE"])
     today = a.today or OA.today(manifest)
-    try:
-        out = Loader(client_from_env(), manifest, today).run()
-    except DemoError as exc:
-        print(f"demo data not loaded: {exc}", file=sys.stderr)
-        return 1
     with DB.connect(os.environ["WQO_DB"]) as conn:
         DB.migrate(conn)
+        try:
+            with Y.paused(conn):     # the hub syncs once the whole business is in ERPNext, not half of it
+                out = Loader(client_from_env(), manifest, today).run()
+        except DemoError as exc:
+            print(f"demo data not loaded: {exc}", file=sys.stderr)
+            return 1
         Y.run(conn, client_from_env(), trigger="demo")
         OP.project(conn, manifest=manifest)
         out["quality"] = quality_records(conn, manifest, out["rejected_inspection"], today)

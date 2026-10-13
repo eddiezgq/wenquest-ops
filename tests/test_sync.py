@@ -125,6 +125,21 @@ def test_one_run_at_a_time(conn, erp, db_url):
     assert Y.run(conn, erp)["events"]["Item"] == 1
 
 
+def test_paused_keeps_other_runs_out_until_the_end(conn, erp, db_url):
+    """A tool writing many documents (the demo load) pauses the sync so no run sees the business half written."""
+    other = DB.connect(db_url)
+    try:
+        with Y.paused(other):
+            with pytest.raises(Y.SyncBusy):
+                Y.run(conn, erp)
+            assert Y.run(other, erp)["events"]["Item"] == 1    # the pausing session itself may run
+            with pytest.raises(Y.SyncBusy):                     # ... and its run does not end the pause
+                Y.run(conn, erp)
+        assert Y.run(conn, erp)["events"]["Item"] == 0           # free again once the pause ends
+    finally:
+        other.close()
+
+
 def test_fetch_page_asks_erpnext_to_compare(fake, erp):
     """Ordering and comparisons are left to ERPNext, so its collation decides, not Python's."""
     Y.fetch_page(erp, "Item", ("2026-10-12 09:00:01.000000", "WIDGET-01"), 5, fields=["name", "modified"])
