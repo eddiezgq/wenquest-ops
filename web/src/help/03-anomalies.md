@@ -19,3 +19,5 @@ Every step states its reason and numbers.
 
 **Life cycle.** Acknowledge, mark as being worked on, or close with a note. When the condition goes away for two
 syncs in a row, the anomaly resolves itself. Everything is logged.
+
+![A late order traced to a short item and a late supplier](img/anomaly-late-order.webp)

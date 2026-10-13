@@ -9,6 +9,12 @@ from __future__ import annotations
 import datetime as dt
 from collections import defaultdict
 
+
+def days(n: int) -> str:
+    """'1 day', '3 days' (titles and causes people read)."""
+    return f"{n} day" if n == 1 else f"{n} days"
+
+
 OPEN_SO = ("To Deliver and Bill", "To Deliver")  # ERPNext statuses with goods still to ship
 DOI_DAYS = 90
 

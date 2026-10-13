@@ -103,7 +103,7 @@ class Walk:
         for o, _ln, left, due in open_pos:
             notes = []
             if due and due < self.today:
-                notes.append(f"{(self.today - due).days} days past its required-by date {due}")
+                notes.append(f"{M.days((self.today - due).days)} past its required-by date {due}")
             elif due and need_by and due > need_by:
                 notes.append(f"arrives {due}, after the order needs it ({need_by})")
             elif due:
@@ -297,7 +297,7 @@ def explain(conn, type_: str, key: str, today: dt.date) -> dict:  # noqa: PLR091
                 ("Supplier", key),
                 ("PurchaseOrder", o["key"]),
                 "late order",
-                f"{o['key']} is {max(x['days_late'] for x in late)} days late.",
+                f"{o['key']} is {M.days(max(x['days_late'] for x in late))} late.",
                 1,
             ):
                 for x in late:

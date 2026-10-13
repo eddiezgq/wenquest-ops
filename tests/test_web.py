@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -73,3 +74,13 @@ def test_web_builds(tmp_path):
                          capture_output=True, text=True, timeout=180, check=False)
     assert out.returncode == 0, out.stdout + out.stderr
     assert (tmp_path / "dist/index.html").is_file()
+
+
+def test_help_images_exist_and_are_used():
+    """Help pages show screenshots CI recorded on the demo company (ADR-0012 item 7); no broken or unused image."""
+    help_dir = ROOT / "web" / "src" / "help"
+    used = {m for p in help_dir.glob("*.md") for m in re.findall(r"!\[[^\]]+\]\((img/[^)]+)\)", p.read_text())}
+    files = {f"img/{p.name}" for p in (help_dir / "img").glob("*")}
+    assert used, "the help pages show no screenshots"
+    assert used <= files, used - files
+    assert files <= used, files - used

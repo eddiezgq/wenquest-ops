@@ -63,7 +63,7 @@ def order_late(conn, rule: dict, today: dt.date) -> list[Finding]:
             out.append(
                 Finding(
                     ("SalesOrder", o["key"]),
-                    f"{o['title']} is {late} days late",
+                    f"{o['title']} is {M.days(late)} late",
                     f"Delivery date {due}; {o['props'].get('per_delivered', 0):g}% delivered.",
                     sev,
                     {"days_late": late, "delivery_date": str(due)},
@@ -136,7 +136,7 @@ def po_late(conn, rule: dict, today: dt.date) -> list[Finding]:
             out.append(
                 Finding(
                     ("PurchaseOrder", o["key"]),
-                    f"{o['title']} is {worst} days late",
+                    f"{o['title']} is {M.days(worst)} late",
                     "; ".join(f"{x['item']}: {x['left']:g} not received, due {x['due']}" for x in late),
                     rule["severity"],
                     {"lines": late},
@@ -192,7 +192,7 @@ def capa_overdue(conn, rule: dict, today: dt.date) -> list[Finding]:
             out.append(
                 Finding(
                     ("Capa", c["key"]),
-                    f"{c['title']}: action {(today - due).days} days overdue",
+                    f"{c['title']}: action {M.days((today - due).days)} overdue",
                     f"An action was due {due} and is not done.",
                     rule["severity"],
                     {"due": str(due), "days_overdue": (today - due).days},

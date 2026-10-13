@@ -125,7 +125,8 @@ def screens(b) -> dict:
     ctx = b.new_context(viewport=VIEW, ignore_https_errors=True)
     page = ctx.new_page()
     sign_in(page)
-    shot(page, "tour", None, ".tour")
+    page.wait_for_selector(".cards", timeout=30_000)
+    shot(page, "tour", None, ".tour-on")
     ctx.close()
     return f
 

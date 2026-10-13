@@ -3,6 +3,8 @@
 Ask in plain English: *Which orders are late, and why?*, *What is short?*, *How is Gulf Fasteners doing?*,
 *What is wrong with PO-0031?*
 
+![The assistant answering from the records, with links](img/assistant.webp)
+
 - The assistant reads only what your role can see, through the same tools the pages use. It cannot see the
   database or the internet.
 - It cites what it used: click the order or item numbers in the answer.
