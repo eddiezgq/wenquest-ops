@@ -11,6 +11,7 @@ so many documents changed at the same instant are not skipped.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -149,6 +150,17 @@ def _sync_deleted(conn, erp: ErpClient, run_id: int, doctypes: list[str], page: 
             _save_cursor(conn, DELETED, rows[-1])
         if len(rows) < page:
             return events
+
+
+@contextlib.contextmanager
+def paused(conn):
+    """Hold the sync lock so no run starts meanwhile (waits for a running one), e.g. while a tool writes many
+    documents into ERPNext; a run in between would see the business half written."""
+    conn.execute("select pg_advisory_lock(%s)", (LOCK_ID,))
+    try:
+        yield
+    finally:
+        conn.execute("select pg_advisory_unlock(%s)", (LOCK_ID,))
 
 
 def run(conn, erp: ErpClient, *, trigger: str = "manual", page: int = PAGE, specs: tuple[Spec, ...] = SPECS) -> dict:

@@ -194,6 +194,10 @@ jobs:
           rules = {a['rule'] for a in json.load(sys.stdin)}; print(sorted(rules))
           need = {'order_late', 'item_short', 'po_late', 'supplier_on_time_low', 'capa_overdue'}
           assert need <= rules, need - rules"
+          # nothing left over from a half-written business: the late orders are the recent ones the scenario makes
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/anomalies | python3 -c "import json,sys
+          old = [a['title'] for a in json.load(sys.stdin) if a['rule'] == 'order_late' and a['values']['days_late'] > 30]
+          assert not old, old"
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/dashboard | python3 -c "import json,sys
           m = {x['name']: x['value'] for x in json.load(sys.stdin)['metrics']}; print(m)
           assert m['on_time_delivery'] is not None and m['inventory_value'] and m['supplier_on_time'] is not None, m"
