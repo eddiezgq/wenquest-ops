@@ -43,3 +43,9 @@ rules:
     view: quality:view
     owner: quality
     hint: Quarantine the lot, open a nonconformance report, and inform the supplier.
+  capa_overdue:
+    name: Corrective action overdue
+    severity: warn
+    view: quality:view
+    owner: quality
+    hint: Ask the action owner for a date, or reassign the action.

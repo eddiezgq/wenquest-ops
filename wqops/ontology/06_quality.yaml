@@ -23,3 +23,37 @@ types:
       item: {to: Item, l: Item, inv: Inspections}
       purchase_receipt: {to: PurchaseReceipt, l: Receipt, inv: Inspections}
       delivery_note: {to: DeliveryNote, l: Delivery, inv: Inspections}
+  Nonconformance:
+    label: Nonconformance report
+    maturity: have
+    source: WenQuest Ops quality module (NCR)
+    key: NCR number
+    title: "{key} {title}"
+    props:
+      title: {t: str, l: Title}
+      status: {t: str, l: Status}
+      severity: {t: str, l: Severity}
+      disposition: {t: str, l: Disposition}
+      quantity: {t: num, l: Quantity}
+      owner: {t: str, l: Owner}
+      opened: {t: date, l: Opened}
+    links:
+      item: {to: Item, l: Item, inv: Nonconformances}
+      supplier: {to: Supplier, l: Supplier, inv: Nonconformances}
+      receipt: {to: PurchaseReceipt, l: Receipt, inv: Nonconformances}
+      inspection: {to: QualityInspection, l: Inspection, inv: Nonconformances}
+  Capa:
+    label: Corrective / preventive action
+    maturity: have
+    source: WenQuest Ops quality module (CAPA)
+    key: CAPA number
+    title: "{key} {title}"
+    props:
+      title: {t: str, l: Title}
+      kind: {t: str, l: Kind}
+      status: {t: str, l: Status}
+      owner: {t: str, l: Owner}
+      next_due: {t: date, l: Next action due}
+      result: {t: str, l: Effectiveness}
+    links:
+      ncr: {to: Nonconformance, l: For nonconformance, inv: Corrective actions}

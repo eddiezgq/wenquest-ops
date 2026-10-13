@@ -423,6 +423,28 @@ def warehouse_kinds(conn, onto: S.Ontology, manifest: dict | None) -> None:
         )
 
 
+def quality(conn, onto: S.Ontology) -> None:
+    """Nonconformance reports and corrective / preventive actions from the quality module (ADR-0009 item 7)."""
+    for r in conn.execute("select * from ncr_records order by id").fetchall():
+        props = _clean({"title": r["title"], "status": r["status"], "severity": r["severity"],
+                        "disposition": r["disposition"], "owner": r["owner"],
+                        "opened": r["created_at"].date().isoformat(),
+                        "quantity": float(r["quantity"]) if r["quantity"] is not None else None})
+        links = (_many("item", "Item", [r["item_code"]]) + _many("supplier", "Supplier", [r["supplier"]])
+                 + _many("receipt", "PurchaseReceipt", [r["receipt"]])
+                 + _many("inspection", "QualityInspection", [r["inspection"]]))
+        upsert(conn, onto, Obj("Nonconformance", r["name"], props, links), kind="updated",
+               at=r["updated_at"].isoformat())
+    for c in conn.execute("select c.*, n.name as ncr_name, (select min(due) from capa_actions a where a.capa_id = c.id "
+                          "and not a.done) as next_due from capas c left join ncr_records n on n.id = c.ncr_id "
+                          "order by c.id").fetchall():
+        props = _clean({"title": c["title"], "kind": c["kind"], "status": c["status"], "owner": c["owner"],
+                        "next_due": c["next_due"].isoformat() if c["next_due"] else None,
+                        "result": c["verification_result"]})
+        upsert(conn, onto, Obj("Capa", c["name"], props, _many("ncr", "Nonconformance", [c["ncr_name"]])),
+               kind="updated", at=c["updated_at"].isoformat())
+
+
 def people(conn, onto: S.Ontology, manifest: dict | None) -> None:
     if not manifest:
         return
@@ -496,6 +518,7 @@ def project(
     with conn.transaction():
         warehouse_kinds(conn, onto, manifest)
         people(conn, onto, manifest)
+        quality(conn, onto)
     return {"events": n_events, "objects": len(touched), "last_event": last}
 
 

@@ -350,6 +350,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.ai import api as AIA  # noqa: PLC0415
 
     AIA.mount(app, conn, current_user, company, ai_model, db_url)
+    from wqops.hub.quality import api as QA  # noqa: PLC0415
+
+    QA.mount(app, conn, current_user, company)
 
     @app.get("/api/workspace")
     def workspace(u=Depends(current_user)):

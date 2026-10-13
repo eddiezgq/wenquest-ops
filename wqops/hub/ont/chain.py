@@ -251,6 +251,38 @@ def explain(conn, type_: str, key: str, today: dt.date) -> dict:  # noqa: PLR091
             "select props from ont_objects where type = 'QualityInspection' and key = %s", (key,)
         ).fetchone()
         code = qi["props"].get("item_code") if qi else None
+        for n in conn.execute(
+            "select o.key, o.props from ont_links l join ont_objects o on o.type = l.src_type and "
+            "o.key = l.src_key where l.src_type = 'Nonconformance' and l.type = 'inspection' and "
+            "l.dst_key = %s and not o.deleted",
+            (key,),
+        ).fetchall():
+            if w.step(
+                ("QualityInspection", key),
+                ("Nonconformance", n["key"]),
+                "reported in",
+                f"{n['key']} is {n['props'].get('status')}"
+                + (
+                    f", disposition {n['props']['disposition'].replace('_', ' ')}."
+                    if n["props"].get("disposition")
+                    else "."
+                ),
+                1,
+            ):
+                for cp in conn.execute(
+                    "select o.key, o.props from ont_links l join ont_objects o on o.type = l.src_type "
+                    "and o.key = l.src_key where l.src_type = 'Capa' and l.type = 'ncr' and "
+                    "l.dst_key = %s and not o.deleted",
+                    (n["key"],),
+                ).fetchall():
+                    w.step(
+                        ("Nonconformance", n["key"]),
+                        ("Capa", cp["key"]),
+                        "corrected by",
+                        f"{cp['key']} ({cp['props'].get('kind')}) is "
+                        f"{cp['props'].get('status', '').replace('_', ' ')}.",
+                        2,
+                    )
         if code and w.step(("QualityInspection", key), ("Item", code), "affects", f"Rejected lot of {code}.", 1):
             w.item_impact(code, 2)
     elif type_ == "Supplier":

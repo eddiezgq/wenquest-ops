@@ -45,7 +45,7 @@ const unitOf = { on_time_delivery: '%', supplier_on_time: '%', open_nonconforman
     <section class="cards">
       <article v-for="m in data.metrics" :key="m.name" class="card">
         <h3>{{ m.label }}</h3>
-        <p class="big" :title="m.definition">{{ fmt(m.value, m.unit === 'items' || m.unit === 'inspections' ? '' : m.unit) }}</p>
+        <p class="big" :title="m.definition">{{ fmt(m.value, ['items', 'inspections', 'open'].includes(m.unit) ? '' : m.unit) }}</p>
         <p class="muted small">
           <template v-if="m.name === 'on_time_delivery' || m.name === 'supplier_on_time'">
             {{ m.on_time }} of {{ m.total }} on time<span v-if="m.unknown.length">; {{ m.unknown.length }} unknown</span>
@@ -60,6 +60,8 @@ const unitOf = { on_time_delivery: '%', supplier_on_time: '%', open_nonconforman
             <RouterLink :to="objectPath('Item', i.item)">{{ i.title }}</RouterLink> short {{ fmt(i.short) }}</li>
           <li v-for="s in (m.suppliers || []).slice(0, 5)" :key="s.supplier">{{ s.supplier }}: {{ fmt(s.value, '%') }}
             ({{ s.on_time }}/{{ s.total }})</li>
+          <li v-for="n in (m.ncrs || []).slice(0, 5)" :key="n.key">
+            <RouterLink :to="objectPath('Nonconformance', n.key)">{{ n.title }}</RouterLink> {{ n.status }}</li>
           <li v-for="q in (m.inspections || []).slice(0, 5)" :key="q.key">
             <RouterLink :to="objectPath('QualityInspection', q.key)">{{ q.title }}</RouterLink></li>
           <li v-for="(v, w) in (m.by_warehouse || {})" :key="w">{{ w }}: {{ fmt(v, 'currency') }}</li>
