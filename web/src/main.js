@@ -8,6 +8,9 @@ import Anomalies from './pages/Anomalies.vue'
 import AnomalyPage from './pages/AnomalyPage.vue'
 import Drafts from './pages/Drafts.vue'
 import Assistant from './pages/Assistant.vue'
+import Quality from './pages/Quality.vue'
+import NcrPage from './pages/NcrPage.vue'
+import CapaPage from './pages/CapaPage.vue'
 import './style.css'
 
 const router = createRouter({
@@ -20,6 +23,9 @@ const router = createRouter({
     { path: '/anomalies/:id', component: AnomalyPage, meta: { title: 'Anomaly' } },
     { path: '/drafts', component: Drafts, meta: { title: 'Drafts' } },
     { path: '/assistant', component: Assistant, meta: { title: 'Assistant' } },
+    { path: '/quality', component: Quality, meta: { title: 'Quality' } },
+    { path: '/quality/ncr/:id', component: NcrPage, meta: { title: 'Nonconformance' } },
+    { path: '/quality/capa/:id', component: CapaPage, meta: { title: 'Corrective action' } },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })

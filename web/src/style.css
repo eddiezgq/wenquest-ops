@@ -85,3 +85,14 @@ input, select { font: inherit; padding: .4rem .5rem; border: 1px solid var(--lin
 .turn .q { margin-top: 0; }
 .chip { display: inline-block; border: 1px solid var(--line); border-radius: 1rem; padding: .15rem .6rem; margin: 0 .4rem .4rem 0; }
 code { background: var(--bg); padding: 0 .3rem; border-radius: 3px; }
+.tabs { display: flex; gap: 1.2rem; border-bottom: 1px solid var(--line); margin-bottom: 1rem; flex-wrap: wrap; }
+.tabs a { padding: .4rem 0; color: var(--ink); }
+.tabs a.on { border-bottom: 2px solid var(--accent); }
+.form { display: grid; gap: .5rem; margin: .8rem 0; }
+.row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+textarea { font: inherit; padding: .4rem .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+           color: var(--ink); width: 100%; }
+.eightd { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem 1rem; }
+@media (max-width: 760px) { .eightd { grid-template-columns: 1fr; } }
+.eightd label { font-size: .85rem; color: var(--muted); }
+tr.warn td { color: var(--warn); }

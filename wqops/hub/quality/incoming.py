@@ -45,7 +45,7 @@ def grade(score: float | None) -> str | None:
     return next((g for limit, g in GRADES if score >= limit), "D")
 
 
-def supplier_scores(conn, as_of: dt.date, days: int = 90) -> dict:
+def supplier_scores(conn, as_of: dt.date, days: int = 90, tz: str = "UTC") -> dict:
     """Score = 60% lot acceptance + 40% on-time; unknown when either part is unknown."""
     start, end = M.window(as_of, days)
     sup = _supplier_of_receipt(conn)
@@ -66,8 +66,8 @@ def supplier_scores(conn, as_of: dt.date, days: int = 90) -> dict:
     on_time = {s["supplier"]: s for s in M.supplier_on_time(conn, as_of, days)["suppliers"]}
     ncrs: dict[str, int] = {}
     for r in conn.execute("select supplier, count(*) as n from ncr_records where supplier is not null and "
-                          "created_at::date between %s and %s and status <> 'cancelled' group by supplier",
-                          (start, end)).fetchall():
+                          "(created_at at time zone %s)::date between %s and %s and status <> 'cancelled' "
+                          "group by supplier", (tz, start, end)).fetchall():
         ncrs[r["supplier"]] = r["n"]
     key_of = {n: k for k, n in names.items()}
     rows = []
