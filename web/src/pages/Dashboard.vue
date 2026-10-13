@@ -61,7 +61,7 @@ const unitOf = { on_time_delivery: '%', supplier_on_time: '%', open_nonconforman
           <li v-for="s in (m.suppliers || []).slice(0, 5)" :key="s.supplier">{{ s.supplier }}: {{ fmt(s.value, '%') }}
             ({{ s.on_time }}/{{ s.total }})</li>
           <li v-for="n in (m.ncrs || []).slice(0, 5)" :key="n.key">
-            <RouterLink :to="objectPath('Nonconformance', n.key)">{{ n.title }}</RouterLink> {{ n.status }}</li>
+            <RouterLink :to="objectPath('Nonconformance', n.key)">{{ n.title }}</RouterLink> {{ n.status.replace('_', ' ') }}</li>
           <li v-for="q in (m.inspections || []).slice(0, 5)" :key="q.key">
             <RouterLink :to="objectPath('QualityInspection', q.key)">{{ q.title }}</RouterLink></li>
           <li v-for="(v, w) in (m.by_warehouse || {})" :key="w">{{ w }}: {{ fmt(v, 'currency') }}</li>
