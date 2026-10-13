@@ -128,7 +128,7 @@ def confirm(conn, user: dict, draft_id: int, erp: ErpClient) -> dict:
     if row["doctype"] in HUB_KINDS:
         return _confirm_hub(conn, user, row)
     try:
-        doc = erp.insert({"doctype": row["doctype"], **row["payload"], "docstatus": 0})
+        doc = erp.insert({"doctype": row["doctype"], **row["payload"], **_erp_fields(erp, user, row), "docstatus": 0})
         if int(doc.get("docstatus") or 0) != 0:  # never expected; would mean ERPNext submitted it
             raise DraftError(f"ERPNext returned {doc['name']} with docstatus {doc['docstatus']}")
     except Exception as exc:
@@ -144,6 +144,15 @@ def confirm(conn, user: dict, draft_id: int, erp: ErpClient) -> dict:
                            (doc["name"], user["email"], draft_id)).fetchone()
         _log(conn, draft_id, user["email"], "confirmed", doc["name"])
     return public(row)
+
+
+def _erp_fields(erp: ErpClient, user: dict, row: dict) -> dict:
+    """Fields ERPNext needs that only the confirmation knows. A quality inspection needs an ERPNext user as the
+    inspector: the person confirming if they have an ERPNext account (made at their first sign-in there),
+    otherwise the account WenQuest Ops uses; the person is in the draft log either way."""
+    if row["doctype"] == "Quality Inspection" and not row["payload"].get("inspected_by"):
+        return {"inspected_by": user["email"] if erp.get("User", user["email"]) else erp.logged_user()}
+    return {}
 
 
 def _confirm_hub(conn, user: dict, row: dict) -> dict:

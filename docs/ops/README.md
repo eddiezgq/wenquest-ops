@@ -69,7 +69,8 @@ manifest are deactivated at the next upgrade (`./upgrade.sh --company company.ya
 
 - The first owner in the manifest gets a password during installation: set `WQO_OWNER_PASSWORD` before running
   `install.sh`, or type it when asked.
-- The owner sets passwords for everyone else in the workspace; anyone can change their own.
+- The owner sets passwords for everyone else (API `POST /api/users/password`, or from the server as below); a
+  page for it in the workspace is not there yet. Anyone can change their own through the same API.
 - From the server: `echo 'password' | docker compose -p wqo exec -T hub python -m wqops.hub.accounts set-password email`
 - Five wrong passwords lock an account for 10 minutes. Sign-in events are recorded.
 
