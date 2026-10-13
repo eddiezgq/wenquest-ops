@@ -30,7 +30,8 @@ async function place() {
       el.classList.add('tour-on')
       el.scrollIntoView({ block: 'center', behavior: 'smooth' })
       const r = el.getBoundingClientRect()
-      box.value = { top: Math.min(window.innerHeight - 200, Math.max(70, r.bottom + 12)), left: Math.max(12, Math.min(r.left, window.innerWidth - 360)) }
+      const h = document.querySelector('.tour')?.offsetHeight || 240   // keep the whole box on screen
+      box.value = { top: Math.min(window.innerHeight - h - 12, Math.max(70, r.bottom + 12)), left: Math.max(12, Math.min(r.left, window.innerWidth - 360)) }
     }
   }, 350)
 }
