@@ -87,7 +87,7 @@ def _page(title: str, body: str) -> str:
 def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0915 - routes are defined inside
                company: Callable[[], tuple[dict | None, str]] = load_company,
                db_url: str | None = None, oidc_http=None, erp=None, *, sync_seconds: float = 0,
-               web_dir: str | None = None) -> FastAPI:
+               web_dir: str | None = None, ai=None) -> FastAPI:
     """``sync_seconds`` > 0 pulls ERPNext changes in the background that often (the deployed app reads
     WQO_SYNC_SECONDS; tests leave it off)."""
     checks = checks if checks is not None else {"database": check_db, "erpnext": check_erp}
@@ -328,6 +328,10 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     OA.mount(app, conn, current_user)
     OA.mount_dashboard(app, conn, current_user, company)
     OA.mount_anomalies(app, conn, current_user, company)
+    from wqops.hub.ai import api as AIA  # noqa: PLC0415
+    from wqops.hub.ai import llm as L  # noqa: PLC0415
+
+    AIA.mount(app, conn, current_user, company, ai if ai is not None else L.Anthropic(), db_url)
 
     @app.get("/api/workspace")
     def workspace(u=Depends(current_user)):
