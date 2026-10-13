@@ -58,7 +58,14 @@ jobs:
       - name: Lint
         run: python -m ruff check .
       - name: Tests
-        run: python -m pytest -v
+        run: |
+          set -o pipefail
+          python -m pytest -v -rf 2>&1 | tee "$RUNNER_TEMP/pytest.log"
+      - name: Show failing tests as an annotation
+        if: failure()
+        run: |
+          [ -f "$RUNNER_TEMP/pytest.log" ] && echo "::error title=pytest::$(grep -E '^(FAILED|ERROR)|^E  ' "$RUNNER_TEMP/pytest.log" \
+            | head -n 40 | tr -d '\r' | sed ':a;N;$!ba;s/\n/%0A/g')"
 
   scope:
     runs-on: ubuntu-24.04
