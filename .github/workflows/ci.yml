@@ -179,7 +179,7 @@ jobs:
       - name: Load the demo business and check the ops hub shows its problems (ADR-0012)
         run: |
           exec > >(tee "$RUNNER_TEMP/demo.log") 2>&1
-          set -x
+          set -x -o pipefail
           R=(--resolve ops.localtest.me:443:127.0.0.1)
           dc() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" "$@"; }
           time dc exec -T hub python -m wqops.demo.load | tee demo.json

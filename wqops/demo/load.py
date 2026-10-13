@@ -115,7 +115,7 @@ class Loader:
             pr = self.names[x["receipt"]]
             self.make({"doctype": "Quality Inspection", "inspection_type": "Incoming",
                        "reference_type": "Purchase Receipt", "reference_name": pr["name"], "item_code": x["item"],
-                       "sample_size": x["sample"], "report_date": day,
+                       "sample_size": x["sample"], "report_date": day, "inspected_by": "Administrator",
                        "readings": [{"specification": x["parameter"], "numeric": 1, "min_value": x["min"],
                                      "max_value": x["max"], **{f"reading_{i}": str(v)
                                                                for i, v in enumerate(x["values"], start=1)}}]},
