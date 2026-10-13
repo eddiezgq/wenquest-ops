@@ -1,7 +1,9 @@
 """An in-memory stand-in for ERPNext's REST API, following its rules for filters, ordering and paging.
 
 Only what WenQuest Ops uses: GET /api/resource/<doctype> (filters with = > < >= <= in, fields, order_by,
-limit_start, limit_page_length), GET/PUT /api/resource/<doctype>/<name>, POST /api/resource/<doctype>, ping.
+limit_start, limit_page_length), GET/PUT /api/resource/<doctype>/<name>, POST /api/resource/<doctype>, ping, the
+signed-in user. Like ERPNext, a quality inspection needs an existing user as inspected_by: left out, ERPNext's
+default is the literal "user", which is refused.
 Documents are fictional test data.
 """
 
@@ -22,6 +24,8 @@ class FakeErp:
         self.requests: list[httpx.Request] = []
         self.fail_after: int | None = None  # simulate a dropped connection after this many requests
         self.clock = 0
+        self.users = {"Administrator"}      # ERPNext users; the API key signs in as the first
+        self.api_user = "Administrator"
 
     def tick(self) -> str:
         self.clock += 1
@@ -49,6 +53,13 @@ class FakeErp:
         path = urllib.parse.unquote(request.url.path)
         if path == "/api/method/ping":
             return httpx.Response(200, json={"message": "pong"})
+        if path == "/api/method/frappe.auth.get_logged_user":
+            return httpx.Response(200, json={"message": self.api_user})
+        if path.startswith("/api/resource/User/") and request.method == "GET":
+            name = path.removeprefix("/api/resource/User/")
+            if name not in self.users:
+                return httpx.Response(404, json={"exc_type": "DoesNotExistError"})
+            return httpx.Response(200, json={"data": {"name": name, "doctype": "User"}})
         parts = path.removeprefix("/api/resource/").split("/", 1)
         doctype = parts[0]
         store = self.docs.setdefault(doctype, {})
@@ -63,6 +74,9 @@ class FakeErp:
             body = {k: v for k, v in json.loads(request.content).items() if k not in ("doctype", "name", "modified")}
             named_by = {"Item": "item_code", "Customer": "customer_name", "Supplier": "supplier_name",
                         "Item Group": "item_group_name", "Quality Inspection Parameter": "parameter"}.get(doctype)
+            if doctype == "Quality Inspection" and body.setdefault("inspected_by", "user") not in self.users:
+                return httpx.Response(417, json={"exception": "frappe.exceptions.LinkValidationError: "
+                                                              f"Could not find Inspected By: {body['inspected_by']}"})
             name = body.get(named_by) if named_by else None
             name = name or f"{doctype[:3].upper()}-{len(store) + 1:05d}"
             for i, row in enumerate(body.get("items") or [], start=1):   # child rows get names, as in ERPNext

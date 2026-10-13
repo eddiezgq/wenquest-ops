@@ -37,6 +37,10 @@ class ErpClient:
             raise ErpError(f"ERPNext {r.request.method} {r.request.url.path} -> {r.status_code}: {str(msg)[:300]}")
         return r.json()
 
+    def logged_user(self) -> str:
+        """The ERPNext user the API key signs in as."""
+        return self._check(self.http.get("/api/method/frappe.auth.get_logged_user"))["message"]
+
     def ping(self) -> bool:
         try:
             return self._check(self.http.get("/api/method/ping")).get("message") == "pong"

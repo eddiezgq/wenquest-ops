@@ -1,0 +1,232 @@
+"""Phase 1 acceptance smoke test in a browser (plan item 10): every role on every page it may open, and the main
+flows end to end on the installed system with the demo business loaded.
+
+    python smoke_p1.py https://ops.localtest.me <owner email> <owner password>
+
+1. The owner sets a password for each demo person (the install sets only the owner's).
+2. Each role signs in, opens every page in its menu without a script error, sees Quality only if allowed, and is
+   refused the APIs it may not use.
+3. Purchasing drafts a replenishment purchase order from an item page and confirms it: it is created in ERPNext.
+4. Sales drafts a delay message for a late order and confirms it.
+5. Quality drafts an incoming inspection for the receipt waiting for one and confirms it: created in ERPNext.
+6. Quality opens a nonconformance, contains it and submits "use as is"; the operations manager approves it with
+   their password (someone else must); Quality closes it with theirs. Two signatures are recorded.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+import time
+import urllib.parse
+from pathlib import Path
+
+from playwright.sync_api import Browser, Page, sync_playwright
+
+BASE, OWNER, OWNER_PW = sys.argv[1], sys.argv[2], sys.argv[3]
+HOST = BASE.split("://", 1)[1].split("/")[0]
+PW = "Smoke pass 2026"
+NO_TOUR = "try { localStorage.setItem('wqo-tour-done', '1') } catch (e) {}"
+spec = importlib.util.spec_from_file_location(
+    "permissions", Path(__file__).resolve().parents[2] / "wqops" / "hub" / "permissions.py")
+P = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(P)
+failures: list[str] = []
+
+
+def check(ok: bool, what: str) -> None:
+    print(("ok   " if ok else "FAIL ") + what)
+    if not ok:
+        failures.append(what)
+
+
+class Session:
+    def __init__(self, b: Browser, email: str, password: str):
+        self.ctx = b.new_context(viewport={"width": 1280, "height": 800}, ignore_https_errors=True)
+        self.ctx.add_init_script(NO_TOUR)
+        self.page = self.ctx.new_page()
+        self.errors: list[str] = []
+        self.page.on("pageerror", lambda e: self.errors.append(str(e)))
+        p = self.page
+        p.goto(f"{BASE}/login")
+        p.fill("#email", email)
+        p.fill("#password", password)
+        p.click("button[type=submit]")
+        p.wait_for_url(f"{BASE}/", timeout=30_000)
+        p.wait_for_selector("header.top", timeout=30_000)
+        self.me = self.get("/api/me")
+
+    def get(self, path: str):
+        r = self.page.request.get(f"{BASE}{path}")
+        if not r.ok:
+            raise RuntimeError(f"GET {path}: HTTP {r.status} {r.text()[:200]}")
+        return r.json()
+
+    def status(self, path: str) -> int:
+        return self.page.request.get(f"{BASE}{path}").status
+
+    def post(self, path: str, body: dict):
+        r = self.page.request.post(f"{BASE}{path}", data=body)
+        if not r.ok:
+            raise RuntimeError(f"POST {path}: HTTP {r.status} {r.text()[:200]}")
+        return r.json()
+
+    def go(self, path: str, ready: str = "main h1") -> Page:
+        self.page.goto(f"{BASE}{path}")
+        self.page.wait_for_selector(ready, timeout=30_000)
+        self.page.wait_for_load_state("networkidle")
+        return self.page
+
+    def close(self) -> None:
+        self.ctx.close()
+
+
+def step(name: str, fn) -> None:
+    try:
+        fn()
+    except Exception as exc:  # report and go on with the other flows
+        check(False, f"{name}: {str(exc).splitlines()[0]}")
+
+
+def roles(b: Browser, people: list[dict]) -> None:
+    for u in people:
+        s = Session(b, u["email"], OWNER_PW if u["email"] == OWNER else PW)
+        perms = P.of(u["roles"])
+        nav = s.page.locator("header.top nav a").all_inner_texts()
+        check(("Quality" in nav) == ("quality:view" in perms), f"{u['email']}: Quality in the menu only if allowed")
+        for path in ["/", "/assistant", "/anomalies", "/objects", "/drafts", "/help"] + \
+                (["/quality", "/quality?tab=incoming", "/quality?tab=suppliers", "/quality?tab=spc"]
+                 if "quality:view" in perms else []):
+            try:
+                s.go(path, "main h1, main .help-nav")
+            except Exception as exc:
+                check(False, f"{u['email']}: {path} did not load ({str(exc).splitlines()[0]})")
+        check(not s.errors, f"{u['email']}: no script errors ({s.errors[:2]})")
+        if "quality:view" not in perms:
+            check(s.status("/api/quality/ncrs") == 403, f"{u['email']}: quality API refused")
+        if "users:view" not in perms:
+            check(s.status("/api/users") == 403, f"{u['email']}: user list refused")
+        s.close()
+
+
+def confirm_newest(s: Session, doctype: str) -> dict:
+    """Confirm the newest pending draft of ``doctype`` on the Drafts page; return it as the API sees it after."""
+    s.go("/drafts", "main h1")
+    s.page.wait_for_selector("article.draft", timeout=30_000)
+    card = s.page.locator("article.draft", has_text=doctype).filter(has_text="pending").first
+    card.get_by_role("button", name="Confirm").click()
+    d = None
+    for _ in range(60):
+        d = next(x for x in s.get("/api/erp/drafts") if x["doctype"] == doctype)
+        if d["status"] != "pending":
+            break
+        time.sleep(1)
+    return d
+
+
+def purchasing(b: Browser) -> None:
+    s = Session(b, "pat@demo.example", PW)
+    short = [a for a in s.get("/api/anomalies") if a["rule"] == "item_short"]
+    check(bool(short), "purchasing: sees short items")
+    item = short[0]["subject"][1]
+    s.go(f"/o/Item/{urllib.parse.quote(item, safe='')}", "main h1")
+    s.page.get_by_role("button", name="Draft a replenishment purchase order").click()
+    s.page.wait_for_url(f"{BASE}/drafts", timeout=60_000)
+    d = confirm_newest(s, "Purchase Order")
+    check(d["status"] == "confirmed" and bool(d.get("erp_name")),
+          f"purchasing: purchase order for {item} confirmed into ERPNext ({d.get('erp_name')}, {d.get('error')})")
+    s.close()
+
+
+def sales(b: Browser) -> None:
+    s = Session(b, "alex@demo.example", PW)
+    late = [a for a in s.get("/api/anomalies") if a["rule"] == "order_late"]
+    check(bool(late), "sales: sees late orders")
+    if not late:
+        return
+    key = late[0]["subject"][1]
+    s.go(f"/o/SalesOrder/{urllib.parse.quote(key, safe='')}", "main h1")
+    s.page.get_by_role("button", name="Draft a delay message to the customer").click()
+    s.page.wait_for_url(f"{BASE}/drafts", timeout=60_000)
+    d = confirm_newest(s, "Customer Message")
+    check(d["status"] == "confirmed", f"sales: delay message for {key} confirmed ({d.get('error')})")
+    s.page.select_option("main select", "confirmed")
+    s.page.wait_for_selector("article.draft", timeout=30_000)
+    check(s.page.get_by_role("button", name="Copy to send").count() > 0, "sales: message ready to copy")
+    s.close()
+
+
+def incoming(b: Browser) -> None:
+    s = Session(b, "jordan@demo.example", PW)
+    p = s.go("/quality?tab=incoming", "table.grid")
+    row = p.locator("table.grid tbody tr").first
+    row.locator("input").fill("5")
+    row.get_by_role("button", name="Draft inspection").click()
+    p.wait_for_url(f"{BASE}/drafts", timeout=60_000)
+    d = confirm_newest(s, "Quality Inspection")
+    check(d["status"] == "confirmed" and bool(d.get("erp_name")),
+          f"quality: incoming inspection confirmed into ERPNext ({d.get('erp_name')}, {d.get('error')})")
+    s.close()
+
+
+def nonconformance(b: Browser) -> None:
+    q = Session(b, "jordan@demo.example", PW)
+    p = q.go("/quality", "main h1")
+    p.get_by_role("button", name="New nonconformance").click()
+    p.fill("form.form input[placeholder=Title]", "Smoke test: dented boxes")
+    p.fill("form.form textarea", "3 shipping boxes dented in the warehouse.")
+    p.fill("form.form input[placeholder='Item code (optional)']", "BOX-12")
+    p.fill("form.form input[placeholder=Quantity]", "3")
+    p.get_by_role("button", name="Open the report").click()
+    p.wait_for_url("**/quality/ncr/*", timeout=30_000)
+    url = p.url
+    p.fill("input[placeholder^='e.g. lot moved']", "Boxes set aside")
+    p.get_by_role("button", name="Save containment").click()
+    p.wait_for_selector("text=Submit disposition")
+    p.select_option("select", "use_as_is")
+    p.fill("input[placeholder=Quantity]", "3")
+    p.fill("input[placeholder=Reason]", "Dents are cosmetic; boxes still close")
+    p.get_by_role("button", name="Submit disposition").click()
+    p.wait_for_selector("text=someone else must approve it")
+    m = Session(b, "sam@demo.example", PW)
+    mp = m.go(urllib.parse.urlparse(url).path, "main h1")
+    mp.fill("input[placeholder='Your password to sign'] >> nth=0", PW)
+    mp.get_by_role("button", name="Approve (sign)").click()
+    mp.wait_for_selector("text=Close (sign)")
+    m.close()
+    p.reload()
+    p.wait_for_selector("text=Close (sign)")
+    p.fill("input[placeholder='Closing note']", "Released for use")
+    p.fill("input[placeholder='Your password to sign'] >> nth=0", PW)
+    p.get_by_role("button", name="Close (sign)").click()
+    p.wait_for_selector("text=Close (sign)", state="detached", timeout=30_000)
+    n = q.get(f"/api/quality/ncrs/{url.rstrip('/').split('/')[-1]}")
+    check(n["status"] == "closed" and len(n["signatures"]) >= 2,
+          f"quality: NCR approved by someone else and closed, {len(n['signatures'])} signatures")
+    check(not q.errors, f"quality: no script errors ({q.errors[:2]})")
+    q.close()
+
+
+def main() -> int:
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(args=[f"--host-resolver-rules=MAP {HOST} 127.0.0.1"])
+        owner = Session(b, OWNER, OWNER_PW)
+        people = owner.get("/api/users")
+        for u in people:
+            if u["email"] != OWNER:
+                owner.post("/api/users/password", {"email": u["email"], "password": PW})
+        owner.close()
+        step("roles", lambda: roles(b, people))
+        step("purchasing", lambda: purchasing(b))
+        step("sales", lambda: sales(b))
+        step("incoming inspection", lambda: incoming(b))
+        step("nonconformance", lambda: nonconformance(b))
+        b.close()
+    for f in failures:
+        print(f"::error title=Phase 1 smoke::{f}")
+    print(f"{len(failures)} failures")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

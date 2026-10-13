@@ -134,4 +134,12 @@ def test_quality_data_api(db_url):
                          ErpClient("http://erp", transport=f.transport()))
     qi = f.docs["Quality Inspection"][done["erp_name"]]
     assert qi["docstatus"] == 0 and qi["reference_name"] == "PR-3" and qi["inspection_type"] == "Incoming"
+    assert qi["inspected_by"] == "Administrator"      # Jordan has no ERPNext account: the account the hub uses
+    f.users.add("jordan@demo.example")                # after Jordan's first sign-in to ERPNext
+    with DB.connect(db_url) as conn:
+        again = D.propose(conn, {"email": "jordan@demo.example", "roles": ["quality"]}, "Quality Inspection",
+                          {k: d["payload"][k] for k in d["payload"]})
+        done = D.confirm(conn, {"email": "jordan@demo.example", "roles": ["quality"]}, again["id"],
+                         ErpClient("http://erp", transport=f.transport()))
+    assert f.docs["Quality Inspection"][done["erp_name"]]["inspected_by"] == "jordan@demo.example"
     c.__exit__(None, None, None)
