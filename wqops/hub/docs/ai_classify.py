@@ -95,6 +95,15 @@ def classify_one(model: L.Anthropic, sys_prompt: str, tool_def: dict, doc: dict,
     return _proposal(use.get("input") or {}), resp.get("usage", {})
 
 
+def _copy(first: dict) -> dict | None:
+    """The classification of an earlier identical file, as it stands now (a person may have corrected it)."""
+    if not first["doc_type"]:
+        return None
+    prop = {k: first[k] for k in (*K.FIELDS, "summary") if first[k] is not None}
+    prop = {k: v.isoformat() if isinstance(v, dt.date) else v for k, v in prop.items()}
+    return prop | {"refs": first["refs"], "evidence": first["evidence"], "confidence": first["confidence"]}
+
+
 def run(conn, user: dict, import_id: int, model: L.Anthropic | None, *, today: dt.date, company: str = "the company",
         use_ai: bool = True) -> dict:
     """Classify every unclassified file of an import: with the model when there is one, else by the rules."""
@@ -109,40 +118,42 @@ def run(conn, user: dict, import_id: int, model: L.Anthropic | None, *, today: d
         AG.start(ctx, "classify", f"classify import {import_id}: {len(docs)} files")
         sys_prompt, tool_def = system(procs, LIB.hints(conn), company), tool(procs)
     calls, usage, failed, counts = [], {"input_tokens": 0, "output_tokens": 0}, [], {"ai": 0, "rules": 0}
-    for doc in docs:
-        body = LIB.text(conn, doc["id"])
-        engine, prop = "rules", None
-        if doc["duplicate_of"]:
-            first = LIB.get(conn, doc["duplicate_of"])
-            if first["doc_type"]:
-                prop = {k: first[k] for k in (*K.FIELDS, "summary") if first[k] is not None}
-                prop = {k: v.isoformat() if isinstance(v, dt.date) else v for k, v in prop.items()}
-                prop |= {"refs": first["refs"], "evidence": first["evidence"], "confidence": first["confidence"]}
-                engine = "copy of an earlier identical file"
-        if prop is None and ai:
-            try:
-                prop, u = classify_one(model, sys_prompt, tool_def, doc, body)
-                for k in usage:
-                    usage[k] += int(u.get(k, 0))
-                engine = "ai"
-            except L.LlmError as exc:
-                failed.append(f"{doc['original_name']}: {exc}")
-        if prop is None:
-            prop = K.rules(doc["original_name"], doc["path"], body, procs)
-        if prop.get("process") not in procs:
-            prop.pop("process", None)
-        checked = K.verify(prop, doc["original_name"], doc["path"], body) if engine in ("ai", "rules") else prop
-        LIB.propose(conn, doc["id"], checked, engine, ctx.run_id if engine == "ai" else None)
-        counts["ai" if engine == "ai" else "rules"] += 1
-        calls.append({"tool": "record_classification", "args": {"document": doc["id"]}, "ok": engine == "ai",
-                      "summary": json.dumps({k: checked.get(k) for k in ("doc_type", "process", "number", "title",
-                                                                          "confidence")})[:300]})
-    if ai:
-        unverified = [f"document {c['args']['document']}" for c in calls if '"confidence": "low"' in c["summary"]]
-        AG.finish(ctx, {"engine": "model" if counts["ai"] else "rules (model unavailable)", "model": model.model,
-                        "tool_calls": calls, "answer": f"classified {len(docs)} files: {counts['ai']} by the model, "
-                        f"{counts['rules']} by rules", "verified": not failed, "unverified": unverified[:50],
-                        "usage": usage, "error": "; ".join(failed)[:2000] or None})
+    crash = None
+    try:
+        for doc in docs:
+            body = LIB.text(conn, doc["id"])
+            engine, prop = "rules", None
+            if doc["duplicate_of"]:
+                prop, engine = _copy(LIB.get(conn, doc["duplicate_of"])), "copy of an earlier identical file"
+            if prop is None and ai:
+                try:
+                    prop, u = classify_one(model, sys_prompt, tool_def, doc, body)
+                    for k in usage:
+                        usage[k] += int(u.get(k, 0))
+                    engine = "ai"
+                except L.LlmError as exc:
+                    failed.append(f"{doc['original_name']}: {exc}")
+            if prop is None:
+                engine, prop = "rules", K.rules(doc["original_name"], doc["path"], body, procs)
+            if prop.get("process") not in procs:
+                prop.pop("process", None)
+            checked = K.verify(prop, doc["original_name"], doc["path"], body)   # copies too: values may differ
+            LIB.propose(conn, doc["id"], checked, engine, ctx.run_id if engine == "ai" else None)
+            counts["ai" if engine == "ai" else "rules"] += 1
+            calls.append({"tool": "record_classification", "args": {"document": doc["id"]}, "ok": engine == "ai",
+                          "summary": json.dumps({k: checked.get(k) for k in ("doc_type", "process", "number", "title",
+                                                                              "confidence")})[:300]})
+    except Exception as exc:
+        crash = f"stopped: {type(exc).__name__}: {exc}"
+        failed.append(crash)
+        raise
+    finally:
+        if ai:                                       # the run record is completed even when the run stops early
+            low = [f"document {c['args']['document']}" for c in calls if '"confidence": "low"' in c["summary"]]
+            AG.finish(ctx, {"engine": "model" if counts["ai"] else "rules (model unavailable)", "model": model.model,
+                            "tool_calls": calls, "answer": f"classified {len(calls)} of {len(docs)} files: "
+                            f"{counts['ai']} by the model, {counts['rules']} by rules", "verified": not failed,
+                            "unverified": low[:50], "usage": usage, "error": "; ".join(failed)[:2000] or None})
     conn.execute("update doc_imports set status = 'done', error = %s where id = %s",
                  ("; ".join(failed)[:2000] or None, import_id))
     return {"files": len(docs), "by_model": counts["ai"], "by_rules": counts["rules"], "failed": failed,

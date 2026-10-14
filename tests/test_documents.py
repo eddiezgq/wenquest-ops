@@ -225,6 +225,8 @@ def test_controlled_document_approval_and_revision(world):
     with pytest.raises(Q.SignatureError, match="password is wrong"):
         LIB.approve(world, who(world, SAM), qp["id"], "wrong pass 1", AS_OF)
     assert LIB.get(world, qp["id"])["status"] == "in_review"
+    assert world.execute("select count(*) as n from auth_events where email = %s and event = 'signature_failed'",
+                         (SAM,)).fetchone()["n"] == 1                 # the failed attempt stays recorded
     assert LIB.send_back(world, SAM, qp["id"], "add the 8D step")["status"] == "draft"
     LIB.submit(world, JORDAN, qp["id"])
     eff = LIB.approve(world, who(world, SAM), qp["id"], PW, AS_OF)
@@ -249,13 +251,68 @@ def test_controlled_document_approval_and_revision(world):
     assert LIB.obsolete(world, SAM, rev["id"], "process retired")["status"] == "obsolete"
 
 
-def test_submit_needs_number_and_revision(world):
+def test_drafts_are_corrected_before_approval(world):
     imp, (wi,) = imported(world, ["torque check"])
     AIC.run(world, {"email": JORDAN, "roles": ["quality"]}, imp["id"], None, today=AS_OF)
     LIB.confirm(world, JORDAN, wi["id"], {"doc_type": "work_instruction", "process": "receiving", "number": "",
                                           "revision": ""})
     with pytest.raises(LIB.DocError, match="number and a revision"):
         LIB.submit(world, JORDAN, wi["id"])
+    with pytest.raises(LIB.DocError, match="stays a procedure"):
+        LIB.edit(world, JORDAN, wi["id"], {"doc_type": "record"})
+    d = LIB.edit(world, JORDAN, wi["id"], {"number": "WI-QA-07", "revision": "1"})
+    assert (d["number"], d["revision"]) == ("WI-QA-07", "1")
+    assert LIB.history(world, wi["id"])[-1]["note"] == "number: - -> WI-QA-07; revision: - -> 1"
+    LIB.submit(world, JORDAN, wi["id"])
+    with pytest.raises(LIB.DocError, match="only a draft can be changed"):
+        LIB.edit(world, JORDAN, wi["id"], {"title": "x"})
+    LIB.send_back(world, SAM, wi["id"], "wrong torque value")
+    LIB.submit(world, DANA, wi["id"])                    # sent again by someone else: Jordan still sent it once
+    with pytest.raises(PermissionError, match="did not upload, confirm or submit"):
+        LIB.approve(world, who(world, JORDAN), wi["id"], PW, AS_OF)
+    with pytest.raises(PermissionError):
+        LIB.approve(world, who(world, DANA), wi["id"], PW, AS_OF)
+    assert LIB.approve(world, who(world, SAM), wi["id"], PW, AS_OF)["status"] == "effective"
+
+
+def test_one_effective_revision_per_number(world):
+    imp, (c, b) = imported(world, ["QP-08 Control of Nonconforming Product Rev C",
+                                   "QP-08 Control of Nonconforming Product Rev B"])
+    AIC.run(world, {"email": JORDAN, "roles": ["quality"]}, imp["id"], None, today=AS_OF)
+    for d in (c, b):
+        LIB.confirm(world, JORDAN, d["id"])
+    LIB.submit(world, JORDAN, c["id"])
+    LIB.approve(world, who(world, SAM), c["id"], PW, AS_OF)
+    with pytest.raises(LIB.DocError, match="rev C is effective"):
+        LIB.submit(world, JORDAN, b["id"])                # the old revision cannot become effective beside it
+
+
+def test_restart_recovery_and_odd_images(world):
+    imp, _ = imported(world, ["QP-05"])
+    world.execute("update doc_imports set status = 'classifying' where id = %s", (imp["id"],))
+    stuck = LIB.new_import(world, JORDAN, "half read")
+    assert LIB.recover(world) == [stuck["id"]]
+    again = LIB.get_import(world, imp["id"])
+    assert again["status"] == "done" and "classify again" in again["error"]
+    from PIL import Image
+
+    assert X.ocr_image(Image.new("L", (2, 3000), 255)) == ""   # a rule line is not enlarged into gigabytes
+
+
+def test_copies_and_short_quotes_are_checked(world):
+    imp, (form, copy) = imported(world, ["F-QA-012 Nonconformance Report", "copy of F-QA-012"])
+    AIC.run(world, {"email": JORDAN, "roles": ["quality"]}, imp["id"], None, today=AS_OF)
+    assert LIB.get(world, copy["id"])["evidence"]["title"]["verified"]
+    LIB.confirm(world, JORDAN, form["id"], {"title": "NCR form"})
+    world.execute("update documents set status = 'to_classify' where id = %s", (copy["id"],))
+    AIC.run(world, {"email": JORDAN, "roles": ["quality"]}, imp["id"], None, today=AS_OF)
+    c = LIB.get(world, copy["id"])
+    assert c["title"] == "NCR form" and c["evidence"]["title"]["verified"] is False   # the old quote does not fit
+    p = {"doc_type": "form", "process": "nonconformance", "title": "Nonconformance Report", "confidence": "high",
+         "evidence": {"doc_type": {"quote": "Form"}, "process": {"quote": "Nonconformance Report"},
+                      "title": {"quote": "Nonconformance Report"}}}
+    v = K.verify(p, "x.docx", "", "Form No. F-QA-012\nNonconformance Report")
+    assert v["evidence"]["doc_type"]["verified"] is False and v["confidence"] == "medium"
 
 
 # ---------------------------------------------------------------- AI classification (scripted model)
@@ -342,6 +399,10 @@ def test_documents_api(db_url):
     assert [s["name"] for s in imp["skipped"]] == ["notes/setup.exe"] and imp["estimate"]["files"] == 7
     docs = c.get(f"/api/docs?status=all&import_id={imp['id']}").json()
     assert {d["path"] for d in docs} == {"Harbor Lane QMS/01 Procedures", "More/03 Forms"}
+    with DB.connect(db_url) as conn:                  # a second click while classifying does not start a second run
+        conn.execute("update doc_imports set status = 'classifying' where id = %s", (imp["id"],))
+        assert c.post(f"/api/docs/imports/{imp['id']}/classify", json={}).status_code == 409
+        conn.execute("update doc_imports set status = 'ready' where id = %s", (imp["id"],))
     assert c.post(f"/api/docs/imports/{imp['id']}/classify", json={}).json()["engine"] == "rules"
     assert c.get(f"/api/docs/imports/{imp['id']}").json()["status"] == "done"
     review = c.get("/api/docs?status=to_review").json()
@@ -354,6 +415,8 @@ def test_documents_api(db_url):
     assert "Receiving Inspection" in one["text"] and one["history"][0]["action"] == "text"
     r = c.post(f"/api/docs/{qp['id']}/confirm", json={"fields": {"owner": "Jordan Quality"}}).json()
     assert r["status"] == "draft" and r["corrected"][0]["field"] == "owner"
+    r = c.post(f"/api/docs/{qp['id']}/edit", json={"fields": {"owner": "Quality Manager"}}).json()
+    assert r["owner"] == "Quality Manager" and r["history"][-1]["action"] == "changed"
     assert c.post(f"/api/docs/{qp['id']}/submit").json()["status"] == "in_review"
     r = c.post(f"/api/docs/{qp['id']}/approve", json={"password": PW})
     assert r.status_code == 403 and "did not upload" in r.json()["detail"]

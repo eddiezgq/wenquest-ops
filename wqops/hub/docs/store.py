@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 from pathlib import Path
 
 MAX_BYTES = 50 * 1024 * 1024
@@ -32,7 +33,7 @@ def put(data: bytes) -> str:
     p = path(sha)
     if not p.exists():
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".part")
+        tmp = p.with_name(f"{sha}.{os.getpid()}.{secrets.token_hex(4)}.part")   # two uploads of one file: no clash
         tmp.write_bytes(data)
         tmp.replace(p)
     return sha

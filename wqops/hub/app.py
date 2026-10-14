@@ -164,6 +164,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                     A.sync(c, m)
                 OP.project(c, manifest=m)
                 AN.detect(c, OA.today(m))
+            from wqops.hub.docs import api as DOCAPI  # noqa: PLC0415
+
+            DOCAPI.resume(db_url)
             if sync_seconds > 0:
                 task = asyncio.create_task(sync_loop())
         yield

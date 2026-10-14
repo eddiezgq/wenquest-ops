@@ -18,6 +18,7 @@ OLD = {".doc", ".xls"}                                  # kept, but their text c
 ACCEPTED = {".pdf", ".docx", ".xlsx", ".xlsm"} | TEXT | IMAGES | OLD
 MAX_CHARS = 2_000_000
 MAX_ROWS = 5000
+MAX_OCR_PIXELS = 25_000_000                             # about 25 MB in grayscale
 MIN_PDF_CHARS = 40                                      # fewer per page than this: treat the PDF as scanned
 
 
@@ -59,10 +60,13 @@ def _decode(data: bytes) -> str:
 def ocr_image(img) -> str:
     import pytesseract  # noqa: PLC0415 - only needed for scans
 
+    w, h = img.size
+    if min(w, h) < 20 or max(w, h) > 40 * min(w, h):     # rules, lines and slivers hold no text
+        return ""
     img = img.convert("L")
-    if min(img.size) < 1000:                            # small scans read better enlarged
-        k = 1000 / min(img.size)
-        img = img.resize((int(img.width * k), int(img.height * k)))
+    k = min(1000 / min(w, h), (MAX_OCR_PIXELS / (w * h)) ** 0.5, 4.0)
+    if k > 1:                                           # small scans read better enlarged, within a memory cap
+        img = img.resize((int(w * k), int(h * k)))
     return pytesseract.image_to_string(img, lang="eng")
 
 

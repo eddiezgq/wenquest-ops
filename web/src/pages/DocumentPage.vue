@@ -24,6 +24,7 @@ const FIELDS = [['doc_type', 'Type'], ['process', 'Process'], ['number', 'Number
 
 const canEdit = computed(() => meta.value?.can_edit)
 const reviewing = computed(() => d.value && ['to_review', 'to_classify'].includes(d.value.status))
+const editable = computed(() => canEdit.value && (reviewing.value || d.value?.status === 'draft'))
 const involved = computed(() => d.value?.involved.includes(ws.value?.user.email))
 const typeName = (t) => meta.value?.types[t] || label(t || '—')
 const procName = (p) => meta.value?.processes[p] || label(p || '—')
@@ -51,9 +52,13 @@ async function step(path, body, message) {
   try { set(await api(`/api/docs/${d.value.id}/${path}`, { method: 'POST', body })); done.value = message }
   catch (e) { error.value = e.message }
 }
-function confirm() {
+function changed() {
   const fields = {}
   for (const k of [...FIELDS.map(([f]) => f), 'summary']) if ((form.value[k] ?? '') !== (d.value[k] ?? '')) fields[k] = form.value[k]
+  return fields
+}
+function confirm() {
+  const fields = changed()
   const controlled = meta.value.controlled.includes(form.value.doc_type)
   step('confirm', { fields }, controlled ? 'Confirmed. It is a draft now: send it for approval when it is right.'
     : 'Confirmed and kept in the library. Its file can no longer be replaced.')
@@ -93,7 +98,7 @@ async function newRevision() {
         <div class="grid gap-x-6 gap-y-4 md:grid-cols-2">
           <div v-for="[k, l] in FIELDS" :key="k" class="min-w-0">
             <label class="wq-field">{{ l }}
-              <template v-if="reviewing && canEdit">
+              <template v-if="editable">
                 <select v-if="k === 'doc_type'" v-model="form.doc_type" class="wq-select"><option value="">Choose…</option>
                   <option v-for="(n, t) in meta.types" :key="t" :value="t">{{ n }}</option></select>
                 <select v-else-if="k === 'process'" v-model="form.process" class="wq-select"><option value="">Choose…</option>
@@ -110,7 +115,7 @@ async function newRevision() {
           </div>
         </div>
         <label class="wq-field mt-4">Summary
-          <textarea v-if="reviewing && canEdit" v-model="form.summary" rows="2" class="wq-textarea" />
+          <textarea v-if="editable" v-model="form.summary" rows="2" class="wq-textarea" />
           <span v-else class="text-base text-ink-gray-8">{{ d.summary || '—' }}</span></label>
         <div v-if="d.refs.length" class="mt-4 text-sm text-ink-gray-6">Names these documents:
           <RouterLink v-for="r in d.refs" :key="r" :to="`/documents?tab=library&q=${encodeURIComponent(r)}`" class="wq-link ms-1.5">{{ r }}</RouterLink></div>
@@ -127,8 +132,11 @@ async function newRevision() {
       <!-- controlled document steps -->
       <section v-if="canEdit && d.status === 'draft'" class="wq-panel mt-5 p-5">
         <h2 class="wq-h2">Approval</h2>
-        <p class="wq-muted mb-3">Someone other than the person who uploaded, confirmed or sends it approves it with their password. It then becomes effective and its file is frozen.</p>
-        <Button variant="solid" icon-left="lucide-send" label="Send for approval" @click="step('submit', {}, 'Sent for approval.')" />
+        <p class="wq-muted mb-3">Correct the details above if needed and save them. Someone other than the person who uploaded, confirmed or sends it approves it with their password. It then becomes effective and its file is frozen.</p>
+        <div class="flex flex-wrap gap-2">
+          <Button :disabled="!Object.keys(changed()).length" icon-left="lucide-save" label="Save changes" @click="step('edit', { fields: changed() }, 'Saved.')" />
+          <Button variant="solid" icon-left="lucide-send" :disabled="!!Object.keys(changed()).length" label="Send for approval" @click="step('submit', {}, 'Sent for approval.')" />
+        </div>
       </section>
       <section v-if="canEdit && d.status === 'in_review'" class="wq-panel mt-5 p-5">
         <h2 class="wq-h2">Approval</h2>

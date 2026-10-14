@@ -20,6 +20,7 @@ FIELDS = ("doc_type", "process", "number", "title", "revision", "effective_date"
 QUOTED = ("doc_type", "process", "number", "title", "revision", "effective_date", "owner")
 CORE = ("doc_type", "process", "title")                    # a high-confidence proposal has these verified
 LEVELS = ("high", "medium", "low")
+MIN_QUOTE = {"doc_type": 8, "process": 8}                  # a type or process needs more than a word to rest on
 
 _DASH = dict.fromkeys(map(ord, "‐‑‒–—−"), "-") | dict.fromkeys(
     map(ord, "‘’‚‛"), "'") | dict.fromkeys(map(ord, "“”„"), '"')
@@ -57,7 +58,7 @@ def verify(proposal: dict, name: str, path: str, text: str) -> dict:
         if proposal.get(f) in (None, ""):
             continue
         quote = str((proposal.get("evidence") or {}).get(f, {}).get("quote") or "").strip()
-        ok = len(norm(quote)) >= 3 and norm(quote) in body
+        ok = len(norm(quote)) >= MIN_QUOTE.get(f, 3) and norm(quote) in body
         try:
             ok = ok and _value_in_quote(f, proposal[f], quote)
         except ValueError:

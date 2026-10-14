@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import threading
 import zipfile
 from decimal import Decimal
 
@@ -65,6 +66,23 @@ def _zip(c, imp_id: int, up: UploadFile, taken: list[int]) -> None:
                 LIB.skip(c, imp_id, name, str(exc))
             except (zipfile.BadZipFile, RuntimeError, NotImplementedError) as exc:  # encrypted or unknown method
                 LIB.skip(c, imp_id, name, f"could not unpack: {exc}")
+
+
+def resume(db_url: str) -> None:
+    """Continue reading text of imports a restart interrupted (in the background, so start-up is not delayed)."""
+    with DB.connect(db_url) as c:
+        ids = LIB.recover(c)
+
+    def work():
+        for i in ids:
+            try:
+                with DB.connect(db_url) as c:
+                    LIB.extract_import(c, i)
+            except Exception:
+                log.exception("taking text from import %s failed", i)
+
+    if ids:
+        threading.Thread(target=work, name="docs-resume", daemon=True).start()
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0915, PLR0917
@@ -132,30 +150,32 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     async def upload(request: Request, background: BackgroundTasks, u=Depends(user_dep), c=Depends(conn_dep)):
         """Files, folders (relative paths as file names) and zip files in one import batch."""
         need(u, "documents:edit")
-        form = await request.form()
+        form = await request.form(max_files=MAX_FILES + 1, max_fields=MAX_FILES + 10)
         ups = [f for f in form.getlist("files") if isinstance(f, UploadFile)]
         if not ups:
             raise HTTPException(400, "choose some files")
         imp = LIB.new_import(c, u["email"], str(form.get("label") or ""))
         taken = [0]
-        for up in ups:
-            name = up.filename or "file"
-            if name.lower().endswith(".zip"):
-                _zip(c, imp["id"], up, taken)
-                continue
-            if taken[0] >= MAX_FILES:
-                LIB.skip(c, imp["id"], name, f"more than {MAX_FILES} files in one import")
-                continue
-            data = await up.read(F.MAX_BYTES + 1)
-            try:
-                LIB.add_file(c, imp["id"], name, data)
-                taken[0] += 1
-            except LIB.DocError as exc:
-                LIB.skip(c, imp["id"], name, str(exc))
-        if not taken[0]:
-            c.execute("update doc_imports set status = 'done' where id = %s", (imp["id"],))
-        else:
-            background.add_task(extract_job, imp["id"])
+        try:
+            for up in ups:
+                name = up.filename or "file"
+                if name.lower().endswith(".zip"):
+                    _zip(c, imp["id"], up, taken)
+                    continue
+                if taken[0] >= MAX_FILES:
+                    LIB.skip(c, imp["id"], name, f"more than {MAX_FILES} files in one import")
+                    continue
+                data = await up.read(F.MAX_BYTES + 1)
+                try:
+                    LIB.add_file(c, imp["id"], name, data)
+                    taken[0] += 1
+                except LIB.DocError as exc:
+                    LIB.skip(c, imp["id"], name, str(exc))
+        finally:                                     # also when the upload stops early (disk full): no stuck import
+            if taken[0]:
+                background.add_task(extract_job, imp["id"])
+            else:
+                c.execute("update doc_imports set status = 'done' where id = %s", (imp["id"],))
         return import_view(c, LIB.get_import(c, imp["id"]))
 
     @app.get("/api/docs/imports")
@@ -180,7 +200,9 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         if not c.execute("select 1 from documents where import_id = %s and status = 'to_classify'",
                          (imp_id,)).fetchone():
             raise HTTPException(409, "nothing in this import is waiting for classification")
-        c.execute("update doc_imports set status = 'classifying' where id = %s", (imp_id,))
+        if not c.execute("update doc_imports set status = 'classifying' where id = %s and status in ('ready', 'done') "
+                         "returning id", (imp_id,)).fetchone():          # a second click does not start a second run
+            raise HTTPException(409, "this import is already being classified")
         background.add_task(classify_job, imp_id, {"email": u["email"], "roles": u["roles"]},
                             d.get("engine", "ai") != "rules")
         return {"status": "classifying", "engine": "ai" if ai_on() and d.get("engine", "ai") != "rules" else "rules"}
@@ -218,7 +240,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
             "history": LIB.history(c, doc["id"]), "signatures": Q.signatures(c, "document", doc["id"]),
             "revisions": [_iso(r) for r in family], "import": _iso(imp) if imp else None,
             "same_file": same, "batch_ok": K.batch_ok(doc), "controlled": doc["doc_type"] in K.CONTROLLED,
-            "involved": sorted({doc["submitted_by"], doc["confirmed_by"], imp["created_by"] if imp else None} - {None}),
+            "involved": sorted(LIB.involved(c, doc)),
             "process_name": LIB.processes(c).get(doc["process"] or "", None)}
 
     @app.get("/api/docs/{doc_id}")
@@ -249,6 +271,12 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         need(u, "documents:edit")
         d = await body(request)
         return doc_view(c, run(lambda: LIB.reject(c, u["email"], doc_id, str(d.get("reason", "")))))
+
+    @app.post("/api/docs/{doc_id}/edit")
+    async def edit(doc_id: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "documents:edit")
+        d = await body(request)
+        return doc_view(c, run(lambda: LIB.edit(c, u["email"], doc_id, d.get("fields") or {})))
 
     @app.post("/api/docs/{doc_id}/submit")
     def submit(doc_id: int, u=Depends(user_dep), c=Depends(conn_dep)):

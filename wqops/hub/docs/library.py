@@ -116,7 +116,12 @@ def extract_one(conn, doc: dict) -> None:
     if same:
         _set_text(conn, doc, X.Text(same["body"], same["text_status"], "same file as an earlier one"))
     else:
-        _set_text(conn, doc, X.text_of(doc["original_name"], F.get(doc["sha256"])))
+        try:
+            data = F.get(doc["sha256"])
+        except OSError as exc:                          # missing or damaged in the store: say so, go on
+            _set_text(conn, doc, X.Text("", "error", f"stored file unreadable: {exc}"))
+            return
+        _set_text(conn, doc, X.text_of(doc["original_name"], data))
 
 
 def extract_import(conn, import_id: int) -> dict:
@@ -125,6 +130,14 @@ def extract_import(conn, import_id: int) -> dict:
                             (import_id,)).fetchall():
         extract_one(conn, doc)
     return conn.execute("update doc_imports set status = 'ready' where id = %s returning *", (import_id,)).fetchone()
+
+
+def recover(conn) -> list[int]:
+    """After a restart: work that stopped half-way. Classification is marked as stopped (classify again); imports
+    whose text was being read are returned so the reading can continue."""
+    conn.execute("update doc_imports set status = 'done', error = 'classification stopped when the hub restarted; "
+                 "classify again' where status = 'classifying'")
+    return [r["id"] for r in conn.execute("select id from doc_imports where status = 'extracting' order by id")]
 
 
 def text(conn, doc_id: int) -> str:
@@ -276,6 +289,54 @@ def name_of(doc: dict) -> str:
                     if x) or doc["original_name"]
 
 
+def _no_clash(conn, doc: dict) -> None:
+    """One revision of a number at a time: not the same revision twice, and no second effective revision unless this
+    one was uploaded as the new revision of it."""
+    same = conn.execute("select id from documents where number = %s and revision = %s and id <> %s and status in "
+                        "('in_review', 'effective', 'obsolete')",
+                        (doc["number"], doc["revision"], doc["id"])).fetchone()
+    if same:
+        raise DocError(f"{doc['number']} rev {doc['revision']} already exists (document {same['id']})")
+    other = conn.execute("select id, revision from documents where number = %s and status = 'effective' and id <> %s "
+                         "and id is distinct from %s", (doc["number"], doc["id"], doc["supersedes"])).fetchone()
+    if other:
+        raise DocError(f"{doc['number']} rev {other['revision']} is effective (document {other['id']}): upload this "
+                       "as a new revision of it, or make that one obsolete first")
+
+
+def involved(conn, doc: dict) -> set[str]:
+    """Everyone who uploaded, confirmed or ever sent this document for approval: none of them may approve it."""
+    sent = {r["email"] for r in conn.execute("select email from doc_log where document_id = %s and action = "
+                                            "'sent for approval'", (doc["id"],)) if r["email"]}
+    return (sent | {doc["submitted_by"], doc["confirmed_by"], _uploader(conn, doc)}) - {None}
+
+
+def edit(conn, email: str, doc_id: int, changes: dict) -> dict:
+    """Correct the details of a draft (for example add the number before sending it for approval)."""
+    with conn.transaction():
+        doc = _lock(conn, doc_id)
+        if doc["status"] != "draft":
+            raise DocError("only a draft can be changed; an effective document changes by a new revision")
+        changes = {k: (str(v).strip() or None) if v is not None else None for k, v in (changes or {}).items()
+                   if k in EDITABLE}
+        f = {k: doc[k] for k in EDITABLE} | changes
+        if isinstance(f.get("effective_date"), dt.date):
+            f["effective_date"] = f["effective_date"].isoformat()
+        _check_fields(conn, f)
+        if f["doc_type"] not in K.CONTROLLED:
+            raise DocError("a draft stays a procedure, work instruction or form; to keep it as a record, make it "
+                           "obsolete after approval or ask for it to be imported again")
+        before = {k: (str(doc[k]) if doc[k] is not None else None) for k in EDITABLE}
+        diff = {k: v for k, v in changes.items() if before[k] != v}
+        if not diff:
+            return doc
+        row = conn.execute("update documents set " + ", ".join(f"{k} = %({k})s" for k in diff)  # noqa: S608 - fixed names
+                           + ", updated_at = now() where id = %(id)s returning *", diff | {"id": doc_id}).fetchone()
+        log(conn, doc_id, email, "changed",
+            "; ".join(f"{k}: {before[k] or '-'} -> {v or '-'}" for k, v in diff.items()))
+    return row
+
+
 def submit(conn, email: str, doc_id: int) -> dict:
     with conn.transaction():
         doc = _lock(conn, doc_id)
@@ -283,11 +344,7 @@ def submit(conn, email: str, doc_id: int) -> dict:
             raise DocError(f"only a draft can be sent for approval; this one is {doc['status'].replace('_', ' ')}")
         if not doc["number"] or not doc["revision"]:
             raise DocError("give the document a number and a revision before sending it for approval")
-        clash = conn.execute("select id from documents where number = %s and revision = %s and id <> %s and status "
-                             "in ('in_review', 'effective', 'obsolete')", (doc["number"], doc["revision"],
-                                                                           doc_id)).fetchone()
-        if clash:
-            raise DocError(f"{doc['number']} rev {doc['revision']} already exists (document {clash['id']})")
+        _no_clash(conn, doc)
         row = conn.execute("update documents set status = 'in_review', submitted_by = %s, updated_at = now() "
                            "where id = %s returning *", (email, doc_id)).fetchone()
         log(conn, doc_id, email, "sent for approval")
@@ -310,14 +367,18 @@ def send_back(conn, email: str, doc_id: int, reason: str) -> dict:
 def approve(conn, user: dict, doc_id: int, password: str, today: dt.date) -> dict:
     """Signed approval by someone other than the uploader, the confirmer and the submitter. The fingerprint is frozen
     and an earlier revision this one replaces becomes obsolete."""
-    with conn.transaction():
-        doc = _lock(conn, doc_id)
+    def allowed(doc):
         if doc["status"] != "in_review":
             raise DocError("only a document waiting for approval can be approved")
-        involved = {doc["submitted_by"], doc["confirmed_by"], _uploader(conn, doc)} - {None}
-        if user["email"] in involved:
+        if user["email"] in involved(conn, doc):
             raise PermissionError("approval must come from someone who did not upload, confirm or submit it")
-        Q.check_signer(conn, user, password)
+
+    allowed(get(conn, doc_id))
+    Q.check_signer(conn, user, password)              # outside the transaction: a failed attempt stays recorded
+    with conn.transaction():
+        doc = _lock(conn, doc_id)
+        allowed(doc)
+        _no_clash(conn, doc)
         Q._sign(conn, user, "Document approved", "document", doc_id, name_of(doc))
         row = conn.execute(
             "update documents set status = 'effective', approved_by = %s, approved_at = now(), fingerprint = sha256, "
