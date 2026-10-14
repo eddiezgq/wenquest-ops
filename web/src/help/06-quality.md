@@ -49,3 +49,11 @@ are marked. With spec limits you also get Cp, Cpk, Pp and Ppk.
 
 Signing means re-entering **your own WenQuest Ops password**. If you sign in with Microsoft or Google, set a password
 first. Signatures and the quality history can never be changed or deleted.
+
+## Workflows
+
+*Quality → Workflows* shows how nonconformance reports and corrective actions move: their states in order and, for
+every step, who may do it, what it needs, whether it is signed and who may not do it (for example, the person who
+submitted a disposition cannot approve it). These rules are a configuration that WenQuest Ops checks before every
+step; each report and action keeps the version it was opened under, shown at the top of its page. Signing,
+approval by someone else and the record history cannot be switched off by any configuration.

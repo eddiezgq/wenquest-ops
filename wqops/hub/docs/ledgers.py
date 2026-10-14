@@ -173,16 +173,16 @@ def _ncr(conn, email: str, doc: dict, n: int, v: dict, raw: dict) -> tuple[str, 
                           _dropped_close(v, status)) if x]
     title = v.get("title") or desc.splitlines()[0][:80]
     full = desc + ("\n\n" + ". ".join(notes) + "." if notes else "")
-    name = Q._next_name(conn, "ncr_records", "NCR")
+    name, wf = Q.new_name(conn, "ncr")
     row = conn.execute(
         "insert into ncr_records (name, title, description, item_code, supplier, quantity, severity, owner, "
         "containment, disposition, status, closed_at, cancel_reason, created_by, external_no, reported_on, "
-        "source_doc, source_row) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
-        "returning *",
+        "source_doc, source_row, workflow_version) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+        "%s, %s, %s, %s, %s) returning *",
         (name, title, full, v.get("item_code"), v.get("supplier"), v.get("quantity"), v.get("severity"),
          owner, v.get("containment"), v.get("disposition"), status, _at(v.get("closed_on")) if status == "closed"
          else None, "cancelled in the ledger" if status == "cancelled" else None, email, v.get("external_no"),
-         v.get("reported_on"), doc["id"], n)).fetchone()
+         v.get("reported_on"), doc["id"], n, wf)).fetchone()
     Q.log(conn, "ncr", row["id"], email, "imported", f"from {_source(doc, n)}")
     if status == "closed":
         Q.log(conn, "ncr", row["id"], None, "closed before WenQuest Ops",
@@ -220,15 +220,15 @@ def _capa(conn, email: str, doc: dict, n: int, v: dict, raw: dict) -> tuple[str,
             notes.append(f"Related NCR in the ledger: {v['ncr']}, " + ("not found here" if not found else
                          "more than one NCR has that number (" + ", ".join(f["name"] for f in found) + ")"))
     desc = (v.get("description") or "") + ("\n\n" + ". ".join(notes) + "." if notes else "")
-    name = Q._next_name(conn, "capas", "CAPA")
+    name, wf = Q.new_name(conn, "capa")
     row = conn.execute(
         "insert into capas (name, kind, title, description, owner, risk, root_cause, containment, status, closed_at, "
-        "cancel_reason, created_by, external_no, reported_on, source_doc, source_row) values (%s, %s, %s, %s, %s, %s, "
-        "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
+        "cancel_reason, created_by, external_no, reported_on, source_doc, source_row, workflow_version) values (%s, "
+        "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
         (name, v["kind"], v["title"], desc.strip(), owner, v.get("risk"), v.get("root_cause"), v.get("containment"),
          status, _at(v.get("closed_on")) if status == "closed" else None,
          "cancelled in the ledger" if status == "cancelled" else None, email, v.get("external_no"),
-         v.get("reported_on"), doc["id"], n)).fetchone()
+         v.get("reported_on"), doc["id"], n, wf)).fetchone()
     if ncr:
         conn.execute("insert into capa_ncrs (capa_id, ncr_id) values (%s, %s) on conflict do nothing",
                      (row["id"], ncr["id"]))

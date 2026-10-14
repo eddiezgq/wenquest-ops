@@ -19,6 +19,7 @@ import datetime as dt
 from psycopg.types.json import Jsonb
 
 from wqops.hub import accounts as A
+from wqops.hub.quality import workflow as W
 
 SECTIONS = {"d1": "D1 Team", "d2": "D2 Problem description", "d3": "D3 Containment", "d4": "D4 Root cause",
             "d5": "D5 Corrective actions", "d6": "D6 Implementation and verification", "d7": "D7 Prevent recurrence",
@@ -68,9 +69,30 @@ def _sign(conn, user: dict, meaning: str, kind: str, ref_id: int, ref_name: str)
                  "values (%s, %s, %s, %s, %s, %s)", (user["email"], user["name"], meaning, kind, ref_id, ref_name))
 
 
-def _next_name(conn, table: str, prefix: str) -> str:
+def _next_name(conn, table: str, prefix: str, digits: int = 5) -> str:
+    """The next number. Called inside the creating transaction: the lock (held until it ends) keeps two records
+    created at the same time from getting the same number (issue #52)."""
+    conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-number:{table}",))
     n = conn.execute(f"select coalesce(max(id), 0) + 1 as n from {table}").fetchone()["n"]  # noqa: S608 - fixed names
-    return f"{prefix}-{n:05d}"
+    return f"{prefix}-{n:0{digits}d}"
+
+
+def new_name(conn, kind: str) -> tuple[str, int]:
+    """(number, workflow version id) for a new record of ``kind``: numbered and run by the enabled workflow."""
+    v = W.ensure(conn, kind)
+    num = v["config"]["numbering"]
+    return _next_name(conn, W.KINDS[kind], num["prefix"], int(num["digits"])), v["id"]
+
+
+def _step(conn, kind: str, row: dict, step: str, user: dict | None, facts: dict | None = None,
+          explain: dict | None = None) -> tuple[dict, dict]:
+    """The workflow of the record and the step's rules, after the workflow's checks (ADR-0015)."""
+    cfg = W.of(conn, kind, row)
+    who = {"email": user["email"]} if user else None     # roles are checked by the API (module docstring)
+    try:
+        return cfg, W.check(cfg, row, step, who, facts, explain=explain)
+    except W.StepError as exc:
+        raise QualityError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------- disposition types (configuration)
@@ -108,13 +130,13 @@ def create_ncr(conn, email: str, *, title: str, description: str, severity: str 
         if inspection and conn.execute("select 1 from ncr_records where inspection = %s and status <> 'cancelled'",
                                        (inspection,)).fetchone():
             raise QualityError(f"inspection {inspection} already has a nonconformance report")
-        name = _next_name(conn, "ncr_records", "NCR")
+        name, wf = new_name(conn, "ncr")
         row = conn.execute(
             "insert into ncr_records (name, draft_id, title, description, inspection, item_code, receipt, supplier, "
-            "quantity, severity, owner, created_by) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
-            "returning *",
+            "quantity, severity, owner, created_by, workflow_version) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+            "%s, %s, %s) returning *",
             (name, draft_id, title.strip(), description.strip(), inspection, item_code, receipt, supplier, quantity,
-             severity, owner if owner is not None or email == SYSTEM else email, email)).fetchone()
+             severity, owner if owner is not None or email == SYSTEM else email, email, wf)).fetchone()
         log(conn, "ncr", row["id"], email, "opened", title)
     return row
 
@@ -141,7 +163,7 @@ def _set(conn, table: str, row_id: int, **cols) -> dict:
 def update_ncr(conn, ncr_id: int, email: str, **fields) -> dict:
     """Owner and severity can change while the report is not closed or cancelled."""
     row = ncr(conn, ncr_id)
-    _need(row, "open", "contained", "pending_approval", "dispositioned")
+    _step(conn, "ncr", row, "update", None)
     cols = {k: v for k, v in fields.items() if k in ("owner", "severity") and v is not None}
     if cols.get("severity") not in (None, "minor", "major"):
         raise QualityError("severity is minor or major")
@@ -155,30 +177,29 @@ def update_ncr(conn, ncr_id: int, email: str, **fields) -> dict:
 
 def contain(conn, ncr_id: int, email: str, containment: str) -> dict:
     row = ncr(conn, ncr_id)
-    _need(row, "open")
-    if not containment.strip():
-        raise QualityError("describe the containment (what was done to stop bad parts going further)")
+    cfg, _ = _step(conn, "ncr", row, "contain", None, {"containment": containment.strip()},
+                   {"containment": "describe the containment (what was done to stop bad parts going further)"})
     with conn.transaction():
-        row = _set(conn, "ncr_records", ncr_id, status="contained", containment=containment.strip())
+        row = _set(conn, "ncr_records", ncr_id, status=W.target(cfg, "contain"), containment=containment.strip())
         log(conn, "ncr", ncr_id, email, "contained", containment)
     return row
 
 
 def submit_disposition(conn, ncr_id: int, email: str, code: str, quantity: float | None, reason: str) -> dict:
     row = ncr(conn, ncr_id)
-    _need(row, "contained")
+    cfg, _ = _step(conn, "ncr", row, "disposition", None,
+                   {"disposition": code, "disposition_qty": quantity if quantity is None or float(quantity) > 0 else 0,
+                    "disposition_reason": reason.strip()},
+                   {"disposition_reason": "give the reason for this disposition",
+                    "disposition_qty": "give the quantity this disposition covers"})
     types = disposition_types(conn)
     if code not in types:
         raise QualityError(f"disposition is one of: {', '.join(types)}")
-    if not reason.strip():
-        raise QualityError("give the reason for this disposition")
-    if quantity is None or float(quantity) <= 0:
-        raise QualityError("give the quantity this disposition covers")
     if row["quantity"] is not None and float(quantity) > float(row["quantity"]):
         raise QualityError(f"the quantity cannot exceed the report's {float(row['quantity']):g}")
     needs = types[code]["requires_approval"]
     with conn.transaction():
-        row = _set(conn, "ncr_records", ncr_id, status="pending_approval" if needs else "dispositioned",
+        row = _set(conn, "ncr_records", ncr_id, status=W.target(cfg, "disposition", needs),
                    disposition=code, disposition_qty=quantity, disposition_reason=reason.strip(), disposition_by=email)
         log(conn, "ncr", ncr_id, email, "disposition submitted",
             f"{types[code]['name']}, {float(quantity):g}: {reason}" + (" (needs approval)" if needs else ""))
@@ -187,25 +208,24 @@ def submit_disposition(conn, ncr_id: int, email: str, code: str, quantity: float
 
 def approve_disposition(conn, ncr_id: int, user: dict, password: str) -> dict:
     row = ncr(conn, ncr_id)
-    _need(row, "pending_approval")
-    if row["disposition_by"] == user["email"]:
-        raise QualityError("someone other than the person who submitted the disposition must approve it")
+    cfg, _ = _step(conn, "ncr", row, "approve", user)
     check_signer(conn, user, password)
     with conn.transaction():
-        row = _set(conn, "ncr_records", ncr_id, status="dispositioned", approved_by=user["email"],
+        row = _set(conn, "ncr_records", ncr_id, status=W.target(cfg, "approve"), approved_by=user["email"],
                    approved_at=dt.datetime.now(dt.UTC))
-        _sign(conn, user, "Disposition approved", "ncr", ncr_id, row["name"])
+        _sign(conn, user, W.signed(cfg, "approve"), "ncr", ncr_id, row["name"])
         log(conn, "ncr", ncr_id, user["email"], "disposition approved")
     return row
 
 
 def reject_disposition(conn, ncr_id: int, email: str, reason: str) -> dict:
     row = ncr(conn, ncr_id)
-    _need(row, "pending_approval")
+    cfg, _ = _step(conn, "ncr", row, "reject_disposition", None)
     if not reason.strip():
         raise QualityError("say why the disposition is not approved")
     with conn.transaction():
-        row = _set(conn, "ncr_records", ncr_id, status="contained", disposition=None, disposition_qty=None,
+        row = _set(conn, "ncr_records", ncr_id, status=W.target(cfg, "reject_disposition"), disposition=None,
+                   disposition_qty=None,
                    disposition_reason=None, disposition_by=None)
         log(conn, "ncr", ncr_id, email, "disposition not approved", reason)
     return row
@@ -213,29 +233,32 @@ def reject_disposition(conn, ncr_id: int, email: str, reason: str) -> dict:
 
 def close_ncr(conn, ncr_id: int, user: dict, password: str, note: str = "") -> dict:
     row = ncr(conn, ncr_id)
-    _need(row, "dispositioned")
+    cfg, _ = _step(conn, "ncr", row, "close", user)
     if row["severity"] is None:
         raise QualityError(f"{row['name']} has no severity (its ledger did not say); set minor or major first")
-    if row["severity"] == "major" and not conn.execute(
+    if row["severity"] in W.rule(cfg, "capa_closed_before_close", []) and not conn.execute(
             "select 1 from capa_ncrs l join capas c on c.id = l.capa_id where l.ncr_id = %s and c.status = 'closed'",
             (ncr_id,)).fetchone():
-        raise QualityError(f"{row['name']} is major: it closes when a linked corrective action is closed")
+        raise QualityError(f"{row['name']} is {row['severity']}: it closes when a linked corrective action is closed")
+    if row["severity"] in W.rule(cfg, "eight_d_before_close", []) and not conn.execute(
+            "select 1 from eightd where ncr_id = %s and complete", (ncr_id,)).fetchone():
+        raise QualityError(f"{row['name']} is {row['severity']}: it closes when its 8D is complete")
     check_signer(conn, user, password)
     with conn.transaction():
-        row = _set(conn, "ncr_records", ncr_id, status="closed", closed_by=user["email"],
+        row = _set(conn, "ncr_records", ncr_id, status=W.target(cfg, "close"), closed_by=user["email"],
                    closed_at=dt.datetime.now(dt.UTC))
-        _sign(conn, user, "Nonconformance closed", "ncr", ncr_id, row["name"])
+        _sign(conn, user, W.signed(cfg, "close"), "ncr", ncr_id, row["name"])
         log(conn, "ncr", ncr_id, user["email"], "closed", note)
     return row
 
 
 def cancel_ncr(conn, ncr_id: int, email: str, reason: str) -> dict:
     row = ncr(conn, ncr_id)
-    _need(row, "open", "contained", "pending_approval", "dispositioned")
+    cfg, _ = _step(conn, "ncr", row, "cancel", None)
     if not reason.strip():
         raise QualityError("say why the report is cancelled")
     with conn.transaction():
-        row = _set(conn, "ncr_records", ncr_id, status="cancelled", cancel_reason=reason.strip())
+        row = _set(conn, "ncr_records", ncr_id, status=W.target(cfg, "cancel"), cancel_reason=reason.strip())
         log(conn, "ncr", ncr_id, email, "cancelled", reason)
     return row
 
@@ -266,6 +289,7 @@ def complete_8d(conn, ncr_id: int, user: dict, password: str) -> dict:
     cur = conn.execute("select * from eightd where ncr_id = %s", (ncr_id,)).fetchone()
     if cur and cur["complete"]:
         raise QualityError("this 8D is already complete")
+    cfg, _ = _step(conn, "ncr", row, "complete_8d", user)
     missing = [SECTIONS[k] for k in SECTIONS if not (cur and cur["sections"].get(k))]
     if missing:
         raise QualityError("still to write: " + ", ".join(missing))
@@ -273,7 +297,7 @@ def complete_8d(conn, ncr_id: int, user: dict, password: str) -> dict:
     with conn.transaction():
         out = conn.execute("update eightd set complete = true, completed_by = %s, completed_at = now() "
                            "where ncr_id = %s returning *", (user["email"], ncr_id)).fetchone()
-        _sign(conn, user, "8D completed", "ncr", ncr_id, row["name"])
+        _sign(conn, user, W.signed(cfg, "complete_8d"), "ncr", ncr_id, row["name"])
         log(conn, "ncr", ncr_id, user["email"], "8d complete")
     return out
 
@@ -289,10 +313,12 @@ def create_capa(conn, email: str, *, kind: str, title: str, description: str = "
     if risk is not None and risk not in RISKS:
         raise QualityError(f"risk is one of: {', '.join(RISKS)}")
     with conn.transaction():
-        name = _next_name(conn, "capas", "CAPA")
-        row = conn.execute("insert into capas (name, kind, title, description, owner, risk, created_by, status) "
-                           "values (%s, %s, %s, %s, %s, %s, %s, 'draft') returning *",
-                           (name, kind, title.strip(), description, owner or email, risk, email)).fetchone()
+        name, wf = new_name(conn, "capa")
+        initial = W.version(conn, "capa", wf)["config"]["initial"]
+        row = conn.execute("insert into capas (name, kind, title, description, owner, risk, created_by, status, "
+                           "workflow_version) values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
+                           (name, kind, title.strip(), description, owner or email, risk, email, initial,
+                            wf)).fetchone()
         log(conn, "capa", row["id"], email, "opened", title)
         for n in ncr_ids or []:
             _link(conn, row, n, email)
@@ -365,26 +391,17 @@ def _move(conn, c: dict, to: str, email: str, note: str = "", **cols) -> dict:
 def submit_capa(conn, capa_id: int, email: str) -> dict:
     """Draft -> investigation: needs the problem, an owner and a risk level."""
     c = capa(conn, capa_id)
-    _need(c, "draft")
-    missing = [lbl for k, lbl in (("description", "problem description"), ("owner", "owner"), ("risk", "risk level"))
-               if not c[k]]
-    if missing:
-        raise QualityError("still needed: " + ", ".join(missing))
+    cfg, _ = _step(conn, "capa", c, "submit", None)
     with conn.transaction():
-        return _move(conn, c, "investigation", email)
+        return _move(conn, c, W.target(cfg, "submit"), email)
 
 
 def plan_actions(conn, capa_id: int, email: str) -> dict:
     """Investigation -> implementation: needs containment, root cause and at least one action."""
     c = capa(conn, capa_id)
-    _need(c, "investigation")
-    missing = [lbl for k, lbl in (("containment", "containment"), ("root_cause", "root cause")) if not c[k]]
-    if not actions(conn, capa_id):
-        missing.append("at least one action")
-    if missing:
-        raise QualityError("still needed: " + ", ".join(missing))
+    cfg, _ = _step(conn, "capa", c, "plan", None, {"actions": bool(actions(conn, capa_id))})
     with conn.transaction():
-        return _move(conn, c, "implementation", email)
+        return _move(conn, c, W.target(cfg, "plan"), email)
 
 
 def add_action(conn, capa_id: int, email: str, text: str, owner: str | None = None, due: str | None = None,
@@ -432,43 +449,41 @@ def action_done(conn, action_id: int, email: str, may_edit: bool, evidence: str)
 
 def to_effectiveness(conn, capa_id: int, email: str) -> dict:
     c = capa(conn, capa_id)
-    _need(c, "implementation")
     open_ = [a["text"] for a in actions(conn, capa_id) if not a["done"]]
-    if open_:
-        raise QualityError("actions not done yet: " + "; ".join(open_))
+    cfg, _ = _step(conn, "capa", c, "to_effectiveness", None, {"actions_done": not open_},
+                   {"actions_done": "actions not done yet: " + "; ".join(open_)})
     with conn.transaction():
-        return _move(conn, c, "effectiveness", email)
+        return _move(conn, c, W.target(cfg, "to_effectiveness"), email)
 
 
 def effectiveness(conn, capa_id: int, user: dict, password: str, result: str, evidence: str) -> dict:
     """Effective: closed, signed by someone other than the owner. Not effective: back to implementation."""
     c = capa(conn, capa_id)
-    _need(c, "effectiveness")
     if result not in ("effective", "ineffective"):
+        _step(conn, "capa", c, "effective", None, {"evidence": "-"})      # the state first, as for every step
         raise QualityError("result is effective or ineffective")
-    if not evidence.strip():
-        raise QualityError("give the evidence (data, period) for the effectiveness check")
+    step = "effective" if result == "effective" else "not_effective"
+    cfg, _ = _step(conn, "capa", c, step, user, {"evidence": evidence.strip()},
+                   {"evidence": "give the evidence (data, period) for the effectiveness check"})
     now = dt.datetime.now(dt.UTC)
     if result == "ineffective":
         with conn.transaction():
-            return _move(conn, c, "implementation", user["email"], f"Not effective. Reason: {evidence}",
+            return _move(conn, c, W.target(cfg, step), user["email"], f"Not effective. Reason: {evidence}",
                          verification_result="ineffective", verification_method=evidence.strip(),
                          verified_by=user["email"], verified_at=now)
-    if c["owner"] == user["email"]:
-        raise QualityError("someone other than the owner must close a corrective action")
     check_signer(conn, user, password)
     with conn.transaction():
-        out = _move(conn, c, "closed", user["email"], f"Effective: {evidence}", verification_result="effective",
-                    verification_method=evidence.strip(), verified_by=user["email"], verified_at=now,
-                    closed_by=user["email"], closed_at=now)
-        _sign(conn, user, "Corrective action closed (effective)", "capa", capa_id, c["name"])
+        out = _move(conn, c, W.target(cfg, step), user["email"], f"Effective: {evidence}",
+                    verification_result="effective", verification_method=evidence.strip(), verified_by=user["email"],
+                    verified_at=now, closed_by=user["email"], closed_at=now)
+        _sign(conn, user, W.signed(cfg, step), "capa", capa_id, c["name"])
     return out
 
 
 def cancel_capa(conn, capa_id: int, email: str, reason: str) -> dict:
     c = capa(conn, capa_id)
-    _need(c, *OPEN_CAPA)
+    cfg, _ = _step(conn, "capa", c, "cancel", None)
     if not reason.strip():
         raise QualityError("say why it is cancelled")
     with conn.transaction():
-        return _move(conn, c, "cancelled", email, reason, cancel_reason=reason.strip())
+        return _move(conn, c, W.target(cfg, "cancel"), email, reason, cancel_reason=reason.strip())

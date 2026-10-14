@@ -45,6 +45,7 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
       <Badge :label="c.kind" variant="outline" size="lg" class="capitalize" />
       <Badge v-if="c.risk" :theme="c.risk === 'high' ? 'red' : c.risk === 'medium' ? 'amber' : 'gray'" :label="`${c.risk} risk`" size="lg" />
     </template>
+    <RouterLink v-if="c?.workflow" to="/quality?tab=workflows" class="hidden text-sm text-ink-gray-5 hover:underline sm:inline">workflow v{{ c.workflow.version }}</RouterLink>
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <template v-if="c">

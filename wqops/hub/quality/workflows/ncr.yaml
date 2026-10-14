@@ -1,0 +1,70 @@
+# Default workflow of a nonconformance report (ADR-0015): the Phase 1 behaviour (ADR-0009, ADR-0010).
+# Each step is carried out by code (quality/records.py); this file says when it may run, who may run it, what it
+# needs and whether it is signed. Red lines cannot be configured away (quality/workflow.py checks them).
+kind: ncr
+label: Nonconformance report
+numbering: {prefix: NCR, digits: 5}
+initial: open
+states:
+  open: {label: Open}
+  contained: {label: Contained}
+  pending_approval: {label: Waiting for approval}
+  dispositioned: {label: Dispositioned}
+  closed: {label: Closed, final: true}
+  cancelled: {label: Cancelled, final: true}
+steps:
+  update:
+    label: Change owner or severity
+    from: [open, contained, pending_approval, dispositioned]
+    permission: quality:edit
+  contain:
+    label: Contain
+    from: [open]
+    to: contained
+    permission: quality:edit
+    required: [containment]
+  disposition:
+    label: Submit disposition
+    from: [contained]
+    to: dispositioned
+    to_when_approval_needed: pending_approval
+    permission: quality:edit
+    required: [disposition, disposition_qty, disposition_reason]
+  approve:
+    label: Approve disposition
+    kind: approval
+    from: [pending_approval]
+    to: dispositioned
+    permission: quality:edit
+    sign: Disposition approved
+    not_by: [disposition_by]
+  reject_disposition:
+    label: Do not approve
+    from: [pending_approval]
+    to: contained
+    permission: quality:edit
+    reason: true
+  close:
+    label: Close
+    kind: close
+    from: [dispositioned]
+    to: closed
+    permission: quality:edit
+    sign: Nonconformance closed
+  cancel:
+    label: Cancel
+    from: [open, contained, pending_approval, dispositioned]
+    to: cancelled
+    permission: quality:edit
+    reason: true
+  complete_8d:
+    label: Mark 8D complete
+    kind: close
+    from: [open, contained, pending_approval, dispositioned]
+    permission: quality:edit
+    sign: 8D completed
+rules:
+  # severities that close only when a linked corrective action is closed
+  capa_closed_before_close: [major]
+  # severities that need a completed 8D before closing
+  eight_d_before_close: []

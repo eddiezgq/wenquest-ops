@@ -51,6 +51,7 @@ const label = (s) => s.replaceAll('_', ' ')
       <Badge :theme="n.severity === 'major' ? 'red' : n.severity ? 'gray' : 'amber'" variant="outline" :label="n.severity || 'severity unknown'" size="lg" />
       <Badge :theme="STATUS[n.status] || 'gray'" :label="label(n.status)" size="lg" />
     </template>
+    <RouterLink v-if="n?.workflow" to="/quality?tab=workflows" class="hidden text-sm text-ink-gray-5 hover:underline sm:inline">workflow v{{ n.workflow.version }}</RouterLink>
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <template v-if="n">
