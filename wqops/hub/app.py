@@ -74,14 +74,28 @@ def load_company() -> tuple[dict | None, str]:
 
 
 def _page(title: str, body: str) -> str:
+    """Plain server pages (sign-in, the page without a web build) in Frappe's look (ADR-0013), no scripts."""
     return (f"<!doctype html><html lang='en'><head><meta charset='utf-8'><title>{html.escape(title)}</title>"
             "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-            "<style>body{font-family:system-ui,sans-serif;max-width:44rem;margin:3rem auto;padding:0 1rem;"
-            "color:#1f2933}label{display:block;margin:.8rem 0 .2rem}"
-            "input{width:100%;padding:.5rem;font-size:1rem;box-sizing:border-box}"
-            "button{margin-top:1rem;padding:.55rem 1.2rem;font-size:1rem}.err{color:#b42318}.muted{color:#667085}"
-            "code{background:#f2f4f7;padding:0 .3rem;border-radius:3px}</style></head>"
-            f"<body>{body}</body></html>")
+            "<style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;"
+            "justify-content:center;background:#f8f8f8;color:#383838;padding:2rem 1rem;"
+            "font:14px/1.5 InterVar,Inter,-apple-system,'Segoe UI',system-ui,sans-serif}"
+            "main{width:100%;max-width:26rem;background:#fff;border:1px solid #ededed;border-radius:12px;"
+            "padding:2rem;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04)}"
+            "h1{font-size:13px;font-weight:500;color:#7c7c7c;margin:0 0 .25rem}"
+            "h2{font-size:20px;font-weight:600;color:#171717;margin:0 0 1.25rem}"
+            "label{display:block;margin:.9rem 0 .35rem;font-size:13px;color:#525252}"
+            "input{width:100%;height:36px;padding:0 .7rem;font:inherit;color:#171717;background:#f3f3f3;"
+            "border:1px solid #f3f3f3;border-radius:8px;outline:none}"
+            "input:focus{background:#fff;border-color:#c7c7c7;box-shadow:0 0 0 2px #e2e2e2}"
+            "button{width:100%;margin-top:1.4rem;height:36px;font:inherit;font-weight:500;color:#fff;"
+            "background:#171717;border:0;border-radius:8px;cursor:pointer}button:hover{background:#383838}"
+            "a{color:#171717}a.sso{display:block;text-align:center;padding:.5rem;border:1px solid #e2e2e2;"
+            "border-radius:8px;text-decoration:none;font-weight:500}a.sso:hover{background:#f8f8f8}"
+            ".err{color:#c71a1a;background:#fff5f5;border:1px solid #fbdada;border-radius:6px;padding:.5rem .7rem}"
+            ".muted{color:#7c7c7c}small{font-size:12px}"
+            "code{background:#f3f3f3;padding:0 .3rem;border-radius:4px}</style></head>"
+            f"<body><main>{body}</main></body></html>")
 
 
 def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0915 - routes are defined inside

@@ -46,14 +46,14 @@ const f = (v) => (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3))
     </svg>
     <div v-if="hover !== null" class="tip">{{ data.labels[hover] }}: {{ f(ch.points[hover]) }}
       <span v-if="flagged.has(hover)"> — {{ flagged.get(hover).text }}</span></div>
-    <figcaption class="muted small">{{ ch.kind === 'xbar_r' ? `X-bar chart, subgroups of ${ch.n}` : 'Individuals chart (inspection means)' }}.
+    <figcaption class="mt-2 text-sm text-ink-gray-5">{{ ch.kind === 'xbar_r' ? `X-bar chart, subgroups of ${ch.n}` : 'Individuals chart (inspection means)' }}.
       Hover a point for its inspection.</figcaption>
   </figure>
 </template>
 
 <style scoped>
 .cc { margin: 0; position: relative; }
-svg { width: 100%; height: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+svg { width: 100%; height: auto; max-height: 22rem; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .series { fill: none; stroke: var(--accent); stroke-width: 2; }
 .pt { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
 .bad { fill: var(--critical); stroke: var(--panel); stroke-width: 2; }
@@ -61,8 +61,8 @@ svg { width: 100%; height: auto; background: var(--panel); border: 1px solid var
 .center { stroke: var(--muted); stroke-width: 1; }
 .lim { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 5 4; }
 .spec { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 2 3; }
-.ax { fill: var(--muted); font-size: 11px; }
-.flag { fill: var(--ink); font-size: 11px; text-anchor: middle; }
+.ax { fill: var(--muted); font-size: 10px; }
+.flag { fill: var(--ink); font-size: 10px; text-anchor: middle; }
 .tip { position: absolute; top: .4rem; left: 3.6rem; background: var(--panel); border: 1px solid var(--line);
        border-radius: 6px; padding: .2rem .5rem; font-size: .85rem; }
 </style>
