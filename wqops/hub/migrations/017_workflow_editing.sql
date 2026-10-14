@@ -46,8 +46,8 @@ create table quality_approvals (
     ref_id   bigint not null,
     name     text not null,
     email    text not null,
-    at       timestamptz not null default now(),
-    unique (kind, ref_id, name)
+    at       timestamptz not null default now()        -- counts until the record goes back a step
 );
+create index quality_approvals_ref on quality_approvals (kind, ref_id, name, at);
 create trigger quality_approvals_append_only before update or delete on quality_approvals
     for each row execute function wqo_append_only();

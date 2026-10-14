@@ -60,6 +60,8 @@ function listOf(obj, key) { return (obj[key] ||= []) }
 // a company's own fields
 const nf = ref({ name: '', label: '', type: 'text', choices: '' })
 function addField() {
+  if (cfg.value.fields[nf.value.name.trim()]) { error.value = `There is already a field ${nf.value.name.trim()}`; return }
+  error.value = ''
   const f = { label: nf.value.label.trim(), type: nf.value.type }
   if (f.type === 'choice') f.choices = nf.value.choices.split(',').map((c) => c.trim()).filter(Boolean)
   cfg.value.fields = { ...cfg.value.fields, [nf.value.name.trim()]: f }
@@ -68,7 +70,9 @@ function addField() {
 function dropField(name) { const { [name]: _, ...rest } = cfg.value.fields; cfg.value.fields = rest }
 // extra signed approvals
 function addApproval() {
-  cfg.value.approvals.push({ name: `approval_${cfg.value.approvals.length + 1}`, label: 'Approval', before: 'close', roles: ['owner'], sign: 'Approved', when: {} })
+  let n = cfg.value.approvals.length + 1
+  while (cfg.value.approvals.some((a) => a.name === `approval_${n}`)) n++
+  cfg.value.approvals.push({ name: `approval_${n}`, label: 'Approval', before: 'close', roles: ['owner'], sign: 'Approved', when: {} })
 }
 function whenList(a, key) { a.when ||= {}; return (a.when[key] ||= []) }
 function cleanWhen(a) { for (const k of Object.keys(a.when || {})) if (!a.when[k].length) delete a.when[k] }
@@ -149,7 +153,7 @@ const stepNames = computed(() => Object.keys(cfg.value?.steps || {}))
           <tbody><tr v-for="(f, name) in cfg.fields" :key="name">
             <td class="font-mono">{{ name }}</td><td><input v-model="f.label" class="wq-input w-48"></td>
             <td>{{ f.type }}<span v-if="f.choices" class="text-ink-gray-5">: {{ f.choices.join(', ') }}</span></td>
-            <td><label v-for="st in stepNames" :key="st" class="me-2 inline-flex items-center gap-1">
+            <td><label v-for="st in o.gates" :key="st" class="me-2 inline-flex items-center gap-1">
               <input type="checkbox" class="form-checkbox" :checked="(f.required_at || []).includes(st)"
                      @change="toggle(listOf(f, 'required_at'), st, $event.target.checked)">{{ cfg.steps[st].label }}</label></td>
             <td><Button size="sm" variant="ghost" label="Remove" @click="dropField(name)" /></td></tr></tbody>
@@ -170,7 +174,7 @@ const stepNames = computed(() => Object.keys(cfg.value?.steps || {}))
           <div class="flex flex-wrap items-end gap-3">
             <label class="wq-field">Name<input v-model="a.name" class="wq-input w-36 font-mono"></label>
             <label class="wq-field">Label<input v-model="a.label" class="wq-input w-56"></label>
-            <label class="wq-field">Before<select v-model="a.before" class="wq-select"><option v-for="st in stepNames" :key="st" :value="st">{{ cfg.steps[st].label }}</option></select></label>
+            <label class="wq-field">Before<select v-model="a.before" class="wq-select"><option v-for="st in o.gates" :key="st" :value="st">{{ cfg.steps[st].label }}</option></select></label>
             <label class="wq-field">Signature means<input v-model="a.sign" class="wq-input w-64"></label>
             <Button v-if="editable" size="sm" variant="ghost" label="Remove" @click="cfg.approvals.splice(i, 1)" />
           </div>

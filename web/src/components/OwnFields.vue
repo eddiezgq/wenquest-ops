@@ -8,14 +8,14 @@ import { ago } from '../format'
 const props = defineProps({ record: Object, kind: String, canEdit: Boolean })
 const emit = defineEmits(['changed'])
 const vals = ref({})
-const pw = ref('')
+const pw = ref({})
 const error = ref('')
 const locked = () => ['closed', 'cancelled'].includes(props.record.status)
 watch(() => props.record, (r) => { vals.value = { ...(r.custom || {}) } }, { immediate: true })
 
 async function post(path, body) {
   error.value = ''
-  try { emit('changed', await api(`/api/quality/${props.kind}s/${props.record.id}/${path}`, { method: 'POST', body })); pw.value = '' }
+  try { emit('changed', await api(`/api/quality/${props.kind}s/${props.record.id}/${path}`, { method: 'POST', body })); pw.value = {} }
   catch (e) { error.value = e.message }
 }
 const save = () => post('update', { custom: Object.fromEntries(Object.keys(props.record.fields).map((k) => [k, vals.value[k] ?? ''])) })
@@ -42,8 +42,8 @@ const save = () => post('update', { custom: Object.fromEntries(Object.keys(props
           <span class="text-sm text-ink-gray-5">before {{ a.before_label.toLowerCase() }}, by {{ a.roles.join(' or ') }}</span>
           <Badge v-if="a.given_by" theme="green" :label="`given by ${a.given_by}, ${ago(a.given_at)}`" />
           <template v-else-if="a.now">
-            <input v-model="pw" class="wq-input max-w-48" type="password" placeholder="Your password to sign" autocomplete="current-password">
-            <Button variant="solid" icon-left="lucide-pen-line" label="Approve (sign)" @click="post(`approvals/${a.name}`, { password: pw })" />
+            <input v-model="pw[a.name]" class="wq-input max-w-48" type="password" placeholder="Your password to sign" autocomplete="current-password">
+            <Button variant="solid" icon-left="lucide-pen-line" label="Approve (sign)" @click="post(`approvals/${a.name}`, { password: pw[a.name] || '' })" />
           </template>
           <Badge v-else theme="gray" label="not yet" />
         </li>

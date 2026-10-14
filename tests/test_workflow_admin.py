@@ -63,8 +63,8 @@ def test_new_fields_and_approvals_are_checked():
     bad["extra"] = 1
     found = " | ".join(W.validate(bad))
     for says in ("field 'Lot No'", "field Lot No: give it a label", "type is one of", "field 'containment'",
-                 "at least two choices", "step 'fly'", "unique name", "approval owner_close: an approval is signed",
-                 "name the roles", "'nowhere' does not exist", "condition on 'colour'", "severity is one of minor",
+                 "at least two choices", "not 'fly'", "unique name", "approval owner_close: an approval is signed",
+                 "name the roles", "not 'nowhere'", "condition on 'colour'", "severity is one of minor",
                  "'submitted_by' is not a person", "'extra' is not part of a workflow"):
         assert says in found, says
     assert W.diff(W.default("ncr"), cfg) == [
@@ -196,3 +196,71 @@ def test_workflow_admin_api(db_url):
     assert r.status_code == 409 and "before close" in r.json()["detail"]   # not yet at the closing stage
     out = c.get("/api/quality/workflows").json()["ncr"]
     assert out["enabled"]["version"] == 2 and [x["status"] for x in out["versions"]] == ["enabled", "retired"]
+
+
+def test_review_findings(world, monkeypatch):
+    """Cases an independent review found: none may weaken a control, leave a record stuck or fail with an error."""
+    base = W.default("ncr")
+    for change, says in (
+            (lambda c: c.update(fields={"lot": {"label": "Lot", "type": "text", "required_at": ["update"]}}),
+             "not 'update'"),
+            (lambda c: c.update(approvals=[{"name": "ok", "label": "OK", "before": "disposition", "roles": ["owner"],
+                                            "sign": "s", "when": {"disposition": ["use_as_is"]}}]),
+             "not known before it is submitted"),
+            (lambda c: c.update(approvals=[{"name": "ok", "label": "OK", "before": "close", "roles": ["sales"],
+                                            "sign": "s"}]), "can see quality records"),
+            (lambda c: c.update(approvals=[{"name": "ok", "label": "OK", "before": "close", "roles": ["owner"],
+                                            "sign": "s", "when": ["major"]}]), "conditions are lists")):
+        cfg = copy.deepcopy(base)
+        change(cfg)
+        assert says in " | ".join(W.validate(cfg)), says
+    d = WA.new_draft(world, "ncr", JORDAN)
+    for bad in ({"kind": "ncr"}, dict(d["config"], numbering="x"), None):
+        with pytest.raises(WA.AdminError, match="not well formed"):
+            WA.save(world, d["id"], JORDAN, bad)
+    with pytest.raises(W.StepError, match="a number"):
+        W.clean_custom({"fields": {"c": {"label": "Cost", "type": "number"}}}, {"c": "nan"}, set())
+
+    # the draft changes while the enabler types the password: nothing is enabled
+    with_concession = company_changes(d["config"])
+    with_concession["approvals"].append({"name": "concession", "label": "Owner concession", "before": "approve",
+                                         "roles": ["owner"], "sign": "Concession agreed",
+                                         "when": {"disposition": ["use_as_is"]}})
+    WA.save(world, d["id"], JORDAN, with_concession)
+    real = Q.check_signer
+
+    def meanwhile(conn, user, password):
+        real(conn, user, password)
+        weaker = copy.deepcopy(WA.get(conn, d["id"])["config"])
+        weaker["steps"]["contain"]["label"] = "Changed at the last moment"
+        WA.save(conn, d["id"], user["email"], weaker)
+
+    monkeypatch.setattr(Q, "check_signer", meanwhile)
+    with pytest.raises(WA.AdminError, match="changed while you were enabling"):
+        WA.enable(world, d["id"], who(world, DANA), PW)
+    monkeypatch.setattr(Q, "check_signer", real)
+    assert WA.get(world, d["id"])["status"] == "draft"
+    with pytest.raises(PermissionError):                      # Dana changed it now; Sam may not enable either
+        WA.enable(world, d["id"], who(world, DANA), PW)
+    Acc.sync(world, DEMO)
+    world.execute("update users set roles = '{quality}' where email = %s", (SAM,))
+    WA.enable(world, d["id"], who(world, SAM), PW)
+
+    # approvals count until the record goes back a step, and cannot be dropped by lowering the severity
+    n = Q.create_ncr(world, SAM, title="Scratched", description="3 scratched", quantity=3)
+    Q.update_ncr(world, n["id"], JORDAN, custom={"lot_no": "L-9"})
+    with pytest.raises(Q.QualityError, match="Owner approval applies"):
+        Q.update_ncr(world, n["id"], JORDAN, severity="major")
+    Q.contain(world, n["id"], JORDAN, "held")
+    Q.submit_disposition(world, n["id"], JORDAN, "use_as_is", 3, "cosmetic")
+    Q.approve_extra(world, "ncr", n["id"], "concession", who(world, DANA), PW)
+    Q.reject_disposition(world, n["id"], SAM, "write down why it is cosmetic")
+    Q.submit_disposition(world, n["id"], JORDAN, "use_as_is", 3, "cosmetic: marks under the label")
+    with pytest.raises(Q.QualityError, match="Owner concession is needed first"):
+        Q.approve_disposition(world, n["id"], who(world, SAM), PW)      # the first concession was for the first try
+    Q.approve_extra(world, "ncr", n["id"], "concession", who(world, DANA), PW)
+    assert Q.approve_disposition(world, n["id"], who(world, SAM), PW)["status"] == "dispositioned"
+    with pytest.raises(Q.QualityError, match="Owner approval is needed first"):
+        Q.close_ncr(world, n["id"], who(world, JORDAN), PW)
+    Q.approve_extra(world, "ncr", n["id"], "owner_close", who(world, DANA), PW)
+    assert Q.close_ncr(world, n["id"], who(world, JORDAN), PW)["status"] == "closed"

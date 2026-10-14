@@ -95,8 +95,7 @@ def _step(conn, kind: str, row: dict, step: str, email: str | None, facts: dict 
         if (cfg["steps"].get(step) or {}).get("roles"):
             person = A.get(conn, email)
             who["roles"] = list((person or {}).get("roles") or []) or ["nobody"]
-    done = {r["name"] for r in conn.execute("select name from quality_approvals where kind = %s and ref_id = %s",
-                                            (kind, row["id"]))}
+    done = set(_given(conn, kind, row["id"]))
     try:
         return cfg, W.check(cfg, row, step, who, {**(facts or {}), "approvals_done": done}, explain=explain)
     except W.StepError as exc:
@@ -177,6 +176,8 @@ def update_ncr(conn, ncr_id: int, email: str, **fields) -> dict:
         raise QualityError("severity is minor or major")
     if fields.get("custom"):
         cols["custom"] = Jsonb(_custom(conn, cfg, row, fields["custom"]))
+    if "severity" in cols:
+        _keep_approvals(conn, "ncr", row, {"severity": cols["severity"]})
     if not cols:
         return row
     with conn.transaction():
@@ -278,6 +279,29 @@ def cancel_ncr(conn, ncr_id: int, email: str, reason: str) -> dict:
     return row
 
 
+def _given(conn, kind: str, ref_id: int) -> dict[str, dict]:
+    """Extra approvals that count now: given since the record last went back a step (a disposition not approved,
+    an action found not effective); a new disposition or check needs a new approval."""
+    back = conn.execute("select max(at) as at from quality_log where kind = %s and ref_id = %s and "
+                        "(action = 'disposition not approved' or (action = 'implementation' and "
+                        "note like 'Not effective%%'))",
+                        (kind, ref_id)).fetchone()["at"]
+    rows = conn.execute("select name, email, at from quality_approvals where kind = %s and ref_id = %s and "
+                        "(%s::timestamptz is null or at > %s) order by at", (kind, ref_id, back, back)).fetchall()
+    return {r["name"]: r for r in rows}
+
+
+def _keep_approvals(conn, kind: str, row: dict, changes: dict) -> None:
+    """A change of severity or risk may not drop an extra approval that applies and is not given yet."""
+    cfg = W.of(conn, kind, row)
+    given = _given(conn, kind, row["id"])
+    after = {**row, **changes}
+    for a in cfg.get("approvals") or []:
+        if a["name"] not in given and W.applies(a, row) and not W.applies(a, after):
+            raise QualityError(f"{a['label']} applies to {row['name']} as it is; give it before changing "
+                               + ", ".join(changes))
+
+
 def _custom(conn, cfg: dict, row: dict, values: dict) -> dict:
     """The record's own fields after a change (ADR-0015, 15b), checked against the workflow's definitions."""
     people = {r["email"] for r in conn.execute("select email from users where active")}
@@ -302,8 +326,7 @@ def approve_extra(conn, kind: str, ref_id: int, name: str, user: dict, password:
     if row["status"] not in cfg["steps"][a["before"]]["from"]:
         raise QualityError(f"{row['name']} is {row['status'].replace('_', ' ')}; {a['label']} is given before "
                            f"{cfg['steps'][a['before']].get('label', a['before']).lower()}")
-    if conn.execute("select 1 from quality_approvals where kind = %s and ref_id = %s and name = %s",
-                    (kind, ref_id, name)).fetchone():
+    if name in _given(conn, kind, ref_id):
         raise QualityError(f"{a['label']} is already given")
     person = A.get(conn, user["email"]) or {}
     if not set(person.get("roles") or []) & set(a["roles"]):
@@ -323,8 +346,7 @@ def approve_extra(conn, kind: str, ref_id: int, name: str, user: dict, password:
 def approvals(conn, kind: str, row: dict) -> list[dict]:
     """The extra approvals that apply to the record, given or not."""
     cfg = W.of(conn, kind, row)
-    given = {r["name"]: r for r in conn.execute("select name, email, at from quality_approvals where kind = %s and "
-                                                "ref_id = %s", (kind, row["id"]))}
+    given = _given(conn, kind, row["id"])
     out = []
     for a in cfg.get("approvals") or []:
         if W.applies(a, row) or a["name"] in given:
@@ -448,6 +470,8 @@ def update_capa(conn, capa_id: int, email: str, **fields) -> dict:
         raise QualityError(f"{c['name']} is {c['status']}: {', '.join(bad)} cannot change now")
     if cols.get("risk") not in (None, *RISKS):
         raise QualityError(f"risk is one of: {', '.join(RISKS)}")
+    if "risk" in cols:
+        _keep_approvals(conn, "capa", c, {"risk": cols["risk"]})
     if custom:
         if c["status"] in ("closed", "cancelled"):
             raise QualityError(f"{c['name']} is {c['status']}; its fields cannot change")

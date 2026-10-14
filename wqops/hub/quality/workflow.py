@@ -47,6 +47,37 @@ TOP_KEYS = {"kind", "label", "numbering", "initial", "states", "steps", "rules",
 WHEN = {"ncr": {"severity": SEVERITIES, "disposition": None}, "capa": {"risk": ("low", "medium", "high"),
                                                                           "kind": ("corrective", "preventive")}}
 NAME = re.compile(r"[a-z][a-z0-9_]{1,30}")
+# steps a field may be needed before, and steps an extra approval may come before: not the steps that change a
+# record's details, send it back or finish its 8D (a field needed there could never be filled, an approval there
+# would stop a record going back)
+GATES = {"ncr": {"contain", "disposition", "approve", "close", "cancel"},
+         "capa": {"submit", "plan", "to_effectiveness", "effective", "cancel"}}
+# where a record goes back a step; approvals given before it no longer count
+BACK = {"ncr": ("disposition not approved",), "capa": ("not effective",)}
+
+
+def well_formed(cfg) -> list[str]:
+    """The structure a workflow needs before it can even be checked."""
+    if not isinstance(cfg, dict):
+        return ["a workflow is a set of named parts"]
+    errs = []
+    for key, typ in (("states", dict), ("steps", dict), ("numbering", dict), ("rules", dict), ("fields", dict),
+                     ("approvals", list)):
+        if key in cfg and not isinstance(cfg[key], typ):
+            errs.append(f"{key} has the wrong form")
+    for key in ("states", "steps", "numbering"):
+        if key not in cfg:
+            errs.append(f"{key} is missing")
+    for part in ("states", "steps", "fields"):
+        if isinstance(cfg.get(part), dict) and any(not isinstance(v, dict) for v in cfg[part].values()):
+            errs.append(f"every entry of {part} has named parts")
+    if isinstance(cfg.get("approvals"), list):
+        for a in cfg["approvals"]:
+            if not isinstance(a, dict) or not isinstance(a.get("when", {}), dict) or \
+                    any(not isinstance(v, list) for v in (a.get("when") or {}).values()):
+                errs.append("every approval has named parts and its conditions are lists")
+                break
+    return errs
 
 
 class WorkflowError(ValueError):
@@ -90,6 +121,9 @@ def validate(cfg: dict, in_use: set[str] | None = None) -> list[str]:  # noqa: P
     kind = cfg.get("kind") if isinstance(cfg, dict) else None
     if kind not in KINDS:
         return [f"kind must be one of: {', '.join(KINDS)}"]
+    shape = well_formed(cfg)
+    if shape:
+        return shape
     base = default(kind)
     states, steps = cfg.get("states") or {}, cfg.get("steps") or {}
     num = cfg.get("numbering") or {}
@@ -177,12 +211,14 @@ def _check_fields(kind: str, cfg: dict, steps: dict) -> list[str]:
                                               and all(str(c).strip() for c in f["choices"])):
             errs.append(f"field {name}: a choice field needs at least two choices")
         for st in _list(f.get("required_at")):
-            if st not in steps:
-                errs.append(f"field {name}: required before step {st!r}, which does not exist")
+            if st not in GATES[kind]:
+                errs.append(f"field {name}: it can be needed before {', '.join(sorted(GATES[kind]))}, not {st!r}")
+        if f.get("type") == "choice" and any(not isinstance(c, str) for c in _list(f.get("choices"))):
+            errs.append(f"field {name}: choices are words")
     return errs
 
 
-def _check_approvals(kind: str, cfg: dict, steps: dict) -> list[str]:
+def _check_approvals(kind: str, cfg: dict, steps: dict) -> list[str]:  # noqa: PLR0912
     errs, seen = [], set()
     approvals = cfg.get("approvals") or []
     if not isinstance(approvals, list):
@@ -195,13 +231,19 @@ def _check_approvals(kind: str, cfg: dict, steps: dict) -> list[str]:
         seen.add(name)
         if not str(a.get("label") or "").strip():
             errs.append(f"approval {name}: give it a label")
-        if a.get("before") not in steps:
-            errs.append(f"approval {name}: before which step? {a.get('before')!r} does not exist")
+        if a.get("before") not in GATES[kind]:
+            errs.append(f"approval {name}: it can come before {', '.join(sorted(GATES[kind]))}, not "
+                        f"{a.get('before')!r}")
+        if a.get("before") == "disposition" and "disposition" in (a.get("when") or {}):
+            errs.append(f"approval {name}: the disposition is not known before it is submitted; put this approval "
+                        "before approving or closing")
         if not str(a.get("sign") or "").strip():
             errs.append(f"approval {name}: an approval is signed; give the signature's meaning")
         roles = _list(a.get("roles"))
         if not roles or any(r not in P.ROLE_PERMISSIONS for r in roles):
             errs.append(f"approval {name}: name the roles that may approve")
+        elif any("quality:view" not in P.ROLE_PERMISSIONS[r] for r in roles):
+            errs.append(f"approval {name}: only roles that can see quality records can approve")
         for x in _list(a.get("not_by")):
             if x not in NOT_BY_FIELDS[kind]:
                 errs.append(f"approval {name}: {x!r} is not a person a {kind} record names")
@@ -220,8 +262,10 @@ def applies(a: dict, record: dict) -> bool:
 def clean_custom(cfg: dict, values: dict, people: set[str]) -> dict:
     """A company's own field values, checked against their definitions; an empty value removes the field."""
     fields = cfg.get("fields") or {}
+    if not isinstance(values, dict):
+        raise StepError("fields are given by name")
     out = {}
-    for name, given in (values or {}).items():
+    for name, given in values.items():
         if name not in fields:
             raise StepError(f"there is no field {name!r} in this workflow")
         f, v = fields[name], ("" if given is None else str(given).strip())
@@ -232,6 +276,8 @@ def clean_custom(cfg: dict, values: dict, people: set[str]) -> dict:
                 out[name] = float(v)
             except ValueError as exc:
                 raise StepError(f"{f['label']}: a number") from exc
+            if out[name] != out[name] or out[name] in (float("inf"), float("-inf")):
+                raise StepError(f"{f['label']}: a number")
         elif f["type"] == "date":
             try:
                 out[name] = dt.date.fromisoformat(v).isoformat()
@@ -249,6 +295,8 @@ def clean_custom(cfg: dict, values: dict, people: set[str]) -> dict:
 def diff(old: dict, new: dict) -> list[str]:  # noqa: PLR0912 - one line per kind of change
     """What a new version changes, one line each, in plain words."""
     out = []
+    if old.get("label") != new.get("label"):
+        out.append(f"named {new.get('label')!r}")
     if old.get("numbering") != new.get("numbering"):
         o, n = old.get("numbering") or {}, new.get("numbering") or {}
         out.append(f"numbers: {o.get('prefix')}-{'0' * (int(o.get('digits') or 1) - 1)}1 -> "

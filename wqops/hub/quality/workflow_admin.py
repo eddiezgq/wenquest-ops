@@ -55,7 +55,8 @@ def options(conn, kind: str) -> dict:
             "roles": sorted(P.ROLE_PERMISSIONS), "field_types": list(W.FIELD_TYPES), "when": when,
             "locked_required": {k: v.get("required", []) for k, v in W.default(kind)["steps"].items()},
             "locked_not_by": {k: v.get("not_by", []) for k, v in W.default(kind)["steps"].items()},
-            "signed": [k for k, v in W.default(kind)["steps"].items() if v.get("sign")]}
+            "signed": [k for k, v in W.default(kind)["steps"].items() if v.get("sign")],
+            "gates": [k for k in W.default(kind)["steps"] if k in W.GATES[kind]]}
 
 
 def new_draft(conn, kind: str, email: str) -> dict:
@@ -79,16 +80,20 @@ def new_draft(conn, kind: str, email: str) -> dict:
 
 def save(conn, vid: int, email: str, cfg: dict, note: str | None = None) -> dict:
     """Store a changed draft. It may still break red lines (they are shown); it cannot be enabled until it does not."""
-    row = get(conn, vid)
-    if row["status"] != "draft":
-        raise AdminError(f"version {row['version']} is {row['status']}; changes go into a new draft")
-    if not isinstance(cfg, dict) or cfg.get("kind") != row["kind"]:
-        raise AdminError(f"this is a {row['kind']} workflow")
-    changes = W.diff(row["config"], cfg)
+    if not isinstance(cfg, dict) or W.well_formed(cfg):
+        raise AdminError("the workflow is not well formed: " + "; ".join(W.well_formed(cfg)))
     with conn.transaction():
+        row = conn.execute("select * from workflow_versions where id = %s for update", (vid,)).fetchone()
+        if row is None:
+            raise KeyError(vid)
+        if row["status"] != "draft":
+            raise AdminError(f"version {row['version']} is {row['status']}; changes go into a new draft")
+        if cfg.get("kind") != row["kind"]:
+            raise AdminError(f"this is a {row['kind']} workflow")
+        changes = W.diff(row["config"], cfg)
         out = conn.execute("update workflow_versions set config = %s, edited_by = (select array(select distinct "
-                           "unnest(edited_by || %s::text[]))), note = coalesce(%s, note) where id = %s returning *",
-                           (Json(cfg), [email], note, vid)).fetchone()
+                           "unnest(edited_by || %s::text[]))), note = coalesce(%s, note) where id = %s and "
+                           "status = 'draft' returning *", (Json(cfg), [email], note, vid)).fetchone()
         log(conn, vid, email, "changed", "; ".join(changes) or "no change")
     return out
 
@@ -105,14 +110,22 @@ def enable(conn, vid: int, user: dict, password: str) -> dict:
         raise AdminError("fix these first: " + "; ".join(errors))
     if not W.diff(W.ensure(conn, row["kind"])["config"], row["config"]):
         raise AdminError("this draft changes nothing; discard it instead")
+    checked = W.fingerprint(row["config"])
     Q.check_signer(conn, user, password)
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-workflow:{row['kind']}",))
+        row = conn.execute("select * from workflow_versions where id = %s for update", (vid,)).fetchone()
+        # the draft may have changed while the password was checked: everything is checked again on what is stored
+        if row["status"] != "draft" or W.fingerprint(row["config"]) != checked or \
+                user["email"] in (row["edited_by"] or []):
+            raise AdminError("the draft changed while you were enabling it; look at it again")
+        if W.validate(row["config"], in_use(conn, row["kind"])):
+            raise AdminError("the draft no longer passes the check")
         old = conn.execute("update workflow_versions set status = 'retired' where kind = %s and status = 'enabled' "
                            "returning id, version", (row["kind"],)).fetchone()
         out = conn.execute("update workflow_versions set status = 'enabled', fingerprint = %s, enabled_by = %s, "
-                           "enabled_at = now() where id = %s returning *",
-                           (W.fingerprint(row["config"]), user["email"], vid)).fetchone()
+                           "enabled_at = now() where id = %s and status = 'draft' returning *",
+                           (checked, user["email"], vid)).fetchone()
         Q._sign(conn, user, "Workflow version enabled", "workflow", vid, f"{row['kind']} workflow v{row['version']}")
         log(conn, vid, user["email"], "enabled", f"replaces version {old['version']}" if old else "")
         if old:
@@ -123,10 +136,12 @@ def enable(conn, vid: int, user: dict, password: str) -> dict:
 def discard(conn, vid: int, email: str, reason: str) -> dict:
     if not reason.strip():
         raise AdminError("say why the draft is discarded")
-    row = get(conn, vid)
-    if row["status"] != "draft":
-        raise AdminError(f"version {row['version']} is {row['status']}; only a draft can be discarded")
     with conn.transaction():
+        row = conn.execute("select * from workflow_versions where id = %s for update", (vid,)).fetchone()
+        if row is None:
+            raise KeyError(vid)
+        if row["status"] != "draft":
+            raise AdminError(f"version {row['version']} is {row['status']}; only a draft can be discarded")
         out = conn.execute("update workflow_versions set status = 'discarded', discarded_reason = %s where id = %s "
                            "returning *", (reason.strip(), vid)).fetchone()
         log(conn, vid, email, "discarded", reason.strip())
