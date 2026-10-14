@@ -14,6 +14,7 @@ const STEPS = [
   { path: '/assistant', target: '.search', title: 'Ask the assistant', text: 'Ask in plain English. Answers cite your orders and items; numbers it could not find are marked unverified.' },
   { path: '/drafts', target: 'h1', title: 'Drafts wait for a person', text: 'Purchase orders, messages and reports prepared for you. Nothing is written to ERPNext or sent until someone confirms.' },
   { path: '/quality', target: '.tabs', title: 'Quality', text: 'Nonconformance reports, corrective actions, incoming inspection, supplier quality and control charts. Signing uses your password.', need: 'quality:view' },
+  { path: '/documents', target: '.tabs', title: 'Documents', text: 'Drop in your procedures, forms and records. AI sorts them and quotes the file for every field; a person confirms, and approvals are signed.', need: 'documents:view' },
   { path: '/objects', target: '.search', title: 'Everything is connected', text: 'Search any order, item, supplier or receipt and follow its links.' },
   { path: '/help', target: '.help-nav', title: 'Help', text: 'Come back here any time, and restart this tour from Help.' },
 ]

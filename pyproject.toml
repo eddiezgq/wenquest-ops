@@ -22,6 +22,10 @@ hub = [
     "psycopg[binary]>=3.2",
     "python-multipart>=0.0.9",
     "pyjwt[crypto]>=2.8",
+    "pypdf>=3.17",
+    "python-docx>=1.1",
+    "pillow>=10.1",
+    "pytesseract>=0.3.10",
 ]
 dev = [
     "wenquest-ops[hub]",
@@ -52,4 +56,5 @@ ignore = ["PLR2004", "PLR0913", "S101", "RUF001", "RUF002", "RUF003"]  # RUF00x:
 "wqops/hub/ont/api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/ai/api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
+"wqops/hub/docs/api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/records.py" = ["PLR0917"]  # (conn, id, email, value, note): one record step per call

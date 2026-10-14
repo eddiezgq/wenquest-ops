@@ -119,6 +119,7 @@ def screens(b) -> dict:
         print("shot quality-spc")
     except Exception as exc:
         failures.append(f"quality-spc: {exc}".splitlines()[0])
+    document_shots(page)
     shot(page, "help", "/help/quality", ".help-nav")
     ctx.close()
     # the tour as a new user sees it (nothing remembered in this browser yet)
@@ -129,6 +130,17 @@ def screens(b) -> dict:
     shot(page, "tour", None, ".tour-on")
     ctx.close()
     return f
+
+
+def document_shots(page: Page) -> None:
+    """The library and a proposal waiting for review (the demo folder is classified when the demo is loaded)."""
+    shot(page, "documents", "/documents", "nav.tabs")
+    docs = api(page, "/api/docs?status=to_review")
+    pick = next((d for d in docs if d["doc_type"] == "procedure"), docs[0] if docs else None)
+    if pick:
+        shot(page, "document-review", f"/documents/{pick['id']}", "h1")
+    else:
+        failures.append("no document to review in the demo data")
 
 
 def nav(page: Page, label: str) -> None:

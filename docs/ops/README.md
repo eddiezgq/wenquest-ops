@@ -17,7 +17,8 @@ ERPNext runs from its official, unmodified images.
 ## Requirements
 
 - Ubuntu 22.04 or 24.04 (other Linux with Docker works), 4 CPU cores, 8 GB memory (16 GB recommended),
-  40 GB free disk (100 GB recommended)
+  40 GB free disk (100 GB recommended), plus room for the document library: about the size of the company's
+  document folders, twice that while backups are kept (see "Document library" below)
 - Docker Engine with the compose plugin: `curl -fsSL https://get.docker.com | sh`
 - Two DNS names pointing at the server, e.g. `ops.example.com` and `erp.ops.example.com`,
   with ports 80 and 443 open; or use `--tls-internal` on an intranet
@@ -113,7 +114,8 @@ in your calendar.
 
 ### Backup
 
-`backup.sh` writes `backups/wqo-<time>.tar.gz` with the WenQuest Ops database, the ERPNext database and files,
+`backup.sh` writes `backups/wqo-<time>.tar.gz` with the WenQuest Ops database, the document library files, the
+ERPNext database and files,
 `.env` and the company manifest, and keeps the newest 14 (`WQO_KEEP`). Schedule it daily:
 
 ```bash
@@ -125,8 +127,8 @@ store it like one.
 
 ### Restore
 
-`restore.sh backups/wqo-<time>.tar.gz` asks for confirmation (or pass `--yes`), then restores both databases and the
-ERPNext files. The configuration inside the backup is unpacked into `backups/restore-<time>/` for comparison and is
+`restore.sh backups/wqo-<time>.tar.gz` asks for confirmation (or pass `--yes`), then restores both databases, the
+document library files and the ERPNext files. The configuration inside the backup is unpacked into `backups/restore-<time>/` for comparison and is
 not copied over the current `.env`.
 
 ### Upgrade
@@ -162,6 +164,22 @@ Microsoft or Google set a password first (`POST /api/users/password`, or the own
 quality history cannot be changed or deleted, also not in the database (a trigger rejects it). Disposition types
 (for example "Use as is (concession)", which needs approval by another person) are maintained by people who can
 change platform settings (`POST /api/quality/dispositions`).
+
+### Document library
+
+People with "Upload documents" drop files, whole folders or zip files on the Documents page (PDF, Word, Excel,
+CSV, text and images; at most 50 MB a file and 2,000 files an import). The files are kept on this server in the
+`hub-files` volume, once per identical content, and are included in every backup. Text is taken locally; scanned
+pages and images are read with Tesseract OCR (English) inside the hub image. Nothing is sent anywhere until someone
+chooses "Classify with AI": then the text of each file (for long files the start, the headings and the end) goes to
+the company's own model, and the page shows the number of files and an estimate of the tokens first. Without a key
+the rules classify the files, with limited accuracy. Every proposal waits for a person; procedures, work
+instructions and forms become effective only when someone other than the uploader, confirmer and submitter approves
+them with their password.
+
+Capacity: plan disk for the document folders the company will import, plus the same again for each backup kept
+(backups are compressed, but PDFs and images hardly shrink). Classifying with the model costs roughly 1 token per 4
+characters of text read plus about 1,500 tokens a file.
 
 ### Monitoring
 

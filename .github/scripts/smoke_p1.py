@@ -12,6 +12,9 @@ flows end to end on the installed system with the demo business loaded.
 5. Quality drafts an incoming inspection for the receipt waiting for one and confirms it: created in ERPNext.
 6. Quality opens a nonconformance, contains it and submits "use as is"; the operations manager approves it with
    their password (someone else must); Quality closes it with theirs. Two signatures are recorded.
+7. Documents (ADR-0014): the demo folder was imported and classified; Quality uploads a procedure on the Documents
+   page, classifies it, confirms it and sends it for approval; the operations manager approves it with their
+   password and it becomes effective.
 """
 
 from __future__ import annotations
@@ -95,7 +98,7 @@ def roles(b: Browser, people: list[dict]) -> None:
         perms = P.of(u["roles"])
         nav = s.page.locator('nav[aria-label="Main"] a').all_inner_texts()
         check(("Quality" in nav) == ("quality:view" in perms), f"{u['email']}: Quality in the menu only if allowed")
-        for path in ["/", "/assistant", "/anomalies", "/objects", "/drafts", "/help"] + \
+        for path in ["/", "/assistant", "/anomalies", "/objects", "/drafts", "/help", "/documents"] + \
                 (["/quality", "/quality?tab=incoming", "/quality?tab=suppliers", "/quality?tab=spc"]
                  if "quality:view" in perms else []):
             try:
@@ -108,6 +111,9 @@ def roles(b: Browser, people: list[dict]) -> None:
                 s.go("/people", "main table")
             except Exception as exc:
                 check(False, f"{u['email']}: /people did not load ({str(exc).splitlines()[0]})")
+        s.go("/documents", "nav.tabs")
+        check((s.page.locator("section.drop").count() > 0) == ("documents:edit" in perms),
+              f"{u['email']}: may upload documents only if allowed")
         s.go("/account", "h1")
         check(not s.errors, f"{u['email']}: no script errors ({s.errors[:2]})")
         if "quality:view" not in perms:
@@ -242,6 +248,54 @@ def nonconformance(b: Browser) -> None:
     q.close()
 
 
+def wait_import(s: Session, imp_id: int, want: str) -> dict:
+    for _ in range(120):
+        imp = s.get(f"/api/docs/imports/{imp_id}")
+        if imp["status"] == want:
+            return imp
+        time.sleep(1)
+    raise RuntimeError(f"import {imp_id} is still {imp['status']}, not {want}")
+
+
+def documents(b: Browser) -> None:
+    q = Session(b, "jordan@demo.example", PW)
+    demo = [i for i in q.get("/api/docs/imports") if i["label"].startswith("Demo:")]
+    check(bool(demo) and demo[0]["files"] >= 18 and demo[0]["status"] == "done",
+          f"documents: demo folder imported and classified ({demo[0]['files'] if demo else 0} files)")
+    p = q.go("/documents", "section.drop")
+    body = (b"Harbor Lane Supply (Demo) - Quality procedure\nDoc No.: QP-14    Rev: A    Effective date: 2026-10-01\n"
+            b"Handling of Customer Complaints\nDocument owner: Quality Manager\n1. Purpose\nTo answer every customer "
+            b"complaint within 5 working days.\n2. Records\n- F-QA-030 Complaint Log\n")
+    p.locator("section.drop input[type=file]:not([webkitdirectory])").set_input_files(
+        [{"name": "QP-14 Customer Complaints Rev A.txt", "mimeType": "text/plain", "buffer": body}])
+    p.get_by_role("button", name="Upload").click()
+    p.wait_for_selector("text=Uploaded.", timeout=60_000)
+    imp = q.get("/api/docs/imports")[0]
+    wait_import(q, imp["id"], "ready")
+    p = q.go("/documents?tab=imports", "nav.tabs")
+    ai = q.get("/api/docs/meta")["ai"]
+    p.get_by_role("button", name="Classify with AI" if ai else "Classify with rules").first.click()
+    wait_import(q, imp["id"], "done")
+    (d,) = q.get(f"/api/docs?status=to_review&import_id={imp['id']}")
+    check(d["doc_type"] == "procedure" and d["process"] == "complaints" and d["number"] == "QP-14",
+          f"documents: classified by {d['engine']} as {d['doc_type']} / {d['process']} / {d['number']}")
+    p = q.go(f"/documents/{d['id']}", "h1")
+    p.get_by_role("button", name="Confirm").click()
+    p.get_by_role("button", name="Send for approval").click()
+    p.wait_for_selector("text=someone else approves it", timeout=30_000)
+    m = Session(b, "sam@demo.example", PW)
+    mp = m.go(f"/documents/{d['id']}", "h1")
+    mp.fill("input[placeholder='Your password to sign']", PW)
+    mp.get_by_role("button", name="Approve (sign)").click()
+    mp.wait_for_selector("text=The document is effective", timeout=30_000)
+    after = m.get(f"/api/docs/{d['id']}")
+    check(after["status"] == "effective" and after["fingerprint"] == after["sha256"] and len(after["signatures"]) == 1,
+          f"documents: procedure approved by someone else and effective ({after['status']})")
+    check(not q.errors and not m.errors, f"documents: no script errors ({(q.errors + m.errors)[:2]})")
+    m.close()
+    q.close()
+
+
 def main() -> int:
     with sync_playwright() as pw:
         b = pw.chromium.launch(args=[f"--host-resolver-rules=MAP {HOST} 127.0.0.1"])
@@ -255,6 +309,7 @@ def main() -> int:
         step("sales", lambda: sales(b))
         step("incoming inspection", lambda: incoming(b))
         step("nonconformance", lambda: nonconformance(b))
+        step("documents", lambda: documents(b))
         b.close()
     for f in failures:
         print(f"::error title=Phase 1 smoke::{f}")

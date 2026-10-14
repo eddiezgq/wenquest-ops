@@ -13,7 +13,12 @@ COPY pyproject.toml README.md ./
 COPY wqops/ wqops/
 COPY companies/ companies/
 COPY --from=web /web/dist/ web/
-RUN pip install --no-cache-dir ".[hub]" && useradd -r -u 10001 wqo
+# Tesseract reads scanned documents in the document library (ADR-0014); /data/files holds the library's files
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir ".[hub]" && useradd -r -u 10001 wqo \
+    && mkdir -p /data/files && chown -R wqo /data
+ENV WQO_FILES_DIR=/data/files
 USER wqo
 EXPOSE 8100
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

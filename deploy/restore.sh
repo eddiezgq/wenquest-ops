@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Restore from a backup: ./restore.sh backups/wqo-<time>.tar.gz [--yes]
-# Restores the hub database and ERPNext. The configuration in the backup (.env, company manifest) is unpacked into
+# Restores the hub database, the document library files and ERPNext. The configuration in the backup (.env, company manifest) is unpacked into
 # backups/restore-<time>/ for comparison and is NOT copied over the current one.
 . "$(dirname "$0")/lib.sh"
 arg=${1:?usage: ./restore.sh backups/wqo-<time>.tar.gz [--yes]}
@@ -16,6 +16,11 @@ fi
 log "Restoring the hub database..."
 dc stop hub
 dc exec -T db pg_restore -U wqo -d wqo --clean --if-exists < "$work/wqo.dump" || true
+if [ -f "$work/hub-files.tar" ]; then             # backups made before the document library have none
+    log "Restoring the document library files..."
+    dc run --rm --no-deps -T --entrypoint sh hub -c 'find /data/files -mindepth 1 -delete && tar -xf - -C /data' \
+        < "$work/hub-files.tar"
+fi
 log "Restoring ERPNext..."
 dc exec -T erp-backend bash -c 'rm -rf /tmp/rs && mkdir -p /tmp/rs' && dc exec -T erp-backend bash -c 'cd /tmp/rs && tar -xf -' < "$work/erpnext.tar"
 db=$(dc exec -T erp-backend bash -c 'ls -t /tmp/rs/*-database.sql.gz | head -n 1')

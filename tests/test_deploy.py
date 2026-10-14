@@ -50,3 +50,12 @@ def test_shellcheck_warnings():
     files = [str(D / s) for s in [*SCRIPTS, "lib.sh"]] + [str(ROOT / ".github" / "scripts" / "ci_scope.sh")]
     r = subprocess.run([exe, "-S", "warning", "-x", *files], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stdout
+
+
+def test_document_files_are_kept_and_backed_up():
+    """ADR-0014 item 1: the library's files live on a hub volume that backup and restore include."""
+    c = yaml.safe_load((D / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "hub-files:/data/files" in c["services"]["hub"]["volumes"] and "hub-files" in c["volumes"]
+    assert "hub-files.tar" in (D / "backup.sh").read_text() and "hub-files.tar" in (D / "restore.sh").read_text()
+    docker = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "tesseract-ocr" in docker and "WQO_FILES_DIR=/data/files" in docker

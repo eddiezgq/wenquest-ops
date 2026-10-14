@@ -10,6 +10,8 @@ PERMISSIONS = {
     "purchasing:draft": "Draft purchase orders for someone to confirm",
     "quality:view": "See inspections, nonconformances and CAPA",
     "quality:edit": "Record inspections, nonconformances, 8D and CAPA",
+    "documents:view": "See the document library",
+    "documents:edit": "Upload documents, confirm their classification and send them for approval",
     "ai:use": "Ask the AI assistant and receive drafts",
     "ai:configure": "Configure the AI assistant",
     "users:view": "See who has access",
@@ -17,17 +19,19 @@ PERMISSIONS = {
     "settings:edit": "Change platform settings",
 }
 
-_VIEW = {"dashboard:view", "inventory:view", "sales:view", "purchasing:view", "quality:view"}
+_VIEW = {"dashboard:view", "inventory:view", "sales:view", "purchasing:view", "quality:view", "documents:view"}
+_DOCS = {"documents:view", "documents:edit"}
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "owner": frozenset(PERMISSIONS),
-    "ops_manager": frozenset(_VIEW | {"purchasing:draft", "quality:edit", "ai:use", "users:view"}),
-    "warehouse": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "quality:view", "ai:use"}),
+    "ops_manager": frozenset(_VIEW | _DOCS | {"purchasing:draft", "quality:edit", "ai:use", "users:view"}),
+    "warehouse": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "quality:view", "ai:use",
+                            "documents:view"}),
     "purchasing": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "purchasing:draft",
-                             "quality:view", "ai:use"}),
-    "sales": frozenset({"dashboard:view", "inventory:view", "sales:view", "ai:use"}),
+                             "quality:view", "ai:use", "documents:view"}),
+    "sales": frozenset({"dashboard:view", "inventory:view", "sales:view", "ai:use", "documents:view"}),
     "quality": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "quality:view", "quality:edit",
-                          "ai:use"}),
-    "ai_specialist": frozenset(_VIEW | {"ai:use", "ai:configure", "users:view"}),
+                          "ai:use"} | _DOCS),
+    "ai_specialist": frozenset(_VIEW | _DOCS | {"ai:use", "ai:configure", "users:view"}),
 }
 
 

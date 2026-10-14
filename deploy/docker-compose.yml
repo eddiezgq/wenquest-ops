@@ -77,7 +77,9 @@ services:
       WQO_OIDC_GOOGLE_CLIENT_ID: ${WQO_OIDC_GOOGLE_CLIENT_ID:-}
       WQO_OIDC_GOOGLE_CLIENT_SECRET: ${WQO_OIDC_GOOGLE_CLIENT_SECRET:-}
       WQO_OIDC_GOOGLE_DOMAIN: ${WQO_OIDC_GOOGLE_DOMAIN:-}
-    volumes: [./company:/company:ro]
+    volumes:
+      - ./company:/company:ro
+      - hub-files:/data/files                          # the document library's files (ADR-0014); backed up
     networks: [default, erp]
     depends_on:
       db: { condition: service_healthy }
@@ -179,6 +181,7 @@ services:
     networks: [erp]
 
 volumes:
+  hub-files:
   caddy-data:
   caddy-config:
   db-data:
