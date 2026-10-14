@@ -42,4 +42,24 @@ quote against the file; a quote it cannot find is marked, and you should check t
 ## Overview
 
 The *Overview* tab counts the documents by process and type. A process with *none yet* has no document in the
-library — a first sign of a gap.
+library — a first sign of a gap; the *Problems* column counts what the checks found for each process.
+
+## Problems
+
+![Problems the checks found](img/document-problems.webp)
+
+The *Problems* tab lists what fixed checks found in the library — they never change anything by themselves:
+
+- **Same file twice** — keep one, choose *Not keep this copy* for the others.
+- **Several revisions of one number** — the current one is marked; keep the older ones *as obsolete*, so their
+  history stays findable but they are never used.
+- **One number for different documents**, or the same revision twice — give one of them another number or revision.
+- **No number, no revision, no effective date** — a number is suggested in your own style (*Use the suggested
+  number*, then confirm or save).
+- **Forms a procedure names that are not in the library**, forms without any record, records without a procedure,
+  and processes with no documents — the first view of the gaps in your system.
+
+**Numbering.** Suggested numbers follow the convention learned from the numbers your documents already have (for
+example F-QA-013 after F-QA-012). You can set your own rule per type, such as `F-{process}-{seq}` with 3 digits.
+A document's page also offers its standard file name (`QP-05 Receiving Inspection Rev D.pdf`) for downloads; the
+stored original keeps its own name.

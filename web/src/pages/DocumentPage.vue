@@ -88,6 +88,23 @@ async function newRevision() {
 
   <div v-if="d && meta" class="grid gap-6 xl:grid-cols-[1fr_22rem]">
     <div class="min-w-0">
+      <!-- problems the checks found for this document (14b) -->
+      <section v-if="d.suggest.issues.length" class="mb-5 rounded-5 border border-outline-amber-2 bg-surface-amber-1 p-4">
+        <h2 class="mb-2 text-base font-semibold text-ink-gray-9">To look at</h2>
+        <ul class="flex flex-col gap-2 text-base">
+          <li v-for="(i, n) in d.suggest.issues" :key="n"><span class="font-medium text-ink-gray-9">{{ i.title }}.&nbsp;</span>
+            <span class="text-ink-gray-7">{{ i.detail.replace(/\.?$/, '.') }}</span>
+            <RouterLink v-if="i.docs.length > 1" :to="`/documents?tab=problems&process=${i.process || ''}`" class="wq-link ms-1 text-sm">see all</RouterLink></li>
+        </ul>
+        <div v-if="editable && d.suggest.issues.some((i) => i.kind === 'revisions' && i.older.includes(d.id))" class="mt-3">
+          <Button icon-left="lucide-archive" label="Keep as obsolete (older revision)"
+                  @click="step('archive', { reason: 'older revision; ' + d.suggest.issues.find((i) => i.kind === 'revisions').title.split(', ')[1] }, 'Kept as obsolete; its history stays in the library.')" />
+          <span class="wq-muted ms-2">It stays findable and is never used.</span></div>
+        <div v-if="editable && d.suggest.number && form.number !== d.suggest.number" class="mt-3">
+          <Button icon-left="lucide-hash" :label="`Use the suggested number ${d.suggest.number}`" @click="form.number = d.suggest.number" />
+          <span class="wq-muted ms-2">then {{ reviewing ? 'confirm' : 'save' }}</span></div>
+      </section>
+
       <!-- the proposal, field by field, with the file's own words -->
       <section class="wq-panel p-5">
         <div class="mb-3 flex flex-wrap items-center gap-2">
@@ -193,6 +210,9 @@ async function newRevision() {
           <Button :href="`/api/docs/${d.id}/file?inline=1`" icon-left="lucide-eye" label="Open" />
           <Button :href="`/api/docs/${d.id}/file`" icon-left="lucide-download" label="Download" />
         </div>
+        <p v-if="d.suggest.file_name && d.suggest.file_name !== d.original_name" class="mt-3 text-sm text-ink-gray-6">Standard name:
+          <a :href="`/api/docs/${d.id}/file?standard=1`" class="wq-link break-all">{{ d.suggest.file_name }}</a>
+          <span class="block text-ink-gray-5">Downloads under this name; the stored original keeps its name.</span></p>
         <p v-if="d.fingerprint" class="mt-3 text-sm text-ink-gray-5" :title="d.fingerprint">Frozen: fingerprint {{ d.fingerprint.slice(0, 12) }}…</p>
         <p v-if="d.import" class="mt-2 text-sm text-ink-gray-5">Uploaded by {{ d.import.created_by }}, {{ ago(d.import.created_at) }}</p>
       </section>

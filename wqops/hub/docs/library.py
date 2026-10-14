@@ -18,6 +18,7 @@ import re
 
 from psycopg.types.json import Jsonb
 
+from wqops.hub.docs import checks as CK
 from wqops.hub.docs import classify as K
 from wqops.hub.docs import extract as X
 from wqops.hub.docs import store as F
@@ -497,3 +498,90 @@ def overview(conn) -> dict:
     procs = processes(conn)
     empty = [p for p in procs if p != "other" and p not in grid]
     return {"processes": procs, "types": K.TYPES, "grid": grid, "totals": totals, "empty_processes": empty}
+
+
+# ---------------------------------------------------------------- checks and numbering (14b)
+
+CHECK_COLS = ("id, sha256, status, doc_type, process, number, title, revision, effective_date, refs, original_name, "
+              "path, supersedes")
+
+
+def process_info(conn) -> dict[str, dict]:
+    return {r["code"]: {"name": r["name"], "short": r["short"]}
+            for r in conn.execute("select code, name, short from doc_processes order by sort, code")}
+
+
+def number_rules(conn) -> dict[str, dict]:
+    return {r["doc_type"]: r for r in conn.execute("select * from doc_number_rules")}
+
+
+def check(conn) -> dict:
+    """Everything the checks need, computed once: issues, conventions and the process codes in numbers."""
+    docs = conn.execute(f"select {CHECK_COLS} from documents where status <> 'rejected' order by id").fetchall()  # noqa: S608
+    procs = process_info(conn)
+    codes = CK.process_codes(docs, procs)
+    convs = CK.conventions(docs, number_rules(conn))
+    return {"docs": docs, "processes": procs, "codes": codes, "conventions": convs,
+            "issues": CK.issues(docs, procs, convs, codes)}
+
+
+SINGLE = {   # issues listed for many documents at once, as they read on one document's page
+    "no_date": ("No effective date", "The file shows none; add it if it is known, otherwise the approval date will be "
+                                     "used"),
+    "form_unused": ("No records of this form yet", "No filled-in record of this form is in the library"),
+}
+
+
+def suggestions(conn, doc: dict, state: dict | None = None) -> dict:
+    """The suggested number (when it has none or one off the convention) and standard file name of a document."""
+    state = state or check(conn)
+    mine = [dict(i, docs=[doc["id"]], title=SINGLE[i["kind"]][0], detail=SINGLE[i["kind"]][1]) if i["kind"] in SINGLE
+            else i for i in state["issues"] if doc["id"] in i["docs"]]
+    number = next((i["suggest"] for i in mine if i["kind"] in ("no_number", "odd_number") and i.get("suggest")), None)
+    return {"number": number, "file_name": CK.standard_name(dict(doc, number=doc["number"] or number)),
+            "issues": mine}
+
+
+def set_rule(conn, email: str, doc_type: str, template: str, digits: int) -> dict:
+    if doc_type not in CK.NUMBERED:
+        raise DocError("numbering rules are for procedures, work instructions, forms and specifications")
+    template = (template or "").strip().upper().replace("{PROCESS}", "{process}").replace("{SEQ}", "{seq}")
+    if template.count("{seq}") != 1 or not template.endswith("{seq}") or not re.fullmatch(
+            r"[A-Z0-9._/-]*(\{process\}[A-Z0-9._/-]*)?\{seq\}", template):
+        raise DocError("a rule looks like QP-{seq} or F-{process}-{seq}: letters, digits and - before {seq} at the end")
+    try:
+        digits = int(digits)
+    except (TypeError, ValueError) as exc:
+        raise DocError("the sequence number has 1 to 6 digits") from exc
+    if not 1 <= digits <= 6:
+        raise DocError("the sequence number has 1 to 6 digits")
+    return conn.execute("insert into doc_number_rules (doc_type, template, digits, updated_by) values (%s, %s, %s, %s) "
+                        "on conflict (doc_type) do update set template = excluded.template, digits = excluded.digits, "
+                        "updated_by = excluded.updated_by, updated_at = now() returning *",
+                        (doc_type, template, int(digits), email)).fetchone()
+
+
+def clear_rule(conn, doc_type: str) -> None:
+    conn.execute("delete from doc_number_rules where doc_type = %s", (doc_type,))
+
+
+def archive(conn, email: str, doc_id: int, reason: str) -> dict:
+    """Keep an older revision (or a superseded file) found during import as obsolete: in the library's history, never
+    in use. Its file is frozen like any kept document."""
+    if not reason.strip():
+        raise DocError("say why it is kept as obsolete (for example: replaced by rev C)")
+    with conn.transaction():
+        doc = _lock(conn, doc_id)
+        if doc["status"] not in ("to_classify", "to_review", "draft"):
+            raise DocError("only a file waiting for review or a draft can be kept as obsolete; make an effective "
+                           "document obsolete instead")
+        if doc["supersedes"]:
+            raise DocError("this is a new revision in progress, not an older one; send it back or leave it")
+        f = {k: doc[k] for k in EDITABLE}
+        if not f["doc_type"] or f["process"] not in processes(conn) or not f["title"]:
+            raise DocError("give it a type, process and title first, so it can be found later")
+        row = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, fingerprint = sha256, "
+                           "confirmed_by = coalesce(confirmed_by, %s), confirmed_at = coalesce(confirmed_at, now()), "
+                           "updated_at = now() where id = %s returning *", (reason.strip(), email, doc_id)).fetchone()
+        log(conn, doc_id, email, "kept as obsolete", reason.strip())
+    return row

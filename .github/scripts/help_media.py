@@ -135,6 +135,7 @@ def screens(b) -> dict:
 def document_shots(page: Page) -> None:
     """The library and a proposal waiting for review (the demo folder is classified when the demo is loaded)."""
     shot(page, "documents", "/documents", "nav.tabs")
+    shot(page, "document-problems", "/documents?tab=problems", "article.issue")
     docs = api(page, "/api/docs?status=to_review")
     pick = next((d for d in docs if d["doc_type"] == "procedure"), docs[0] if docs else None)
     if pick:
