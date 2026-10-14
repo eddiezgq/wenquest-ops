@@ -84,11 +84,17 @@ def new_name(conn, kind: str) -> tuple[str, int]:
     return _next_name(conn, W.KINDS[kind], num["prefix"], int(num["digits"])), v["id"]
 
 
-def _step(conn, kind: str, row: dict, step: str, user: dict | None, facts: dict | None = None,
+def _step(conn, kind: str, row: dict, step: str, email: str | None, facts: dict | None = None,
           explain: dict | None = None) -> tuple[dict, dict]:
-    """The workflow of the record and the step's rules, after the workflow's checks (ADR-0015)."""
+    """The workflow of the record and the step's rules, after the workflow's checks (ADR-0015). The permission is
+    the API's job (module docstring); roles a company limits a step to are checked here."""
     cfg = W.of(conn, kind, row)
-    who = {"email": user["email"]} if user else None     # roles are checked by the API (module docstring)
+    who = None
+    if email:
+        who = {"email": email}
+        if (cfg["steps"].get(step) or {}).get("roles"):
+            person = A.get(conn, email)
+            who["roles"] = list((person or {}).get("roles") or []) or ["nobody"]
     try:
         return cfg, W.check(cfg, row, step, who, facts, explain=explain)
     except W.StepError as exc:
@@ -163,7 +169,7 @@ def _set(conn, table: str, row_id: int, **cols) -> dict:
 def update_ncr(conn, ncr_id: int, email: str, **fields) -> dict:
     """Owner and severity can change while the report is not closed or cancelled."""
     row = ncr(conn, ncr_id)
-    _step(conn, "ncr", row, "update", None)
+    _step(conn, "ncr", row, "update", email)
     cols = {k: v for k, v in fields.items() if k in ("owner", "severity") and v is not None}
     if cols.get("severity") not in (None, "minor", "major"):
         raise QualityError("severity is minor or major")
@@ -177,7 +183,7 @@ def update_ncr(conn, ncr_id: int, email: str, **fields) -> dict:
 
 def contain(conn, ncr_id: int, email: str, containment: str) -> dict:
     row = ncr(conn, ncr_id)
-    cfg, _ = _step(conn, "ncr", row, "contain", None, {"containment": containment.strip()},
+    cfg, _ = _step(conn, "ncr", row, "contain", email, {"containment": containment.strip()},
                    {"containment": "describe the containment (what was done to stop bad parts going further)"})
     with conn.transaction():
         row = _set(conn, "ncr_records", ncr_id, status=W.target(cfg, "contain"), containment=containment.strip())
@@ -187,14 +193,17 @@ def contain(conn, ncr_id: int, email: str, containment: str) -> dict:
 
 def submit_disposition(conn, ncr_id: int, email: str, code: str, quantity: float | None, reason: str) -> dict:
     row = ncr(conn, ncr_id)
-    cfg, _ = _step(conn, "ncr", row, "disposition", None,
-                   {"disposition": code, "disposition_qty": quantity if quantity is None or float(quantity) > 0 else 0,
-                    "disposition_reason": reason.strip()},
-                   {"disposition_reason": "give the reason for this disposition",
-                    "disposition_qty": "give the quantity this disposition covers"})
+    cfg, _ = _step(conn, "ncr", row, "disposition", email,      # the state and who first, as before
+                   {"disposition": "-", "disposition_qty": 1, "disposition_reason": "-"})
     types = disposition_types(conn)
     if code not in types:
         raise QualityError(f"disposition is one of: {', '.join(types)}")
+    if not reason.strip():
+        raise QualityError("give the reason for this disposition")
+    if quantity is None or float(quantity) <= 0:
+        raise QualityError("give the quantity this disposition covers")
+    _step(conn, "ncr", row, "disposition", email,                  # and what the company's workflow adds
+          {"disposition": code, "disposition_qty": quantity, "disposition_reason": reason.strip()})
     if row["quantity"] is not None and float(quantity) > float(row["quantity"]):
         raise QualityError(f"the quantity cannot exceed the report's {float(row['quantity']):g}")
     needs = types[code]["requires_approval"]
@@ -208,7 +217,7 @@ def submit_disposition(conn, ncr_id: int, email: str, code: str, quantity: float
 
 def approve_disposition(conn, ncr_id: int, user: dict, password: str) -> dict:
     row = ncr(conn, ncr_id)
-    cfg, _ = _step(conn, "ncr", row, "approve", user)
+    cfg, _ = _step(conn, "ncr", row, "approve", user["email"])
     check_signer(conn, user, password)
     with conn.transaction():
         row = _set(conn, "ncr_records", ncr_id, status=W.target(cfg, "approve"), approved_by=user["email"],
@@ -220,7 +229,7 @@ def approve_disposition(conn, ncr_id: int, user: dict, password: str) -> dict:
 
 def reject_disposition(conn, ncr_id: int, email: str, reason: str) -> dict:
     row = ncr(conn, ncr_id)
-    cfg, _ = _step(conn, "ncr", row, "reject_disposition", None)
+    cfg, _ = _step(conn, "ncr", row, "reject_disposition", email)
     if not reason.strip():
         raise QualityError("say why the disposition is not approved")
     with conn.transaction():
@@ -233,7 +242,7 @@ def reject_disposition(conn, ncr_id: int, email: str, reason: str) -> dict:
 
 def close_ncr(conn, ncr_id: int, user: dict, password: str, note: str = "") -> dict:
     row = ncr(conn, ncr_id)
-    cfg, _ = _step(conn, "ncr", row, "close", user)
+    cfg, _ = _step(conn, "ncr", row, "close", user["email"])
     if row["severity"] is None:
         raise QualityError(f"{row['name']} has no severity (its ledger did not say); set minor or major first")
     if row["severity"] in W.rule(cfg, "capa_closed_before_close", []) and not conn.execute(
@@ -254,7 +263,7 @@ def close_ncr(conn, ncr_id: int, user: dict, password: str, note: str = "") -> d
 
 def cancel_ncr(conn, ncr_id: int, email: str, reason: str) -> dict:
     row = ncr(conn, ncr_id)
-    cfg, _ = _step(conn, "ncr", row, "cancel", None)
+    cfg, _ = _step(conn, "ncr", row, "cancel", email)
     if not reason.strip():
         raise QualityError("say why the report is cancelled")
     with conn.transaction():
@@ -289,7 +298,7 @@ def complete_8d(conn, ncr_id: int, user: dict, password: str) -> dict:
     cur = conn.execute("select * from eightd where ncr_id = %s", (ncr_id,)).fetchone()
     if cur and cur["complete"]:
         raise QualityError("this 8D is already complete")
-    cfg, _ = _step(conn, "ncr", row, "complete_8d", user)
+    cfg, _ = _step(conn, "ncr", row, "complete_8d", user["email"])
     missing = [SECTIONS[k] for k in SECTIONS if not (cur and cur["sections"].get(k))]
     if missing:
         raise QualityError("still to write: " + ", ".join(missing))
@@ -391,7 +400,7 @@ def _move(conn, c: dict, to: str, email: str, note: str = "", **cols) -> dict:
 def submit_capa(conn, capa_id: int, email: str) -> dict:
     """Draft -> investigation: needs the problem, an owner and a risk level."""
     c = capa(conn, capa_id)
-    cfg, _ = _step(conn, "capa", c, "submit", None)
+    cfg, _ = _step(conn, "capa", c, "submit", email)
     with conn.transaction():
         return _move(conn, c, W.target(cfg, "submit"), email)
 
@@ -399,7 +408,7 @@ def submit_capa(conn, capa_id: int, email: str) -> dict:
 def plan_actions(conn, capa_id: int, email: str) -> dict:
     """Investigation -> implementation: needs containment, root cause and at least one action."""
     c = capa(conn, capa_id)
-    cfg, _ = _step(conn, "capa", c, "plan", None, {"actions": bool(actions(conn, capa_id))})
+    cfg, _ = _step(conn, "capa", c, "plan", email, {"actions": bool(actions(conn, capa_id))})
     with conn.transaction():
         return _move(conn, c, W.target(cfg, "plan"), email)
 
@@ -450,7 +459,7 @@ def action_done(conn, action_id: int, email: str, may_edit: bool, evidence: str)
 def to_effectiveness(conn, capa_id: int, email: str) -> dict:
     c = capa(conn, capa_id)
     open_ = [a["text"] for a in actions(conn, capa_id) if not a["done"]]
-    cfg, _ = _step(conn, "capa", c, "to_effectiveness", None, {"actions_done": not open_},
+    cfg, _ = _step(conn, "capa", c, "to_effectiveness", email, {"actions_done": not open_},
                    {"actions_done": "actions not done yet: " + "; ".join(open_)})
     with conn.transaction():
         return _move(conn, c, W.target(cfg, "to_effectiveness"), email)
@@ -459,12 +468,13 @@ def to_effectiveness(conn, capa_id: int, email: str) -> dict:
 def effectiveness(conn, capa_id: int, user: dict, password: str, result: str, evidence: str) -> dict:
     """Effective: closed, signed by someone other than the owner. Not effective: back to implementation."""
     c = capa(conn, capa_id)
+    _step(conn, "capa", c, "not_effective", None, {"evidence": "-"})     # the state first, as before
     if result not in ("effective", "ineffective"):
-        _step(conn, "capa", c, "effective", None, {"evidence": "-"})      # the state first, as for every step
         raise QualityError("result is effective or ineffective")
+    if not evidence.strip():
+        raise QualityError("give the evidence (data, period) for the effectiveness check")
     step = "effective" if result == "effective" else "not_effective"
-    cfg, _ = _step(conn, "capa", c, step, user, {"evidence": evidence.strip()},
-                   {"evidence": "give the evidence (data, period) for the effectiveness check"})
+    cfg, _ = _step(conn, "capa", c, step, user["email"], {"evidence": evidence.strip()})
     now = dt.datetime.now(dt.UTC)
     if result == "ineffective":
         with conn.transaction():
@@ -482,7 +492,7 @@ def effectiveness(conn, capa_id: int, user: dict, password: str, result: str, ev
 
 def cancel_capa(conn, capa_id: int, email: str, reason: str) -> dict:
     c = capa(conn, capa_id)
-    cfg, _ = _step(conn, "capa", c, "cancel", None)
+    cfg, _ = _step(conn, "capa", c, "cancel", email)
     if not reason.strip():
         raise QualityError("say why it is cancelled")
     with conn.transaction():

@@ -30,7 +30,8 @@ NOT_BY = {("ncr", "approve"): {"disposition_by"}, ("capa", "effective"): {"owner
 # what a step may need, as the people using it say it
 NEEDS = {
     "ncr": {"containment": "containment", "disposition": "disposition", "disposition_qty": "quantity",
-            "disposition_reason": "reason"},
+            "disposition_reason": "reason", "owner": "owner", "item_code": "item", "supplier": "supplier",
+            "quantity": "quantity affected", "severity": "severity"},
     "capa": {"description": "problem description", "owner": "owner", "risk": "risk level",
              "containment": "containment", "root_cause": "root cause", "actions": "at least one action",
              "actions_done": "every action done", "evidence": "evidence"},
@@ -63,82 +64,87 @@ def fingerprint(cfg: dict) -> str:
 
 # ---------------------------------------------------------------- red lines
 
+# what a company may change in a built-in step; everything else (where it starts and ends, whether it is an approval
+# or a closing, its permission) is the shape WenQuest Ops carries out and stays as in the default
+CHANGEABLE = {"label", "required", "not_by", "roles", "sign", "verb"}
+NOT_BY_FIELDS = {"ncr": {"disposition_by", "created_by", "owner"}, "capa": {"owner", "created_by"}}
+
+
+def _list(v) -> list:
+    return v if isinstance(v, list) else []
+
+
 def validate(cfg: dict, in_use: set[str] | None = None) -> list[str]:  # noqa: PLR0912, PLR0915
-    """Everything wrong with a workflow, in plain words; empty when it may be saved. ``in_use``: states that records
-    are in now (a new version cannot drop them)."""
+    """Everything wrong with a workflow, in plain words; empty when it may be saved. A workflow may rename states and
+    steps, add what a step needs, add people who may not do a step, limit a step to roles, and tighten the rules; it
+    keeps the shape of the default (which steps exist, from where to where, which are signed). ``in_use``: states that
+    records are in now."""
     errs: list[str] = []
-    kind = cfg.get("kind")
+    kind = cfg.get("kind") if isinstance(cfg, dict) else None
     if kind not in KINDS:
         return [f"kind must be one of: {', '.join(KINDS)}"]
+    base = default(kind)
     states, steps = cfg.get("states") or {}, cfg.get("steps") or {}
-    if cfg.get("initial") not in states:
-        errs.append("the first state (initial) must be one of the states")
-    finals = {s for s, v in states.items() if (v or {}).get("final")}
-    if not finals:
-        errs.append("there must be at least one final state")
     num = cfg.get("numbering") or {}
-    if not str(num.get("prefix") or "").replace("-", "").isalnum() or not 3 <= int(num.get("digits") or 0) <= 8:
+    try:
+        digits = int(num.get("digits") or 0)
+    except (TypeError, ValueError):
+        digits = 0
+    if not str(num.get("prefix") or "").replace("-", "").isalnum() or not 3 <= digits <= 8:
         errs.append("numbering needs a prefix of letters or digits and 3 to 8 digits")
-    for name in sorted(BUILT_IN[kind] - set(steps)):
+    if cfg.get("initial") != base["initial"]:
+        errs.append(f"the first state stays {base['initial']}")
+    if set(states) != set(base["states"]):
+        errs.append("the states stay " + ", ".join(base["states"]) + " (their names on screen can change)")
+    for s, v in base["states"].items():
+        if s in states and bool((states[s] or {}).get("final")) != bool(v.get("final")):
+            errs.append(f"state {s} stays {'final' if v.get('final') else 'open'}")
+    for name in sorted(set(base["steps"]) - set(steps)):
         errs.append(f"step {name} is carried out by WenQuest Ops and cannot be removed")
-    for name, raw in steps.items():
-        st = raw or {}
-        if name not in BUILT_IN[kind]:
-            errs.append(f"step {name} is not a step WenQuest Ops can carry out")
+    for name in sorted(set(steps) - set(base["steps"])):
+        errs.append(f"step {name} is not a step WenQuest Ops can carry out")
+    for name, want in base["steps"].items():
+        st = steps.get(name)
+        if not isinstance(st, dict):
             continue
-        for s in [*(st.get("from") or []), *(x for x in (st.get("to"), st.get("to_when_approval_needed")) if x)]:
-            if s not in states:
-                errs.append(f"step {name}: state {s} does not exist")
-        if not st.get("from"):
-            errs.append(f"step {name}: say from which states it runs")
-        if any(s in finals for s in st.get("from") or []):
-            errs.append(f"step {name}: a final state is locked; no step may start from it")
-        if st.get("permission") not in P.PERMISSIONS:
-            errs.append(f"step {name}: permission {st.get('permission')!r} does not exist")
-        if st.get("kind") in ("approval", "close") and not str(st.get("sign") or "").strip():
-            errs.append(f"step {name}: approving and closing are signed with the person's password")
-        missing_sep = NOT_BY.get((kind, name), set()) - set(st.get("not_by") or [])
-        if missing_sep:
-            errs.append(f"step {name}: {', '.join(WHO.get(x, x) for x in sorted(missing_sep))} may not do it; this "
-                        "separation of duties cannot be removed")
-        for x in st.get("not_by") or []:
-            if x not in WHO:
-                errs.append(f"step {name}: unknown person {x!r} in not_by")
-        for f in st.get("required") or []:
+        for key in sorted((set(want) | set(st)) - CHANGEABLE):
+            if st.get(key) != want.get(key):
+                errs.append(f"step {name}: {key} stays {want.get(key)!r}")
+        if bool(str(st.get("sign") or "").strip()) != bool(want.get("sign")):
+            errs.append(f"step {name}: " + ("approving and closing are signed with the person's password"
+                                            if want.get("sign") else "only the steps WenQuest Ops signs can be signed"))
+        req = _list(st.get("required"))
+        for f in sorted(set(_list(want.get("required"))) - set(req)):
+            errs.append(f"step {name}: it still needs {NEEDS[kind].get(f, f)}")
+        for f in req:
             if f not in NEEDS[kind]:
                 errs.append(f"step {name}: unknown field {f!r} in required")
-        for r in st.get("roles") or []:
+        nb = _list(st.get("not_by"))
+        missing_sep = set(_list(want.get("not_by"))) - set(nb)
+        if missing_sep:
+            errs.append(f"step {name}: {', '.join(WHO[x] for x in sorted(missing_sep))} may not do it; this "
+                        "separation of duties cannot be removed")
+        for x in nb:
+            if x not in NOT_BY_FIELDS[kind]:
+                errs.append(f"step {name}: {x!r} is not a person a {kind} record names")
+        for r in _list(st.get("roles")):
             if r not in P.ROLE_PERMISSIONS:
                 errs.append(f"step {name}: unknown role {r!r}")
-    for name in BUILT_IN[kind] & set(steps):
-        want = default(kind)["steps"][name].get("kind")
-        if want and (steps[name] or {}).get("kind") != want:
-            errs.append(f"step {name} stays a {want} step (signed)")
-    # every state reachable, every open state has a way out
-    if cfg.get("initial") in states:
-        seen, todo = set(), [cfg["initial"]]
-        while todo:
-            s = todo.pop()
-            if s in seen:
-                continue
-            seen.add(s)
-            for st in steps.values():
-                if s in ((st or {}).get("from") or []):
-                    todo += [x for x in ((st or {}).get("to"), (st or {}).get("to_when_approval_needed")) if x]
-        for s in sorted(set(states) - seen):
-            errs.append(f"state {s} cannot be reached")
-        for s in sorted(set(states) - finals):
-            if not any(s in ((st or {}).get("from") or []) and (st or {}).get("to") not in (None, s)
-                       for st in steps.values()):
-                errs.append(f"state {s} has no step out of it; records would be stuck")
+        if "roles" in st and not _list(st.get("roles")):
+            errs.append(f"step {name}: roles, when given, name at least one role")
+        for key in ("required", "not_by", "roles"):
+            if key in st and not isinstance(st[key], list):
+                errs.append(f"step {name}: {key} is a list")
     for s in sorted((in_use or set()) - set(states)):
         errs.append(f"records are in state {s} now; a new version cannot remove it")
     rules = cfg.get("rules") or {}
-    for key in ("capa_closed_before_close", "eight_d_before_close"):
-        if kind == "ncr" and any(x not in SEVERITIES for x in rules.get(key) or []):
-            errs.append(f"rule {key}: severities are {', '.join(SEVERITIES)}")
-    if kind == "ncr" and "major" not in (rules.get("capa_closed_before_close") or []):
-        errs.append("a major nonconformance closes only after its corrective action is closed; this cannot be removed")
+    if kind == "ncr":
+        for key in ("capa_closed_before_close", "eight_d_before_close"):
+            if any(x not in SEVERITIES for x in _list(rules.get(key))):
+                errs.append(f"rule {key}: severities are {', '.join(SEVERITIES)}")
+        if "major" not in _list(rules.get("capa_closed_before_close")):
+            errs.append("a major nonconformance closes only after its corrective action is closed; this cannot be "
+                        "removed")
     if kind == "capa" and rules.get("one_open_capa_per_ncr") is not True:
         errs.append("one open corrective action per nonconformance report cannot be removed")
     return list(dict.fromkeys(errs))
@@ -156,9 +162,15 @@ def ensure(conn, kind: str) -> dict:
     bad = validate(cfg)
     if bad:
         raise WorkflowError(f"the default {kind} workflow is wrong: {'; '.join(bad)}")
-    conn.execute("insert into workflow_versions (kind, version, config, status, fingerprint, created_by, enabled_by, "
-                 "enabled_at, note) values (%s, 1, %s, 'enabled', %s, 'WenQuest Ops', 'WenQuest Ops', now(), "
-                 "'default workflow') on conflict (kind, version) do nothing", (kind, Json(cfg), fingerprint(cfg)))
+    made = conn.execute("insert into workflow_versions (kind, version, config, status, fingerprint, created_by, "
+                        "enabled_by, enabled_at, note) values (%s, 1, %s, 'enabled', %s, 'WenQuest Ops', "
+                        "'WenQuest Ops', now(), 'default workflow') on conflict (kind, version) do nothing "
+                        "returning id",
+                        (kind, Json(cfg), fingerprint(cfg))).fetchone()
+    if made:                                    # records from before workflows were versioned run under version 1
+        table = KINDS[kind]
+        conn.execute(f"update {table} set workflow_version = %s where workflow_version is null",  # noqa: S608
+                     (made["id"],))
     return conn.execute("select * from workflow_versions where kind = %s and status = 'enabled' order by version desc "
                         "limit 1", (kind,)).fetchone()
 
@@ -202,7 +214,8 @@ def check(cfg: dict, record: dict, step: str, user: dict | None, facts: dict | N
             raise NotAllowed(f"{st.get('label', step)}: only {', '.join(st['roles'])} may do this")
         for f in st.get("not_by") or []:
             if record.get(f) and record.get(f) == user.get("email"):
-                raise StepError(f"someone other than {WHO.get(f, f)} must do this ({st.get('label', step).lower()})")
+                raise StepError(f"someone other than {WHO.get(f, f)} must "
+                                + (st.get("verb") or f"do this ({st.get('label', step).lower()})"))
     values = {**record, **(facts or {})}
     gaps = [f for f in st.get("required") or [] if values.get(f) in (None, "", [], False, 0)]
     for f in gaps:

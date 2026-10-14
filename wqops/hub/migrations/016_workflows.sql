@@ -17,12 +17,18 @@ create table workflow_versions (
 );
 create unique index workflow_one_enabled on workflow_versions (kind) where status = 'enabled';
 
--- an enabled or retired version is frozen: its rules never change
+-- an enabled or retired version is frozen: its rules never change, and it only moves on (draft -> enabled -> retired)
 create function wqo_workflow_frozen() returns trigger language plpgsql as $$
 begin
-    if old.status <> 'draft' and (new.config::text is distinct from old.config::text or
-                                  new.fingerprint is distinct from old.fingerprint) then
+    if old.status <> 'draft' and (new.config::text is distinct from old.config::text
+            or new.fingerprint is distinct from old.fingerprint or new.kind is distinct from old.kind
+            or new.version is distinct from old.version or new.created_by is distinct from old.created_by
+            or new.enabled_by is distinct from old.enabled_by or new.enabled_at is distinct from old.enabled_at) then
         raise exception 'workflow % version % is frozen: make a new version', old.kind, old.version;
+    end if;
+    if not (old.status = new.status or (old.status = 'draft' and new.status = 'enabled')
+            or (old.status = 'enabled' and new.status = 'retired')) then
+        raise exception 'workflow % version % cannot go from % to %', old.kind, old.version, old.status, new.status;
     end if;
     return new;
 end $$;

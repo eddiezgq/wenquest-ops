@@ -43,6 +43,7 @@ steps:
     permission: quality:edit
     sign: Corrective action closed (effective)
     not_by: [owner]
+    verb: close a corrective action
     required: [evidence]
   cancel:
     label: Cancel

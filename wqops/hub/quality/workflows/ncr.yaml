@@ -38,6 +38,7 @@ steps:
     permission: quality:edit
     sign: Disposition approved
     not_by: [disposition_by]
+    verb: approve it
   reject_disposition:
     label: Do not approve
     from: [pending_approval]
@@ -60,7 +61,8 @@ steps:
   complete_8d:
     label: Mark 8D complete
     kind: close
-    from: [open, contained, pending_approval, dispositioned]
+    # the 8D report may be finished after the nonconformance is closed; it does not change the record's state
+    from: [open, contained, pending_approval, dispositioned, closed, cancelled]
     permission: quality:edit
     sign: 8D completed
 rules:
