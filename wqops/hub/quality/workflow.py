@@ -292,6 +292,15 @@ def clean_custom(cfg: dict, values: dict, people: set[str]) -> dict:
     return out
 
 
+def _sample(digits) -> str:
+    """The first number with this many digits, for showing; a wrong value is shown as it is (validate refuses it)."""
+    try:
+        d = int(digits)
+    except (TypeError, ValueError):
+        return f"? ({digits!r} digits)"
+    return "0" * (d - 1) + "1" if 1 <= d <= 12 else f"? ({d} digits)"
+
+
 def diff(old: dict, new: dict) -> list[str]:  # noqa: PLR0912 - one line per kind of change
     """What a new version changes, one line each, in plain words."""
     out = []
@@ -299,8 +308,8 @@ def diff(old: dict, new: dict) -> list[str]:  # noqa: PLR0912 - one line per kin
         out.append(f"named {new.get('label')!r}")
     if old.get("numbering") != new.get("numbering"):
         o, n = old.get("numbering") or {}, new.get("numbering") or {}
-        out.append(f"numbers: {o.get('prefix')}-{'0' * (int(o.get('digits') or 1) - 1)}1 -> "
-                   f"{n.get('prefix')}-{'0' * (int(n.get('digits') or 1) - 1)}1")
+        out.append(f"numbers: {o.get('prefix')}-{_sample(o.get('digits'))} -> "
+                   f"{n.get('prefix')}-{_sample(n.get('digits'))}")
     for s, v in (new.get("states") or {}).items():
         if (old.get("states") or {}).get(s, {}).get("label") != v.get("label"):
             out.append(f"state {s}: named {v.get('label')!r}")
@@ -330,8 +339,9 @@ def diff(old: dict, new: dict) -> list[str]:  # noqa: PLR0912 - one line per kin
     na = {a.get("name"): a for a in new.get("approvals") or []}
     for name in sorted(set(oa) | set(na)):
         if name not in oa:
+            when = "".join(f", when {k} is {' or '.join(_list(v))}" for k, v in (na[name].get("when") or {}).items())
             out.append(f"new approval {name}: {na[name].get('label')} before {na[name].get('before')}, by "
-                       f"{', '.join(_list(na[name].get('roles')))}")
+                       f"{', '.join(_list(na[name].get('roles')))}{when}")
         elif name not in na:
             out.append(f"approval {name} removed")
         elif oa[name] != na[name]:

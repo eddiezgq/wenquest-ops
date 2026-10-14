@@ -356,6 +356,9 @@ def workflows(b: Browser) -> None:
     p.get_by_role("button", name="Save draft").click()
     p.wait_for_selector("text=Saved.", timeout=30_000)
     url = urllib.parse.urlparse(p.url).path
+    pr = q.get("/api/quality/workflows/ncr/proposals")
+    check(pr["can_propose"] == pr["ai"] and isinstance(pr["proposals"], list),
+          f"workflows: suggestions from procedures offered only with a model key (model: {pr['ai']})")
     check(not q.errors, f"workflows: no script errors ({q.errors[:2]})")
     q.close()
     o = Session(b, OWNER, OWNER_PW)
