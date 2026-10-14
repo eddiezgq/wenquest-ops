@@ -168,23 +168,30 @@ def build(today: dt.date, seed: int = SEED) -> list[Doc]:  # noqa: PLR0912, PLR0
             demand = sum(ln["qty"] for s in open_so for ln in s["lines"] if ln["item"] == code and not ln["shipped"])
             rp, oq = reorder_point(code), order_qty(code)
             window = day >= today - dt.timedelta(days=20)
-            forced = code == WAITING_ITEM and day == today - dt.timedelta(days=6) and not on_order
             if code == KEY_ITEM and window and on_order:
                 continue                                            # waiting on the supplier's promise
-            if stock[code] + on_order - demand >= rp and not forced:
+            if stock[code] + on_order - demand >= rp:
                 continue
             lead, late_p, (lo_late, hi_late) = SUPPLIERS[i[3]]
             qty = oq * max(1, -(-(rp + demand - stock[code] - on_order) // oq))
             due = day + dt.timedelta(days=lead)
             late = rng.randint(lo_late, hi_late) if rng.random() < late_p else 0
-            if forced:
-                late = 0                                            # arrives in time to wait for inspection
             if code == KEY_ITEM and window:
                 late = 30                                                       # the last bolt orders never come
             ref = nid("P")
             open_pos.append({"ref": ref, "item": code, "qty": qty, "supplier": i[3], "rate": i[4],
                              "arrives": due + dt.timedelta(days=late)})
             docs.append(Doc(day, "po", ref, {"supplier": i[3], "item": code, "qty": qty, "rate": i[4], "due": due}))
+    # one receipt always waits for inspection at the end, whatever day "today" is (ADR-0012 item 5)
+    i = items[WAITING_ITEM]
+    lead = SUPPLIERS[i[3]][0]
+    ordered, arrived = today - dt.timedelta(days=lead + 1), today - dt.timedelta(days=1)
+    ref, qty = nid("P"), order_qty(WAITING_ITEM)
+    docs.append(Doc(ordered, "po", ref, {"supplier": i[3], "item": WAITING_ITEM, "qty": qty, "rate": i[4],
+                                         "due": arrived}))
+    docs.append(Doc(arrived, "receipt_draft", nid("R"), {"po": ref, "item": WAITING_ITEM, "qty": qty,
+                                                         "supplier": i[3], "rate": i[4]}))
+    docs.sort(key=lambda d: (d.day, d.kind != "opening"))      # stable: same-day documents keep their order
     return docs
 
 

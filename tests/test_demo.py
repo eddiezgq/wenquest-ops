@@ -136,3 +136,19 @@ def test_quality_history_for_the_rejected_lot(loaded):
     OP.project(conn, manifest=DEMO)
     AN.detect(conn, TODAY)
     assert conn.execute("select 1 from anomalies where rule = 'capa_overdue'").fetchone()
+
+
+@pytest.mark.parametrize("shift", range(21))
+def test_every_problem_appears_whatever_the_date(shift):
+    """The demo is built 'from today back 90 days', so every install day must show the same kinds of problems."""
+    today = TODAY + dt.timedelta(days=shift)
+    docs = S.build(today)
+    assert [d.day for d in docs] == sorted(d.day for d in docs) and docs[-1].day <= today
+    assert any(d.kind == "receipt_draft" and d.data["item"] == S.WAITING_ITEM for d in docs), "receipt waiting"
+    assert sum(1 for d in docs if d.kind == "inspection" and d.data["rejected"]) == 1, "rejected lot"
+    received = {d.data["po"] for d in docs if d.kind in ("receipt", "receipt_draft")}
+    assert any(d.kind == "po" and d.ref not in received and d.data["due"] < today for d in docs), "late purchase order"
+    shipped = {(d.data["so"], ln["line"]) for d in docs if d.kind == "delivery" for ln in d.data["lines"]}
+    open_lines = [d for d in docs if d.kind == "so" and d.data["due"] < today
+                  and any((d.ref, i) not in shipped for i in range(len(d.data["lines"])))]
+    assert open_lines, "late sales order"
