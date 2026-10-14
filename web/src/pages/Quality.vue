@@ -93,8 +93,10 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
         <td><RouterLink :to="objectPath('Item', x.item_code)">{{ x.item_code }}</RouterLink></td><td>{{ fmt(x.qty) }}</td>
         <td>{{ x.supplier }}</td><td>{{ x.received }}</td>
         <td v-if="canEdit" class="row"><input v-model="sample[x.receipt + x.item_code]" type="number" min="1" placeholder="Sample size" style="width:7rem">
-          <button @click="draftInspection(x)">Draft inspection</button></td></tr></tbody>
+          <button :disabled="!(Number(sample[x.receipt + x.item_code]) > 0)" title="Enter the sample size first" @click="draftInspection(x)">Draft inspection</button></td></tr></tbody>
     </table>
+    <p v-if="rows.length && canEdit" class="muted small">Enter how many pieces you will inspect, then draft the inspection.</p>
+    <p v-if="error" class="err">{{ error }}</p>
   </template>
 
   <template v-if="tab === 'suppliers' && scores">
