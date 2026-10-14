@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import { api } from '../api'
 import { ago } from '../format'
+import WorkflowProposals from './WorkflowProposals.vue'
 
 const props = defineProps({ data: Object, kind: String })
 const router = useRouter()
@@ -88,5 +89,6 @@ const stateLabel = (s) => wf.value.states[s]?.label || s
       <li v-if="wf.rules.eight_d_before_close?.length">{{ wf.rules.eight_d_before_close.join(' and ') }} reports close only after their 8D is complete</li>
       <li v-if="wf.rules.one_open_capa_per_ncr">one open corrective action per nonconformance report</li>
     </ul>
+    <WorkflowProposals v-if="data.can_configure" :kind="kind" />
   </section>
 </template>

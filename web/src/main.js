@@ -18,6 +18,7 @@ import Documents from './pages/Documents.vue'
 import DocumentPage from './pages/DocumentPage.vue'
 import LedgerPage from './pages/LedgerPage.vue'
 import WorkflowEditor from './pages/WorkflowEditor.vue'
+import WorkflowProposal from './pages/WorkflowProposal.vue'
 import './style.css'
 
 const router = createRouter({
@@ -33,6 +34,7 @@ const router = createRouter({
     { path: '/quality', component: Quality, meta: { title: 'Quality' } },
     { path: '/quality/ncr/:id', component: NcrPage, meta: { title: 'Nonconformance' } },
     { path: '/quality/capa/:id', component: CapaPage, meta: { title: 'Corrective action' } },
+    { path: '/quality/workflows/proposals/:id', component: WorkflowProposal, meta: { title: 'Suggested changes' } },
     { path: '/quality/workflows/:id', component: WorkflowEditor, meta: { title: 'Workflow' } },
     { path: '/help/:topic?', component: Help, meta: { title: 'Help' } },
     { path: '/account', component: Account, meta: { title: 'My account' } },

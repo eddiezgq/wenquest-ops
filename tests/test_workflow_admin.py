@@ -70,7 +70,7 @@ def test_new_fields_and_approvals_are_checked():
     assert W.diff(W.default("ncr"), cfg) == [
         "step contain: label 'Contain' -> 'Quarantine'", "new field cost (Cost, number)",
         "new field found_at (Found at, choice)", "new field lot_no (Lot number, text)",
-        "new approval owner_close: Owner approval before close, by owner"]
+        "new approval owner_close: Owner approval before close, by owner, when severity is minor"]
     people = {JORDAN}
     assert W.clean_custom(cfg, {"cost": "12.5", "found_at": "Shipping", "lot_no": " L-7 "}, people) == \
         {"cost": 12.5, "found_at": "Shipping", "lot_no": "L-7"}

@@ -330,8 +330,9 @@ def diff(old: dict, new: dict) -> list[str]:  # noqa: PLR0912 - one line per kin
     na = {a.get("name"): a for a in new.get("approvals") or []}
     for name in sorted(set(oa) | set(na)):
         if name not in oa:
+            when = "".join(f", when {k} is {' or '.join(_list(v))}" for k, v in (na[name].get("when") or {}).items())
             out.append(f"new approval {name}: {na[name].get('label')} before {na[name].get('before')}, by "
-                       f"{', '.join(_list(na[name].get('roles')))}")
+                       f"{', '.join(_list(na[name].get('roles')))}{when}")
         elif name not in na:
             out.append(f"approval {name} removed")
         elif oa[name] != na[name]:

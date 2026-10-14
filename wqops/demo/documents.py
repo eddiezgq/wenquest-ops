@@ -187,7 +187,10 @@ def files() -> list[tuple[str, bytes]]:
 
     out.append((f"{P}/QP-08 Control of Nonconforming Product Rev C.pdf",
                 qp08("C", "2025-06-02", ["Major nonconformances need a corrective action under QP-09.",
-                                         "Use-as-is needs approval by a second person."])))
+                                         "Use-as-is needs approval by a second person.",
+                                         "The lot number of the affected product is recorded on the NCR before "
+                                         "the disposition.",
+                                         "The General Manager signs off every major NCR before it is closed."])))
     out.append((f"{P}/old/QP-08 Control of Nonconforming Product Rev B.pdf",
                 qp08("B", "2023-11-20", ["Repeated problems are discussed in the weekly meeting."])))
 
