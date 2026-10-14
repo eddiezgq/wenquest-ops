@@ -11,17 +11,19 @@ Plain code: no AI, no network (tests/test_isolation.py).
 from __future__ import annotations
 
 import copy
+import re
 
 from psycopg.types.json import Json
 
 from wqops.hub.docs import classify as C
+from wqops.hub.quality import records as Q
 from wqops.hub.quality import workflow as W
 from wqops.hub.quality import workflow_admin as WA
 
 OPS = {
     "require": "a step needs a field the record already has",
     "not_by": "a person named on the record may not do a step",
-    "roles": "only some roles may do a step",
+    "roles": "only some of the roles that may do a step now may do it",
     "rule": "a severity closes only after its corrective action is closed, or after its 8D",
     "field": "a field of the company's own, maybe needed before a step",
     "approval": "an extra signed approval before a step, maybe only under a condition",
@@ -33,7 +35,12 @@ MAX_ITEMS = 30
 MAX_READ = 30000                                 # characters of one procedure the model reads
 MAX_TOTAL = 80000
 PROCEDURE_TYPES = ("procedure", "work_instruction", "form")
-READABLE = ("confirmed", "draft", "in_review", "effective")
+# only procedures approved in the library: a draft anyone with documents:edit uploaded is not what the company follows
+READABLE = ("effective",)
+# fields a person can still fill in, by the state a record is in (a field needed before a step must be fillable in
+# every state the step starts from, or records would get stuck); the steps' own inputs are not proposals
+FILLABLE = {"ncr": {s: ("owner", "severity") for s in ("open", "contained", "pending_approval", "dispositioned")},
+            "capa": Q.EDITABLE}
 
 
 class ChangeError(ValueError):
@@ -45,12 +52,25 @@ def _s(v, n: int = 200) -> str:
 
 
 def _names(v) -> list[str]:
+    if isinstance(v, str):
+        v = [v]
     return [_s(x, 60) for x in v if _s(x, 60)] if isinstance(v, list) else []
+
+
+def _when(v) -> dict:
+    if v in (None, {}):
+        return {}
+    if not isinstance(v, dict):
+        raise ChangeError("the conditions of an approval are given by name")
+    out = {_s(k, 40): _names(x) for k, x in v.items()}
+    if any(not x for x in out.values()):
+        raise ChangeError("every condition of an approval names at least one value")
+    return out
 
 
 def clean(kind: str, raw: dict) -> dict:  # noqa: PLR0911 - one shape per kind of change
     """A change in the shape it is stored and applied in; ChangeError when it cannot be made sense of."""
-    if not isinstance(raw, dict) or raw.get("op") not in OPS:
+    if not isinstance(raw, dict) or not isinstance(raw.get("op"), str) or raw["op"] not in OPS:
         raise ChangeError(f"a change is one of: {', '.join(OPS)}")
     op = raw["op"]
     if op in ("require", "not_by", "roles") and _s(raw.get("step")) not in W.BUILT_IN[kind]:
@@ -72,16 +92,16 @@ def clean(kind: str, raw: dict) -> dict:  # noqa: PLR0911 - one shape per kind o
             out["choices"] = list(dict.fromkeys(_names(raw.get("choices"))))
         return out
     if op == "approval":
-        when = raw.get("when") if isinstance(raw.get("when"), dict) else {}
         return {"op": op, "name": _s(raw.get("name"), 40), "label": _s(raw.get("label"), 80),
                 "before": _s(raw.get("before")), "roles": sorted(set(_names(raw.get("roles")))),
-                "when": {_s(k, 40): _names(v) for k, v in when.items() if _names(v)},
+                "when": _when(raw.get("when")),
                 "not_by": sorted(set(_names(raw.get("not_by")))),
                 "sign": _s(raw.get("sign"), 120) or _s(raw.get("label"), 80)}
-    try:
-        digits = int(raw.get("digits"))
-    except (TypeError, ValueError) as exc:
-        raise ChangeError("numbering needs a whole number of digits") from exc
+    digits = raw.get("digits")
+    if isinstance(digits, str) and digits.strip().isdigit():
+        digits = int(digits)
+    if type(digits) is not int or not 3 <= digits <= 8:
+        raise ChangeError("numbering needs 3 to 8 digits")
     return {"op": op, "prefix": _s(raw.get("prefix"), 20), "digits": digits}
 
 
@@ -132,6 +152,29 @@ def _clash(cfg: dict, ch: dict) -> str | None:
     return None
 
 
+def allowed_now(cfg: dict, step: str) -> set[str]:
+    """The roles that may do a step under this workflow."""
+    st = cfg["steps"][step]
+    return set(st.get("roles") or W.view(cfg)["steps"][step]["who"])
+
+
+def _loosens(cfg: dict, ch: dict) -> str | None:
+    """A proposal only tightens: it may not let more roles do a step, nor need a field no one can fill in."""
+    if ch["op"] == "roles":
+        more = set(ch["roles"]) - allowed_now(cfg, ch["step"])
+        if more:
+            label = cfg["steps"][ch["step"]].get("label", ch["step"]).lower()
+            return f"it would let {', '.join(sorted(more))} {label}; a suggestion can only limit who may do a step"
+    if ch["op"] == "require" and ch["field"] in W.NEEDS[cfg["kind"]] and \
+            ch["field"] not in (cfg["steps"][ch["step"]].get("required") or []):
+        st = cfg["steps"][ch["step"]]
+        fillable = [set(FILLABLE[cfg["kind"]].get(s, ())) for s in st["from"]]
+        if ch["step"] == "cancel" or not fillable or ch["field"] not in set.intersection(*fillable):
+            return (f"{W.NEEDS[cfg['kind']][ch['field']]} cannot be filled in before "
+                    f"{st.get('label', ch['step']).lower()}; records would get stuck")
+    return None
+
+
 def quoted(quote: str, body: str) -> bool:
     q = C.norm(quote)
     return len(q) >= MIN_QUOTE and q in C.norm(body)
@@ -147,11 +190,15 @@ def check(cfg: dict, ch: dict, quote: str, body: str | None, in_use: set[str] | 
     elif not verified:
         problems.append("its quote is not in the procedure it names" if len(C.norm(quote)) >= MIN_QUOTE
                         else "its quote is too short to rest on")
-    if ch["op"] == "numbering" and verified and C.norm(ch["prefix"]) not in C.norm(quote):
+    if ch["op"] == "numbering" and verified and not re.search(
+            rf"(?<![a-z0-9]){re.escape(C.norm(ch['prefix']))}(?![a-z0-9])", C.norm(quote)):
         problems.append(f"the quote does not show the prefix {ch['prefix']}")
     clash = _clash(cfg, ch)
     if clash:
         problems.append(clash)
+    loose = _loosens(cfg, ch)
+    if loose:
+        problems.append(loose)
     new = apply(cfg, ch)
     lines = W.diff(cfg, new)
     before = set(W.validate(cfg, in_use))
@@ -228,30 +275,45 @@ def read(conn, kind: str, ids: list[int]) -> list[dict]:
 
 # ---------------------------------------------------------------- storing what the model proposed
 
-def store(conn, kind: str, email: str, docs: list[dict], result: dict, ai_run: int | None) -> dict:  # noqa: PLR0917
-    """Keep a proposal: every change with what code found about it against the enabled version.
-    ``result``: {"changes": [{change, document_id, quote, why}], "cannot": [...], "summary"}."""
+def _doc(v) -> int | None:
+    return v if type(v) is int else None
+
+
+def store(conn, kind: str, email: str, docs: list[dict], result: dict, ai_run: int | None,  # noqa: PLR0917
+          base_id: int | None = None) -> dict:
+    """Keep a proposal: every change with what code found about it against the version the model was shown.
+    ``result``: {"changes": [{change, document_id, quote, why}], "cannot": [...], "summary"}; anything in it may be
+    malformed (it comes from the model) and is kept with the problem found."""
+    changes = result.get("changes") if isinstance(result.get("changes"), list) else []
+    raw_cannot = result.get("cannot") if isinstance(result.get("cannot"), list) else []
+    summary = _s(result.get("summary"), 2000)
+    if len(changes) > MAX_ITEMS:
+        summary += f" (The AI suggested {len(changes)} changes; the first {MAX_ITEMS} are kept.)"
     with conn.transaction():
-        base = W.ensure(conn, kind)
+        base = W.version(conn, kind, base_id)
         bodies = {d["id"]: d["text"] for d in docs}
         uses = WA.in_use(conn, kind)
-        cannot = [{"document_id": c.get("document_id"), "quote": _s(c.get("quote"), 600), "why": _s(c.get("why"), 600),
-                   "verified": c.get("document_id") in bodies and quoted(c.get("quote") or "",
-                                                                         bodies[c.get("document_id")])}
-                  for c in (result.get("cannot") or [])[:MAX_ITEMS]]
+        cannot = []
+        for c in raw_cannot[:MAX_ITEMS]:
+            if not isinstance(c, dict):
+                continue
+            doc = _doc(c.get("document_id"))
+            cannot.append({"document_id": doc if doc in bodies else None, "quote": _s(c.get("quote"), 600),
+                           "why": _s(c.get("why"), 600),
+                           "verified": doc in bodies and quoted(_s(c.get("quote"), 600), bodies[doc])})
         p = conn.execute(
             "insert into workflow_proposals (kind, base_version, documents, created_by, ai_run, summary, cannot) "
             "values (%s, %s, %s, %s, %s, %s, %s) returning *",
             (kind, base["id"], Json([{k: d[k] for k in ("id", "name", "revision", "status", "sha256", "chars", "cut")}
-                                     for d in docs]), email, ai_run, _s(result.get("summary"), 2000),
-             Json(cannot))).fetchone()
-        for seq, item in enumerate((result.get("changes") or [])[:MAX_ITEMS], 1):
-            quote, doc = _s(item.get("quote"), 1000), item.get("document_id")
+                                     for d in docs]), email, ai_run, summary, Json(cannot))).fetchone()
+        for seq, raw in enumerate(changes[:MAX_ITEMS], 1):
+            item = raw if isinstance(raw, dict) else {}
+            quote, doc = _s(item.get("quote"), 1000), _doc(item.get("document_id"))
             try:
-                ch = clean(kind, item.get("change") or {})
+                ch = clean(kind, item.get("change"))
                 found = check(base["config"], ch, quote, bodies.get(doc), uses)
             except ChangeError as exc:
-                ch = item.get("change") if isinstance(item.get("change"), dict) else {}
+                ch = {k: _s(v, 200) for k, v in item["change"].items()} if isinstance(item.get("change"), dict) else {}
                 found = {"verified": doc in bodies and quoted(quote, bodies[doc]), "problems": [str(exc)],
                          "already": False, "lines": []}
             conn.execute(
@@ -334,6 +396,12 @@ def accept(conn, iid: int, email: str, note: str = "") -> dict:
         found = check(draft["config"], ch, it["quote"], it["quote"], WA.in_use(conn, p["kind"]))
         if found["problems"]:
             raise WA.AdminError("in the draft as it is now: " + "; ".join(found["problems"]))
+        now = conn.execute("select status from documents where id = %s", (it["document_id"],)).fetchone()
+        if now is None or now["status"] not in READABLE:
+            raise WA.AdminError("the procedure it quotes is no longer in effect in the document library")
+        errors = W.validate(apply(draft["config"], ch), WA.in_use(conn, p["kind"]))
+        if errors:
+            raise WA.AdminError("fix the draft first: " + "; ".join(errors))
         doc = next((d["name"] for d in p["documents"] if d["id"] == it["document_id"]), "a procedure")
         if found["already"]:
             WA.log(conn, draft["id"], email, "proposal accepted",

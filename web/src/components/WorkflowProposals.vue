@@ -39,7 +39,7 @@ async function ask() {
       procedure; WenQuest Ops checks that the quote is really there and that the change keeps the rules that cannot be switched off.
       You accept or reject each one; accepted ones go into a draft that someone else enables.</p>
     <template v-if="d.can_propose">
-      <p v-if="!d.procedures.length" class="wq-muted">There are no confirmed procedures in the document library yet. Import and confirm them under Documents first.</p>
+      <p v-if="!d.procedures.length" class="wq-muted">There are no procedures in effect in the document library yet. Import them under Documents and have them approved first.</p>
       <template v-else>
         <div class="mb-3 flex max-h-56 flex-col gap-1 overflow-y-auto text-sm">
           <label v-for="p in d.procedures" :key="p.id" class="inline-flex items-center gap-2">

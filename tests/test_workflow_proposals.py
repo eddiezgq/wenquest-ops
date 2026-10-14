@@ -41,12 +41,16 @@ def world(conn):
     return conn
 
 
-def library(conn):
-    """QP-08 Rev C, QP-09 and management review minutes, classified by the rules and confirmed."""
+def library(conn, approve=True):
+    """QP-08 Rev C, QP-09 and management review minutes, classified by the rules and confirmed; the procedures
+    approved (effective) by someone else."""
     imp, docs = imported(conn, ["QP-08 Control of Nonconforming Product Rev C", "QP-09", "Management review minutes"])
     AIC.run(conn, {"email": JORDAN, "roles": ["quality"]}, imp["id"], None, today=AS_OF)
     for d in docs:
         LIB.confirm(conn, JORDAN, d["id"])
+    for d in docs[:2] if approve else []:
+        LIB.submit(conn, JORDAN, d["id"])
+        LIB.approve(conn, Acc.get(conn, SAM), d["id"], PW, AS_OF)
     return [LIB.get(conn, d["id"]) for d in docs]
 
 
@@ -90,14 +94,25 @@ def test_changes_are_cleaned_applied_and_checked():
     gm = WP.clean("ncr", dict(bad, roles=["owner"]))
     assert gm["sign"] == "GM sign-off" and WP.check(cfg, gm, GM, body)["problems"] == []
     assert WP.describe(gm, cfg) == "GM sign-off: signed by owner before close when severity is major"
-    num = WP.clean("ncr", {"op": "numbering", "prefix": "NCR", "digits": "4"})
+    num = WP.clean("ncr", {"op": "numbering", "prefix": "NC", "digits": "4"})
     assert WP.check(cfg, num, "NCR numbers start with NC-2026.", body)["problems"] == []
     assert WP.check(cfg, dict(num, prefix="QN"), "NCR numbers start with NC-2026.", body)["problems"] == [
         "the quote does not show the prefix QN"]
+    # the prefix must stand as a word in the quote: "NO" is not shown by "nonconforming"
+    assert WP.check(cfg, dict(num, prefix="NO"), "NCR numbers start with NC-2026.", body)["problems"] == [
+        "the quote does not show the prefix NO"]
+    # a single condition given as a word is a list of one
+    assert WP.clean("ncr", {"op": "approval", "name": "a", "when": {"severity": "major"}})["when"] == {
+        "severity": ["major"]}
     for raw, msg in [({"op": "delete_step", "step": "close"}, "a change is one of"),
+                     ({"op": ["roles"]}, "a change is one of"), ("roles", "a change is one of"),
+                     ({"op": "numbering", "prefix": "N", "digits": 10**30}, "3 to 8 digits"),
+                     ({"op": "numbering", "prefix": "N", "digits": True}, "3 to 8 digits"),
+                     ({"op": "approval", "name": "a", "when": "major"}, "given by name"),
+                     ({"op": "approval", "name": "a", "when": {"severity": []}}, "at least one value"),
                      ({"op": "require", "step": "skip", "field": "owner"}, "there is no step"),
                      ({"op": "rule", "rule": "capa_closed_before_close", "severity": "major"}, None),
-                     ({"op": "numbering", "prefix": "N", "digits": "four"}, "whole number")]:
+                     ({"op": "numbering", "prefix": "N", "digits": "four"}, "3 to 8 digits")]:
         if msg is None:
             with pytest.raises(WP.ChangeError, match="rules that can be proposed"):
                 WP.clean("capa", raw)
@@ -108,6 +123,26 @@ def test_changes_are_cleaned_applied_and_checked():
     rule = WP.clean("ncr", {"op": "rule", "rule": "eight_d_before_close", "severity": "major"})
     assert WP.apply(cfg, rule)["rules"]["eight_d_before_close"] == ["major"]
     assert "rule eight_d_before_close" in WP.check(cfg, rule, GM, body)["lines"][0]
+    # a proposal only limits who may do a step; it never lets more roles do it
+    limited = W.default("ncr")
+    limited["steps"]["close"]["roles"] = ["quality"]
+    wider = WP.clean("ncr", {"op": "roles", "step": "close", "roles": ["quality", "owner", "ops_manager"]})
+    assert WP.check(limited, wider, GM, body)["problems"] == [
+        "it would let ops_manager, owner close; a suggestion can only limit who may do a step"]
+    narrow = WP.clean("ncr", {"op": "roles", "step": "close", "roles": "owner"})
+    assert narrow["roles"] == ["owner"] and WP.check(cfg, narrow, GM, body)["problems"] == []
+    assert "sales" in WP.check(cfg, dict(narrow, roles=["sales"]), GM, body)["problems"][0]
+    # a field needed before a step must be one a person can still fill in by then
+    stuck = WP.clean("ncr", {"op": "require", "step": "contain", "field": "supplier"})
+    assert WP.check(cfg, stuck, LOT, body)["problems"] == [
+        "supplier cannot be filled in before contain; records would get stuck"]
+    assert WP.check(cfg, dict(stuck, step="close", field="owner"), LOT, body)["problems"] == []
+    assert "records would get stuck" in WP.check(cfg, dict(stuck, step="cancel", field="owner"), LOT,
+                                                 body)["problems"][0]
+    capa = W.default("capa")
+    root = WP.clean("capa", {"op": "require", "step": "to_effectiveness", "field": "root_cause"})
+    assert "records would get stuck" in WP.check(capa, root, LOT, body)["problems"][0]
+    assert WP.check(capa, dict(root, step="plan", field="owner"), LOT, body)["problems"] == []
     # a field or approval of the same name that is different is not replaced by a proposal
     own = WP.apply(cfg, lot)
     assert "already has a field 'lot_no'" in WP.check(own, dict(lot, type="number"), LOT, body)["problems"][0]
@@ -146,7 +181,7 @@ def test_proposal_is_checked_kept_and_decided(world):
     got = {i["seq"]: i for i in v["items"]}
     assert [got[n]["acceptable"] for n in range(1, 7)] == [True, True, False, False, False, False]
     assert got[1]["text"] == "New field Lot number (text), needed before submit disposition"
-    assert got[3]["already"] is True and got[4]["problems"] == ["its quote is not in the procedure it names"]
+    assert got[3]["already"] is True and got[4]["problems"][0] == "its quote is not in the procedure it names"
     assert got[5]["document_id"] is None and "does not name one of the procedures" in got[5]["problems"][0]
     assert "a change is one of" in got[6]["problems"][0] and got[6]["text"] == "a change WenQuest Ops cannot make"
     assert v["cannot"][0]["verified"] is True and v["documents"][0]["name"].startswith("QP-08")
@@ -233,6 +268,74 @@ def test_without_a_model_or_when_it_fails(world):
         WP.read(world, "ncr", [])
 
 
+def test_malformed_answers_are_kept_with_their_problems(world):
+    qp08, _, _ = library(world)
+    docs = WP.read(world, "ncr", [qp08["id"]])
+    s = Scripted(reply([
+        "add a lot number",
+        change("numbering", "NCR numbers start with NC.", qp08["id"], prefix="NC", digits=10**30),
+        change("roles", LOT, True, step="close", roles="quality"),
+        {"change": {"op": ["field"]}, "document_id": qp08["id"], "quote": LOT},
+        change("approval", GM, qp08["id"], name="gm", label="GM", before="close", roles=["owner"],
+               when={"severity": "major"})],
+        cannot=["tagging", {"document_id": "1", "quote": GM, "why": "x"}]))
+    p = WAI.propose(world, Acc.get(world, JORDAN), "ncr", docs, s.model(), today=AS_OF)
+    got = {i["seq"]: i for i in WP.items(world, p["id"])}
+    assert "a change is one of" in got[1]["problems"][0] and got[1]["change"] == {}
+    assert got[2]["problems"] == ["numbering needs 3 to 8 digits"]
+    assert got[3]["document_id"] is None and not got[3]["verified"]
+    assert "a change is one of" in got[4]["problems"][0] and got[4]["verified"] is True
+    assert got[5]["change"]["when"] == {"severity": ["major"]} and got[5]["problems"] == []
+    assert p["cannot"] == [{"document_id": None, "quote": GM, "why": "x", "verified": False}]
+    assert world.execute("select engine from ai_runs where id = %s", (p["ai_run"],)).fetchone()["engine"] == "model"
+    # an answer cut off, or one that breaks while it is kept, closes the run with its error
+    cut = Scripted(dict(reply([]), stop_reason="max_tokens"))
+    with pytest.raises(L.LlmError, match="cut off"):
+        WAI.propose(world, Acc.get(world, JORDAN), "ncr", docs, cut.model(), today=AS_OF)
+    assert cut.requests[0]["body"]["max_tokens"] == 8000
+    many = Scripted(reply([change("not_by", UAI, qp08["id"], step="approve", person="disposition_by")] * 35))
+    p2 = WAI.propose(world, Acc.get(world, JORDAN), "ncr", docs, many.model(), today=AS_OF)
+    assert len(WP.items(world, p2["id"])) == 30 and "35 changes; the first 30 are kept" in p2["summary"]
+    real = WP.store
+    try:
+        WP.store = lambda *a, **k: 1 / 0
+        with pytest.raises(ZeroDivisionError):
+            WAI.propose(world, Acc.get(world, JORDAN), "ncr", docs, Scripted(reply([])).model(), today=AS_OF)
+    finally:
+        WP.store = real
+    runs = world.execute("select engine, error from ai_runs where kind = 'workflow' order by id").fetchall()
+    assert [r["engine"] for r in runs] == ["model", "model (failed)", "model", "model (failed)"]
+    assert "ZeroDivisionError" in runs[-1]["error"]
+
+
+def test_only_procedures_in_effect_are_read_and_quoted(world):
+    qp08, qp09, _ = library(world, approve=False)
+    assert WP.procedures(world, "ncr") == []                     # confirmed drafts are not what the company follows
+    LIB.submit(world, JORDAN, qp08["id"])
+    LIB.approve(world, Acc.get(world, SAM), qp08["id"], PW, AS_OF)
+    assert [p["id"] for p in WP.procedures(world, "ncr")] == [qp08["id"]]
+    with pytest.raises(WA.AdminError, match="not a procedure"):
+        WP.read(world, "ncr", [qp09["id"]])
+    docs = WP.read(world, "ncr", [qp08["id"]])
+    s = Scripted(reply([
+        change("field", LOT, qp08["id"], name="lot_no", label="Lot number", type="text"),
+        change("not_by", GM, qp08["id"], step="close", person="owner")]))
+    p = WAI.propose(world, Acc.get(world, JORDAN), "ncr", docs, s.model(), today=AS_OF)
+    it = {i["seq"]: i for i in WP.items(world, p["id"])}
+    # a draft that breaks a rule is fixed before suggestions go into it
+    d = WA.new_draft(world, "ncr", SAM)
+    broken = dict(d["config"], numbering={"prefix": "N", "digits": 2})
+    WA.save(world, d["id"], SAM, broken)
+    with pytest.raises(WA.AdminError, match="fix the draft first: numbering needs"):
+        WP.accept(world, it[2]["id"], JORDAN)
+    WA.discard(world, d["id"], SAM, "broken")
+    # the procedure was withdrawn after the suggestion: it is no longer a reason to change the workflow
+    LIB.obsolete(world, JORDAN, qp08["id"], "replaced by the new quality manual")
+    with pytest.raises(WA.AdminError, match="no longer in effect"):
+        WP.accept(world, it[1]["id"], JORDAN)
+    assert WP.reject(world, it[1]["id"], JORDAN, "procedure withdrawn")["decision"] == "rejected"
+
+
 def test_long_procedures_are_cut_and_said_to_be(world, monkeypatch):
     qp08, qp09, _ = library(world)
     monkeypatch.setattr(WP, "MAX_TOTAL", 300)
@@ -281,6 +384,9 @@ def test_proposals_api(db_url, monkeypatch):
     assert done["items"][0]["decision"] == "accepted" and done["draft"]["version"] == 2
     assert c.post(f"/api/quality/workflows/proposal-items/{iid}/reject").status_code == 409
     assert c.get("/api/quality/workflows/proposals/999999").status_code == 404
+    assert c.get(f"/api/quality/workflows/proposals/{2**70}").status_code == 404
+    assert c.post(f"/api/quality/workflows/proposal-items/{2**70}/reject").status_code == 404
+    assert c.post(f"/api/quality/workflows/proposal-items/{iid}/reject", json=["x"]).status_code == 409
     # without a model key the proposals are still shown, asking is not offered
     c2 = TestClient(create_app({}, lambda: (DEMO, "ok"), db_url=db_url, ai=L.Anthropic("", env={})))
     c2.__enter__()
