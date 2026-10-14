@@ -10,7 +10,9 @@
 | Quality | Dashboard, stock, purchasing, quality | Edit and sign quality records |
 | AI specialist | Dashboard, stock, sales, purchasing, quality | Configure the assistant, see all assistant runs |
 
-Everyone can use the assistant, with their own role's view. Roles come from the company manifest; ask the owner to
+Everyone can use the assistant, with their own role's view, and read the document library. The owner, the
+operations manager, Quality and the AI specialist can also upload documents, confirm their classification and approve
+them. Roles come from the company manifest; ask the owner to
 change yours.
 
 **Your password.** Click your name at the top right (*My account*) to see what your role allows and to change your

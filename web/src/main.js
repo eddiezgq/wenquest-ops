@@ -14,6 +14,8 @@ import CapaPage from './pages/CapaPage.vue'
 import Help from './pages/Help.vue'
 import Account from './pages/Account.vue'
 import People from './pages/People.vue'
+import Documents from './pages/Documents.vue'
+import DocumentPage from './pages/DocumentPage.vue'
 import './style.css'
 
 const router = createRouter({
@@ -32,6 +34,8 @@ const router = createRouter({
     { path: '/help/:topic?', component: Help, meta: { title: 'Help' } },
     { path: '/account', component: Account, meta: { title: 'My account' } },
     { path: '/people', component: People, meta: { title: 'People' } },
+    { path: '/documents', component: Documents, meta: { title: 'Documents' } },
+    { path: '/documents/:id', component: DocumentPage, meta: { title: 'Document' } },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })

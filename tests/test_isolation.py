@@ -1,7 +1,8 @@
 """Judgement and record code must not use AI or the network (ADR-0010, after dee-qms gate-isolation).
 
-Module-level check of direct imports: quality records, automatic NCRs, supplier facts, SPC, metrics, anomaly rules
-and root causes decide or record things; the AI layer and network libraries stay out of them.
+Module-level check of direct imports: quality records, automatic NCRs, supplier facts, SPC, metrics, anomaly rules,
+root causes, and the document library's records, quote check, text extraction and file store decide or record
+things; the AI layer and network libraries stay out of them.
 """
 
 import ast
@@ -9,7 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1] / "wqops"
 DECISION = ["hub/quality/records.py", "hub/quality/auto.py", "hub/quality/incoming.py", "hub/quality/spc.py",
-            "hub/ont/metrics.py", "hub/ont/anomaly.py", "hub/ont/chain.py"]
+            "hub/ont/metrics.py", "hub/ont/anomaly.py", "hub/ont/chain.py",
+            "hub/docs/library.py", "hub/docs/classify.py", "hub/docs/extract.py", "hub/docs/store.py"]
 FORBIDDEN = {"openai", "anthropic", "requests", "httpx", "urllib", "urllib3", "aiohttp", "socket", "http",
              "langchain", "litellm", "boto3"}
 

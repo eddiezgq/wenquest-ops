@@ -41,19 +41,17 @@ class Anthropic:
     def configured(self) -> bool:
         return bool(self.key)
 
-    def create(self, system: str, messages: list[dict], tools: list[dict], max_tokens: int = 2000) -> dict:
+    def create(self, system: str, messages: list[dict], tools: list[dict], max_tokens: int = 2000,
+               tool_choice: dict | None = None) -> dict:
         """One Messages API call; returns the response (content blocks, stop_reason, usage)."""
+        body = {"model": self.model, "max_tokens": max_tokens, "system": system, "messages": messages, "tools": tools}
+        if tool_choice:
+            body["tool_choice"] = tool_choice
         try:
             r = self.http.post(
                 API,
                 headers={"x-api-key": self.key, "anthropic-version": VERSION, "content-type": "application/json"},
-                json={
-                    "model": self.model,
-                    "max_tokens": max_tokens,
-                    "system": system,
-                    "messages": messages,
-                    "tools": tools,
-                },
+                json=body,
             )
         except httpx.HTTPError as exc:
             raise LlmError(f"could not reach the model: {type(exc).__name__}") from exc

@@ -9,14 +9,14 @@ CAN = {
     "warehouse": {"inventory:view", "ai:use"},
     "purchasing": {"purchasing:draft"},
     "sales": {"sales:view"},
-    "quality": {"quality:edit"},
+    "quality": {"quality:edit", "documents:edit"},
     "ops_manager": {"quality:edit", "purchasing:draft", "users:view"},
     "ai_specialist": {"ai:configure", "users:view"},
 }
 CANNOT = {
-    "warehouse": {"purchasing:draft", "quality:edit", "users:view", "sales:view", "settings:edit"},
+    "warehouse": {"purchasing:draft", "quality:edit", "users:view", "sales:view", "settings:edit", "documents:edit"},
     "purchasing": {"quality:edit", "users:manage", "sales:view"},
-    "sales": {"purchasing:draft", "quality:edit", "users:view"},
+    "sales": {"purchasing:draft", "quality:edit", "users:view", "documents:edit"},
     "quality": {"purchasing:draft", "users:manage", "sales:view"},
     "ops_manager": {"users:manage", "settings:edit", "ai:configure"},
     "ai_specialist": {"users:manage", "settings:edit", "purchasing:draft", "quality:edit"},
@@ -37,6 +37,13 @@ def test_can_and_cannot(role):
         assert P.allows([role], p), (role, p)
     for p in CANNOT[role]:
         assert not P.allows([role], p), (role, p)
+
+
+def test_everyone_sees_the_document_library():
+    """ADR-0014 item 8: documents:view for all roles; documents:edit for owner, ops manager, quality, AI specialist."""
+    assert all("documents:view" in perms for perms in P.ROLE_PERMISSIONS.values())
+    assert {r for r, perms in P.ROLE_PERMISSIONS.items() if "documents:edit" in perms} == \
+        {"owner", "ops_manager", "quality", "ai_specialist"}
 
 
 def test_roles_combine_and_unknown_permission_is_an_error():

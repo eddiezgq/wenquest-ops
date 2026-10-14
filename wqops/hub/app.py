@@ -9,6 +9,7 @@ Environment:
     WQO_ERP_PUBLIC_URL  ERPNext address people open in the browser (e.g. https://erp.ops.example.com)
     WQO_SYNC_SECONDS    pull changes from ERPNext this often (default 300; 0 turns it off; ADR-0006)
     WQO_WEB_DIR         the built web workspace (web/dist); without it "/" shows a plain page
+    WQO_FILES_DIR       the document library's file volume (default /data/files; ADR-0014)
 """
 
 from __future__ import annotations
@@ -373,6 +374,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import api as QA  # noqa: PLC0415
 
     QA.mount(app, conn, current_user, company)
+    from wqops.hub.docs import api as DA  # noqa: PLC0415
+
+    DA.mount(app, conn, current_user, company, ai_model, db_url)
 
     @app.get("/api/workspace")
     def workspace(u=Depends(current_user)):
@@ -473,7 +477,8 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
 
     if has_web:
         for path in ("/objects", "/o/{rest:path}", "/anomalies", "/anomalies/{rest:path}", "/drafts", "/assistant",
-                     "/quality", "/quality/{rest:path}", "/help", "/help/{rest:path}", "/account", "/people"):
+                     "/quality", "/quality/{rest:path}", "/help", "/help/{rest:path}", "/account", "/people",
+                     "/documents", "/documents/{rest:path}"):
             app.add_api_route(path, spa_page, methods=["GET"], include_in_schema=False)
 
     @app.get("/", response_class=HTMLResponse)

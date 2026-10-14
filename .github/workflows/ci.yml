@@ -53,6 +53,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install
         run: |
+          sudo apt-get install -y --no-install-recommends tesseract-ocr >/dev/null   # OCR of scans (ADR-0014)
           pip install -e ".[dev]"
           npm ci --prefix web --no-audit --no-fund
       - name: Lint
