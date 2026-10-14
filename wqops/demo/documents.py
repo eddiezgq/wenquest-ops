@@ -240,7 +240,8 @@ def files() -> list[tuple[str, bytes]]:
         ["Gulf Fasteners (Demo)", "Fasteners", "2024-03-11", "ISO 9001", "Approved - on watch (late deliveries)"],
         ["Bayline Electrical (Demo)", "Electrical", "2023-09-05", "ISO 9001", "Approved"],
         ["Coastal Packaging (Demo)", "Packaging", "2024-01-22", "-", "Approved"],
-        ["Summit Tools (Demo)", "Tools", "2025-02-17", "ISO 9001", "Approved"]]})))
+        ["Summit Tools (Demo)", "Tools", "2025-02-17", "ISO 9001", "Approved"],
+        ["Sunshine Metrology (Demo)", "Calibration services", "2024-11-04", "ISO/IEC 17025", "Approved"]]})))
 
     R = f"{ROOT}/04 Records/2026"
     out.append((f"{R}/F-QA-020 Calibration Log 2026.xlsx", xlsx({"Log": [
@@ -270,6 +271,34 @@ def files() -> list[tuple[str, bytes]]:
          "Inputs reviewed: on-time delivery, supplier performance, nonconformances, audit results.",
          "Decision: keep Gulf Fasteners (Demo) on watch; review again in Q4.",
          "Decision: start a document library and move all procedures into it."])))
+    L = f"{ROOT}/04 Records/Logs"
+    out.append((f"{L}/NCR log 2025-2026.xlsx", xlsx({"NCR log": [
+        ["Nonconformance log - Harbor Lane Supply (Demo)"],
+        ["NCR #", "Date", "Item", "Supplier", "Qty", "Description", "Class", "Disposition", "Status", "Closed"],
+        ["NCR-2025-01", "2025-02-11", "HX-BOLT-M8", "Gulf Fasteners (Demo)", 200, "Thread damage on 14 bolts in box 3",
+         "Minor", "Return to supplier", "Closed", "2025-02-20"],
+        ["NCR-2025-02", "2025-04-03", "CBL-12-50", "Bayline Electrical (Demo)", 5, "Insulation nicked on 2 coils",
+         "Minor", "Scrap", "Closed", "2025-04-05"],
+        ["NCR-2025-03", "2025-06-17", "BOX-18", "Coastal Packaging (Demo)", 50, "Boxes crushed in delivery", "Minor",
+         "Use as is", "Closed", "2025-06-18"],
+        ["NCR-2025-04", "2025-09-09", "HX-BOLT-M8", "Gulf Fasteners (Demo)", 400,
+         "Pitch diameter above limit on 3 of 8 samples", "Major", "Return to supplier", "Closed", "2025-10-02"],
+        ["NCR-2026-01", "2026-01-22", "LEVEL-24", "Summit Tools (Demo)", 12, "Bubble vial misaligned", "Minor", "RTV",
+         "Closed", "1/30/2026"],
+        ["NCR-2026-02", "2026-03-05", "TAPE-48", "Coastal Packaging (Demo)", 30,
+         "Tape does not stick at low temperature", "Minor", None, "Open", None],
+        ["NCR-2026-03", "2026-05-14", "WRAP-20", None, None, "Stretch wrap roll damaged in warehouse", "Minor",
+         "Scrap", "Cancelled - entered twice", None]]})))
+    out.append((f"{L}/CAPA log.xlsx", xlsx({"CAPA": [
+        ["CAR No.", "Opened", "Type", "Problem", "Root cause", "Action", "Owner", "NCR Ref", "Status", "Closed"],
+        ["CAR-2025-01", "2025-09-12", "Corrective", "Gulf Fasteners bolts out of tolerance",
+         "Supplier thread rolling die worn", "Supplier replaced the die; pitch check added to QP-05", "Jordan Quality",
+         "NCR-2025-04", "Closed", "2025-12-15"],
+        ["CAR-2026-01", "2026-02-02", "Corrective", "Late deliveries from Gulf Fasteners",
+         "No safety stock for the key item", "Reorder point set; weekly call with the supplier", "Pat Buyer", None,
+         "In progress", None],
+        ["PAR-2026-01", "2026-04-20", "Preventive", "Tape adhesion in cold storage", None,
+         "Test tape samples before the winter purchase", "Jordan Quality", "NCR-2026-02", "Open", None]]})))
     out.append((f"{ROOT}/04 Records/Training/training records warehouse.csv", (
         b"Name,Course,Date,Trainer,Result\n"
         b"Lee Warehouse,WI-WH-03 Picking and Packing,2025-05-20,Sam Ops,Competent\n"

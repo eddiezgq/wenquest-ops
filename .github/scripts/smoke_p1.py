@@ -16,6 +16,8 @@ flows end to end on the installed system with the demo business loaded.
    page, classifies it, confirms it and sends it for approval; the operations manager approves it with their
    password and it becomes effective. The checks list the demo folder's problems; Quality keeps the older revision
    of a procedure as obsolete from the Problems tab.
+8. Ledgers (ADR-0014 item 10): Quality imports the demo NCR log with a signature; Purchasing imports the supplier
+   list, the one supplier not yet in ERPNext becomes a draft and is confirmed into ERPNext.
 """
 
 from __future__ import annotations
@@ -307,6 +309,38 @@ def documents(b: Browser) -> None:
     q.close()
 
 
+def read_ledger(s: Session, name: str) -> Page:
+    found = s.get(f"/api/docs?status=all&q={urllib.parse.quote(name)}")
+    doc = next(d for d in found if d["original_name"].startswith(name))
+    p = s.go(f"/documents/{doc['id']}", "section.ledger")
+    p.get_by_role("button", name="Read the ledger").click()
+    p.wait_for_url("**/documents/ledger/*", timeout=90_000)
+    p.wait_for_selector("text=Which column is which", timeout=30_000)
+    p.fill("input[placeholder='Your password to sign']", PW)
+    p.get_by_role("button", name="Import").last.click()
+    p.wait_for_selector("text=What happened to each row", timeout=60_000)
+    return p
+
+
+def ledgers(b: Browser) -> None:
+    q = Session(b, "jordan@demo.example", PW)
+    read_ledger(q, "NCR log")
+    ncrs = [n for n in q.get("/api/quality/ncrs?status=all") if n.get("external_no")]
+    check(len(ncrs) == 7 and any(n["status"] == "closed" for n in ncrs),
+          f"ledgers: NCR log imported with a signature ({len(ncrs)} NCRs)")
+    check(not q.errors, f"ledgers: no script errors ({q.errors[:2]})")
+    q.close()
+    s = Session(b, "pat@demo.example", PW)
+    read_ledger(s, "F-PU-001")
+    drafts = [d for d in s.get("/api/erp/drafts") if d["doctype"] == "Supplier"]
+    check([d["payload"]["supplier_name"] for d in drafts] == ["Sunshine Metrology (Demo)"],
+          f"ledgers: only the new supplier became a draft ({[d['payload']['supplier_name'] for d in drafts]})")
+    d = confirm_newest(s, "Supplier")
+    check(d["status"] == "confirmed" and bool(d.get("erp_name")),
+          f"ledgers: supplier confirmed into ERPNext ({d.get('erp_name')}, {d.get('error')})")
+    s.close()
+
+
 def main() -> int:
     with sync_playwright() as pw:
         b = pw.chromium.launch(args=[f"--host-resolver-rules=MAP {HOST} 127.0.0.1"])
@@ -321,6 +355,7 @@ def main() -> int:
         step("incoming inspection", lambda: incoming(b))
         step("nonconformance", lambda: nonconformance(b))
         step("documents", lambda: documents(b))
+        step("ledgers", lambda: ledgers(b))
         b.close()
     for f in failures:
         print(f"::error title=Phase 1 smoke::{f}")

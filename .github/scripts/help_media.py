@@ -142,6 +142,17 @@ def document_shots(page: Page) -> None:
         shot(page, "document-review", f"/documents/{pick['id']}", "h1")
     else:
         failures.append("no document to review in the demo data")
+    log = next((d for d in api(page, "/api/docs?status=all&q=NCR%20log") if d["original_name"].startswith("NCR log")),
+               None)
+    try:
+        go(page, f"/documents/{log['id']}", "section.ledger")
+        page.get_by_role("button", name="Read the ledger").click()
+        page.wait_for_selector("text=Which column is which", timeout=90_000)
+        time.sleep(0.6)
+        page.screenshot(path=str(OUT / "screens" / "ledger.png"))
+        print("shot ledger")
+    except Exception as exc:
+        failures.append(f"ledger: {exc}".splitlines()[0])
 
 
 def nav(page: Page, label: str) -> None:
