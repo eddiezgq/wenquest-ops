@@ -12,7 +12,7 @@ import { ago, fmt } from '../format'
 const ws = inject('workspace')
 const route = useRoute()
 const router = useRouter()
-const TABS = { overview: 'Overview', review: 'To review', library: 'Library', imports: 'Imports' }
+const TABS = { overview: 'Overview', problems: 'Problems', review: 'To review', library: 'Library', imports: 'Imports' }
 const tab = computed({ get: () => route.query.tab || 'overview', set: (t) => router.replace({ query: { tab: t } }) })
 const meta = ref(null)
 const error = ref('')
@@ -26,6 +26,10 @@ const busy = ref(false)
 const dragging = ref(false)
 const uploadLabel = ref('')
 const f = ref({ q: route.query.q || '', status: route.query.status || 'library', process: route.query.process || '', type: route.query.type || '' })
+const problems = ref(null)
+const issueProcess = ref(route.query.process || '')
+const rules = ref({})
+const reasons = ref({})
 let timer = null
 
 const canEdit = computed(() => meta.value?.can_edit)
@@ -40,6 +44,10 @@ async function load() {
   try {
     meta.value ||= await api('/api/docs/meta')
     if (tab.value === 'overview') overview.value = await api('/api/docs/overview')
+    if (tab.value === 'problems') {
+      problems.value = await api(`/api/docs/issues?process=${encodeURIComponent(issueProcess.value)}`)
+      rules.value = Object.fromEntries(Object.entries(problems.value.conventions).map(([t, c]) => [t, { template: c.template, digits: c.digits }]))
+    }
     if (tab.value === 'review') { rows.value = await api('/api/docs?status=to_review'); chosen.value = new Set() }
     if (tab.value === 'library') {
       const q = new URLSearchParams({ status: f.value.status, process: f.value.process, type: f.value.type, q: f.value.q })
@@ -144,6 +152,28 @@ function search() {
 }
 const cell = (p, t) => overview.value?.grid[p]?.[t] || 0
 const rowTotal = (p) => Object.values(overview.value?.grid[p] || {}).reduce((a, b) => a + b, 0)
+// problems (ADR-0014 item 4): the checks find them, people decide
+const SEV_THEME = { high: 'red', medium: 'amber', info: 'gray' }
+const SOURCE = { rule: 'your rule', learned: 'learned from your numbers', default: 'default (no numbers yet)' }
+const canAct = (id) => ['to_review', 'to_classify', 'draft'].includes(problems.value?.docs[id]?.status)
+async function act(path, id, body, message) {
+  error.value = ''; notice.value = ''
+  try { await api(`/api/docs/${id}/${path}`, { method: 'POST', body }); notice.value = message; await load() }
+  catch (e) { error.value = e.message }
+}
+async function saveRule(t) {
+  error.value = ''; notice.value = ''
+  try {
+    await api(`/api/docs/numbering/${t}`, { method: 'PUT', body: { template: rules.value[t].template, digits: Number(rules.value[t].digits) } })
+    notice.value = 'Numbering rule saved.'; await load()
+  } catch (e) { error.value = e.message }
+}
+async function clearRule(t) {
+  try { await api(`/api/docs/numbering/${t}`, { method: 'DELETE' }); notice.value = 'Back to the convention learned from your numbers.'; await load() }
+  catch (e) { error.value = e.message }
+}
+watch(issueProcess, () => tab.value === 'problems' && load())
+const toProblems = (p) => { issueProcess.value = p || ''; tab.value = 'problems' }
 const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t || '', status: 'library', q: '' }; tab.value = 'library'; load() }
 </script>
 
@@ -190,7 +220,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
   <!-- overview -->
   <template v-if="tab === 'overview' && overview && meta">
     <section class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <article v-for="(n, k) in { 'In the library': overview.totals.library, 'To review': overview.totals.to_review, 'Waiting for approval': overview.totals.in_review, 'Drafts': overview.totals.draft }"
+      <article v-for="(n, k) in { 'In the library': overview.totals.library, 'To review': overview.totals.to_review, 'Waiting for approval': overview.totals.in_review, 'Problems to look at': overview.issues.high + overview.issues.medium }"
                :key="k" class="rounded-5 border border-outline-gray-2 bg-surface-base p-4">
         <h3 class="text-sm font-medium text-ink-gray-5">{{ k }}</h3>
         <p class="mt-1 text-3xl font-semibold tracking-tight text-ink-gray-9">{{ n }}</p>
@@ -199,11 +229,14 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
     <p v-if="overview.totals.to_review" class="mb-4 text-base text-ink-gray-7">
       {{ overview.totals.to_review }} file{{ overview.totals.to_review === 1 ? ' waits' : 's wait' }} for review.
       <a href="#" class="wq-link" @click.prevent="tab = 'review'">Review them</a></p>
+    <p v-if="overview.issues.high + overview.issues.medium" class="mb-4 text-base text-ink-gray-7">
+      The checks found {{ overview.issues.high + overview.issues.medium }} problem{{ overview.issues.high + overview.issues.medium === 1 ? '' : 's' }}
+      (duplicates, revisions, numbers, missing forms). <a href="#" class="wq-link" @click.prevent="toProblems('')">See them</a></p>
     <h2 class="wq-h2">By process and type</h2>
     <p class="wq-muted mb-3">Documents in the library (confirmed, drafts, waiting for approval, effective). Click a number to see them.</p>
     <div class="wq-panel overflow-x-auto">
       <table class="wq-table">
-        <thead><tr><th>Process</th><th v-for="(n, t) in meta.types" :key="t" class="text-right">{{ n }}</th><th class="text-right">All</th></tr></thead>
+        <thead><tr><th>Process</th><th v-for="(n, t) in meta.types" :key="t" class="text-right">{{ n }}</th><th class="text-right">All</th><th class="text-right">Problems</th></tr></thead>
         <tbody><tr v-for="(pn, p) in overview.processes" :key="p">
           <td class="whitespace-nowrap">{{ pn }}
             <Badge v-if="overview.empty_processes.includes(p)" theme="amber" label="none yet" class="ms-2" /></td>
@@ -212,9 +245,69 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
             <span v-else class="text-ink-gray-4">·</span></td>
           <td class="text-right font-medium"><a v-if="rowTotal(p)" href="#" class="wq-link" @click.prevent="toLibrary(p, '')">{{ rowTotal(p) }}</a>
             <span v-else class="text-ink-gray-4">0</span></td>
+          <td class="text-right"><a v-if="overview.issues_by_process[p]" href="#" class="font-medium text-ink-red-7 underline underline-offset-2"
+                                    @click.prevent="toProblems(p)">{{ overview.issues_by_process[p] }}</a><span v-else class="text-ink-gray-4">·</span></td>
         </tr></tbody>
       </table>
     </div>
+  </template>
+
+  <!-- problems -->
+  <template v-if="tab === 'problems' && problems && meta">
+    <div class="mb-3 flex flex-wrap items-center gap-2">
+      <select v-model="issueProcess" class="wq-select" aria-label="Process"><option value="">Every process</option>
+        <option v-for="(n, p) in meta.processes" :key="p" :value="p">{{ n }}</option></select>
+      <span class="wq-muted">Found by fixed checks of the library; you decide what to do. Nothing changes by itself.</span>
+    </div>
+    <p v-if="!problems.issues.length" class="wq-muted">No problems found.</p>
+    <article v-for="(i, n) in problems.issues" :key="n" class="issue wq-panel mb-3 p-4">
+      <div class="flex flex-wrap items-center gap-2">
+        <Badge :theme="SEV_THEME[i.severity]" :label="i.severity === 'info' ? 'note' : i.severity" />
+        <h3 class="text-base font-medium text-ink-gray-9">{{ i.title }}</h3>
+        <span v-if="i.process" class="ms-auto text-sm text-ink-gray-5">{{ meta.processes[i.process] }}</span>
+      </div>
+      <p class="mt-1.5 text-base text-ink-gray-7">{{ i.detail }}</p>
+      <ul v-if="i.docs.length" class="mt-2 divide-y divide-outline-gray-1 text-sm">
+        <li v-for="id in i.docs" :key="id" class="flex flex-wrap items-center gap-2 py-1.5">
+          <RouterLink :to="`/documents/${id}`" class="wq-link">{{ problems.docs[id].label }}</RouterLink>
+          <span class="text-ink-gray-5">{{ problems.docs[id].path }}/{{ problems.docs[id].file }}</span>
+          <Badge :theme="STATUS[problems.docs[id].status] || 'gray'" :label="DOC_STATE[problems.docs[id].status] || label(problems.docs[id].status)" />
+          <Badge v-if="i.keep === id" theme="green" variant="outline" :label="i.kind === 'revisions' ? 'current' : 'keep this one'" />
+          <template v-if="canEdit && canAct(id) && i.keep && i.keep !== id">
+            <span class="ms-auto" />
+            <Button v-if="i.kind === 'revisions'" size="sm" label="Keep as obsolete"
+                    @click="act('archive', id, { reason: `older revision; current is ${problems.docs[i.keep].label}` }, 'Kept as obsolete.')" />
+            <Button v-if="i.kind === 'duplicate' && problems.docs[id].status !== 'draft'" size="sm" label="Not keep this copy"
+                    @click="act('reject', id, { reason: `same file as ${problems.docs[i.keep].path}/${problems.docs[i.keep].file}` }, 'Copy not kept.')" />
+          </template>
+          <span v-if="i.suggest && i.docs.length === 1" class="ms-auto text-ink-gray-6">suggested number <b class="text-ink-gray-9">{{ i.suggest }}</b>
+            (open it to use)</span>
+        </li>
+      </ul>
+    </article>
+
+    <h2 class="wq-h2 mt-8">Numbering</h2>
+    <p class="wq-muted mb-3 max-w-3xl">How suggested numbers are made. Without a rule of your own, the convention is learned from the numbers
+      your documents already have. Write a rule as a prefix and <code>{seq}</code>, optionally with <code>{process}</code> for the process code
+      (for example <code>F-{process}-{seq}</code> with 3 digits gives F-QA-013). Original file names are never changed.</p>
+    <div class="wq-panel overflow-x-auto">
+      <table class="wq-table">
+        <thead><tr><th>Type</th><th>Convention</th><th>From</th><th v-if="canEdit">Your rule</th></tr></thead>
+        <tbody><tr v-for="(c, t) in problems.conventions" :key="t">
+          <td class="whitespace-nowrap">{{ meta.types[t] }}</td>
+          <td class="whitespace-nowrap font-mono text-sm">{{ c.template }} · {{ c.digits }} digits
+            <div v-if="c.examples" class="font-sans text-ink-gray-5">e.g. {{ c.examples.join(', ') }}</div></td>
+          <td class="text-sm text-ink-gray-6">{{ SOURCE[c.source] }}</td>
+          <td v-if="canEdit"><form class="flex items-center gap-2" @submit.prevent="saveRule(t)">
+            <input v-model="rules[t].template" class="wq-input w-44 font-mono" aria-label="Rule">
+            <input v-model="rules[t].digits" class="wq-input w-16" type="number" min="1" max="6" aria-label="Digits">
+            <Button type="submit" size="sm" label="Save" />
+            <Button v-if="c.source === 'rule'" size="sm" variant="ghost" label="Use learned" @click="clearRule(t)" />
+          </form></td>
+        </tr></tbody>
+      </table>
+    </div>
+    <p class="wq-muted mt-2">Process codes in numbers: <span v-for="(code, p) in problems.codes" :key="p" class="me-3 whitespace-nowrap">{{ meta.processes[p] }} {{ code }}</span></p>
   </template>
 
   <!-- review queue -->

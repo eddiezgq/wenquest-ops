@@ -19,6 +19,7 @@ from starlette.datastructures import UploadFile
 from wqops.hub import db as DB
 from wqops.hub import permissions as P
 from wqops.hub.docs import ai_classify as AIC
+from wqops.hub.docs import checks as CK
 from wqops.hub.docs import classify as K
 from wqops.hub.docs import library as LIB
 from wqops.hub.docs import store as F
@@ -210,7 +211,44 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     @app.get("/api/docs/overview")
     def overview(u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "documents:view")
-        return LIB.overview(c)
+        st = LIB.check(c)
+        by_proc: dict[str, int] = {}
+        for i in st["issues"]:
+            if i["severity"] != "info":
+                for p in {i["process"]} | {d["process"] for d in st["docs"] if d["id"] in i["docs"]}:
+                    if p:
+                        by_proc[p] = by_proc.get(p, 0) + 1
+        return LIB.overview(c) | {"issues_by_process": by_proc,
+                                  "issues": {s: sum(i["severity"] == s for i in st["issues"]) for s in CK.SEVERITY}}
+
+    @app.get("/api/docs/issues")
+    def issues(process: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
+        """Problems in the library (ADR-0014 item 4): duplicates, revisions, numbers, gaps."""
+        need(u, "documents:view")
+        st = LIB.check(c)
+        found = st["issues"]
+        if process:
+            ids = {d["id"] for d in st["docs"] if d["process"] == process}
+            found = [i for i in found if i["process"] == process or ids & set(i["docs"])]
+        seen = {i for x in found for i in x["docs"]}
+        docs = {d["id"]: {"label": CK.label(d), "status": d["status"], "file": d["original_name"],
+                          "path": d["path"], "number": d["number"]} for d in st["docs"] if d["id"] in seen}
+        return {"issues": found, "docs": docs, "conventions": st["conventions"], "codes": st["codes"],
+                "processes": st["processes"]}
+
+    @app.put("/api/docs/numbering/{doc_type}")
+    async def set_numbering(doc_type: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "documents:edit")
+        d = await body(request)
+        return _iso(run(lambda: LIB.set_rule(c, u["email"], doc_type, str(d.get("template", "")),
+                                             int(d.get("digits") or 0))))
+
+    @app.delete("/api/docs/numbering/{doc_type}")
+    def clear_numbering(doc_type: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        """Back to the convention learned from the company's own numbers."""
+        need(u, "documents:edit")
+        LIB.clear_rule(c, doc_type)
+        return {"ok": True}
 
     @app.get("/api/docs")
     def documents(*, status: str = "library", process: str = "", type: str = "", q: str = "",
@@ -241,7 +279,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
             "revisions": [_iso(r) for r in family], "import": _iso(imp) if imp else None,
             "same_file": same, "batch_ok": K.batch_ok(doc), "controlled": doc["doc_type"] in K.CONTROLLED,
             "involved": sorted(LIB.involved(c, doc)),
-            "process_name": LIB.processes(c).get(doc["process"] or "", None)}
+            "process_name": LIB.processes(c).get(doc["process"] or "", None),
+            "suggest": LIB.suggestions(c, doc)}
 
     @app.get("/api/docs/{doc_id}")
     def document(doc_id: int, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -249,14 +288,16 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         return run(lambda: doc_view(c, LIB.get(c, doc_id)))
 
     @app.get("/api/docs/{doc_id}/file")
-    def file(doc_id: int, inline: bool = False, u=Depends(user_dep), c=Depends(conn_dep)):
+    def file(doc_id: int, inline: bool = False, standard: bool = False, u=Depends(user_dep), c=Depends(conn_dep)):
+        """The original file; ``standard=1`` names the download "<number> <title> Rev <rev>.<ext>"."""
         need(u, "documents:view")
         doc = run(lambda: LIB.get(c, doc_id))
         p = F.path(doc["sha256"])
         if not p.exists():
             raise HTTPException(410, "the stored file is missing; restore it from a backup")
         show = inline and (doc["mime"] in ("application/pdf", "text/plain") or doc["mime"].startswith("image/"))
-        return FileResponse(p, media_type=doc["mime"], filename=doc["original_name"],
+        name = (CK.standard_name(doc) if standard else None) or doc["original_name"]
+        return FileResponse(p, media_type=doc["mime"], filename=name,
                             content_disposition_type="inline" if show else "attachment",
                             headers={"x-content-type-options": "nosniff", "cache-control": "private, no-cache"})
 
@@ -295,6 +336,13 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         d = await body(request)
         today = OA.today(company()[0])
         return doc_view(c, run(lambda: LIB.approve(c, u, doc_id, str(d.get("password", "")), today)))
+
+    @app.post("/api/docs/{doc_id}/archive")
+    async def archive(doc_id: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        """Keep an older revision found among the imported files as obsolete."""
+        need(u, "documents:edit")
+        d = await body(request)
+        return doc_view(c, run(lambda: LIB.archive(c, u["email"], doc_id, str(d.get("reason", "")))))
 
     @app.post("/api/docs/{doc_id}/obsolete")
     async def make_obsolete(doc_id: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):

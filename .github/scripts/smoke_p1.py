@@ -14,7 +14,8 @@ flows end to end on the installed system with the demo business loaded.
    their password (someone else must); Quality closes it with theirs. Two signatures are recorded.
 7. Documents (ADR-0014): the demo folder was imported and classified; Quality uploads a procedure on the Documents
    page, classifies it, confirms it and sends it for approval; the operations manager approves it with their
-   password and it becomes effective.
+   password and it becomes effective. The checks list the demo folder's problems; Quality keeps the older revision
+   of a procedure as obsolete from the Problems tab.
 """
 
 from __future__ import annotations
@@ -291,6 +292,16 @@ def documents(b: Browser) -> None:
     after = m.get(f"/api/docs/{d['id']}")
     check(after["status"] == "effective" and after["fingerprint"] == after["sha256"] and len(after["signatures"]) == 1,
           f"documents: procedure approved by someone else and effective ({after['status']})")
+    found = q.get("/api/docs/issues")
+    kinds = {i["kind"] for i in found["issues"]}
+    check({"duplicate", "revisions", "missing_ref"} <= kinds, f"documents: checks find the demo problems ({kinds})")
+    rev = next((i for i in found["issues"] if i["kind"] == "revisions"), None)
+    if rev:
+        p = q.go("/documents?tab=problems", "article.issue")
+        p.locator("article.issue", has_text=rev["title"]).get_by_role("button", name="Keep as obsolete").first.click()
+        p.wait_for_selector("text=Kept as obsolete.", timeout=30_000)
+        old = q.get(f"/api/docs/{rev['older'][0]}")
+        check(old["status"] == "obsolete", f"documents: older revision kept as obsolete ({old['status']})")
     check(not q.errors and not m.errors, f"documents: no script errors ({(q.errors + m.errors)[:2]})")
     m.close()
     q.close()
