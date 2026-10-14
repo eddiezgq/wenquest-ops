@@ -25,16 +25,17 @@
    memory=10GB
    ```
    在 Ubuntu 里 `free -g` 看 total 至少 8。
-3. **装 Docker**（在 Ubuntu 里，不用 Docker Desktop）：
-   ```bash
-   curl -fsSL https://get.docker.com | sh
-   sudo usermod -aG docker $USER
-   exit
-   ```
-   重新打开 Ubuntu，`docker run --rm hello-world` 能打印欢迎信息即可。若提示连不上 Docker，运行
-   `sudo service docker start`。
+3. **Docker**（2026-10-13 项目负责人实测走通的是第一种）：
+   - **已装 Docker Desktop**：打开它，Settings → Resources → **WSL integration** 打开 Ubuntu-24.04，Apply & restart。
+     不要再在 Ubuntu 里装 Docker（两份会冲突）。
+   - **没装 Docker Desktop**：在 Ubuntu 里 `curl -fsSL https://get.docker.com | sh`、`sudo usermod -aG docker $USER`，
+     `exit` 后重新打开；连不上时 `sudo service docker start`。
+
+   在 PowerShell 里 `wsl -l -v` 若默认（带 `*`）是 docker-desktop，运行 `wsl --set-default Ubuntu-24.04`：
+   docker-desktop 是 Docker 自己用的，不能在里面装。进入 Ubuntu 后提示符是 `用户名@电脑名:~$`。
+   `docker run --rm hello-world` 打印欢迎信息即可。
 4. **代码放在 Ubuntu 的主目录里**，不要在 `/mnt/c/...` 下运行（慢，且 Windows 换行符会弄坏脚本）。
-   仓库是私有的，最省事的是复制 Windows 里已经拉好的代码，再按仓库原样重写一遍文件：
+   仓库是私有的，Ubuntu 里 `git pull` 会要 GitHub 账号；最省事的是复制 Windows 里已经拉好的代码，再按仓库原样重写一遍文件：
    ```bash
    cp -r /mnt/c/Users/<你的 Windows 用户名>/wenquest-ops ~/
    cd ~/wenquest-ops && git config core.autocrlf false && git reset --hard
@@ -62,7 +63,7 @@ cd ~/wqo && docker compose -p wqo --env-file .env -f docker-compose.yml exec -T 
 
 ## 三、逐项验收
 
-浏览器打开 `https://ops.localtest.me`（证书是内部签发的，浏览器提示不安全时选继续）。用 `dana@demo.example` 登录。
+浏览器打开 `https://ops.localtest.me`（证书是内部签发的，浏览器提示不安全时点 Advanced → Proceed；ERPNext 的地址 `erp.ops.localtest.me` 第一次也会提示一次）。用 `dana@demo.example` 登录。
 每项打勾或写下问题。
 
 | # | 看什么 | 应当看到 | 结果 |
