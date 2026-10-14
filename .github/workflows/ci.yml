@@ -208,6 +208,8 @@ jobs:
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/dashboard | python3 -c "import json,sys
           m = {x['name']: x['value'] for x in json.load(sys.stdin)['metrics']}; print(m)
           assert m['on_time_delivery'] is not None and m['inventory_value'] and m['supplier_on_time'] is not None, m"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/brief | python3 -c "import json,sys
+          b = json.load(sys.stdin); print(b['text']); assert 'No open problems' not in b['text'], b"   # made from the loaded data
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/quality/incoming | grep -q CBL-12-50
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/quality/spc/parameters | grep -q HX-BOLT-M8
           curl -fsk "${R[@]}" -b jar -H 'content-type: application/json' -d '{"question":"Which orders are late?"}' \

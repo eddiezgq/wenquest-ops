@@ -225,6 +225,11 @@ def main(argv=None) -> int:
         out["quality"] = quality_records(conn, manifest, out["rejected_inspection"], today)
         OP.project(conn, manifest=manifest)
         AN.detect(conn, today)
+        # the hub may have made today's brief before the business was loaded; make it again from the loaded data
+        from wqops.hub.ai import brief as BR  # noqa: PLC0415
+        from wqops.hub.ai import llm as L  # noqa: PLC0415
+
+        out["brief"] = str(BR.generate(conn, today, manifest, L.Anthropic())["day"])
     print(json.dumps(out, indent=2))
     return 0
 
