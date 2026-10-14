@@ -1,11 +1,21 @@
 <script setup>
 // One quality workflow, read-only (ADR-0015, 15a): its states in order and every step with who may do it, what it
 // needs, whether it is signed and who may not do it.
-import { computed } from 'vue'
-import { Badge } from 'frappe-ui'
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { Badge, Button } from 'frappe-ui'
+import { api } from '../api'
 import { ago } from '../format'
 
-const props = defineProps({ data: Object })
+const props = defineProps({ data: Object, kind: String })
+const router = useRouter()
+const error = ref('')
+const draft = computed(() => props.data.versions.find((x) => x.status === 'draft'))
+async function newDraft() {
+  error.value = ''
+  try { const d = await api(`/api/quality/workflows/${props.kind}/drafts`, { method: 'POST' }); router.push(`/quality/workflows/${d.id}`) }
+  catch (e) { error.value = e.message }
+}
 const wf = computed(() => props.data.workflow)
 // states in the order a record meets them (breadth first from the first state)
 const order = computed(() => {
@@ -30,7 +40,17 @@ const stateLabel = (s) => wf.value.states[s]?.label || s
       <span class="text-sm text-ink-gray-5">{{ data.enabled.note }} · enabled by {{ data.enabled.enabled_by }} {{ ago(data.enabled.enabled_at) }}
         · numbers {{ wf.numbering.prefix }}-{{ '0'.repeat(wf.numbering.digits - 1) }}1</span>
     </div>
-    <p class="wq-muted mb-4">Fingerprint {{ data.enabled.fingerprint.slice(0, 12) }}… Records keep the version they started under.</p>
+    <p class="wq-muted mb-2">Fingerprint {{ data.enabled.fingerprint.slice(0, 12) }}… Records keep the version they started under.</p>
+    <div class="mb-4 flex flex-wrap items-center gap-2 text-sm">
+      <template v-if="data.can_configure">
+        <Button v-if="draft" icon-left="lucide-file-pen-line" :label="`Open the draft (version ${draft.version})`" :route="`/quality/workflows/${draft.id}`" />
+        <Button v-else icon-left="lucide-plus" label="Change this workflow" @click="newDraft" />
+      </template>
+      <RouterLink v-else-if="draft" :to="`/quality/workflows/${draft.id}`" class="wq-link">Draft version {{ draft.version }}</RouterLink>
+      <span class="text-ink-gray-5">Versions:</span>
+      <RouterLink v-for="x in data.versions" :key="x.id" :to="`/quality/workflows/${x.id}`" class="wq-link">v{{ x.version }} {{ x.status }}</RouterLink>
+      <span v-if="error" class="wq-error">{{ error }}</span>
+    </div>
 
     <ol class="states mb-5 flex flex-wrap items-center gap-2">
       <template v-for="(s, i) in order" :key="s">
@@ -54,6 +74,14 @@ const stateLabel = (s) => wf.value.states[s]?.label || s
           <td class="min-w-36 text-ink-gray-6" :title="s.permission_text">{{ s.who.map((r) => r.replace('_', ' ')).join(', ') }}</td>
         </tr></tbody>
       </table>
+    </div>
+    <div v-if="Object.keys(wf.fields).length || wf.approvals.length" class="mt-4 grid gap-4 text-sm md:grid-cols-2">
+      <div v-if="Object.keys(wf.fields).length"><p class="mb-1 font-medium text-ink-gray-8">Own fields</p>
+        <ul class="list-disc ps-5 text-ink-gray-7"><li v-for="(f, n) in wf.fields" :key="n">{{ f.label }} ({{ f.type }})<span v-if="f.required_at?.length">, needed before
+          {{ f.required_at.map((s) => wf.steps[s].label.toLowerCase()).join(', ') }}</span></li></ul></div>
+      <div v-if="wf.approvals.length"><p class="mb-1 font-medium text-ink-gray-8">Extra signed approvals</p>
+        <ul class="list-disc ps-5 text-ink-gray-7"><li v-for="a in wf.approvals" :key="a.name">{{ a.label }} before {{ wf.steps[a.before].label.toLowerCase() }},
+          by {{ a.roles.join(' or ') }}<span v-for="(vals, k) in a.when || {}" :key="k">, when {{ k }} is {{ vals.join(' or ') }}</span></li></ul></div>
     </div>
     <ul v-if="wf.rules" class="mt-4 list-disc ps-5 text-sm text-ink-gray-7">
       <li v-if="wf.rules.capa_closed_before_close?.length">{{ wf.rules.capa_closed_before_close.join(' and ') }} reports close only after a linked corrective action is closed</li>

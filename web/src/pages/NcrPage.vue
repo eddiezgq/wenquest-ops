@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
+import OwnFields from '../components/OwnFields.vue'
 import { STATUS } from '../ui/themes'
 import { api, objectPath } from '../api'
 import { ago, fmt } from '../format'
@@ -136,6 +137,7 @@ const label = (s) => s.replaceAll('_', ' ')
       <Button type="submit" icon-left="lucide-plus" label="Open corrective action" />
     </form>
 
+    <OwnFields :record="n" kind="ncr" :can-edit="canEdit" @changed="set" />
     <h2 class="wq-h2 mt-8">Signatures</h2>
     <Trail :items="n.signatures" kind="signatures" />
     <h2 class="wq-h2 mt-8">History</h2>

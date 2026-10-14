@@ -12,6 +12,7 @@ PERMISSIONS = {
     "quality:edit": "Record inspections, nonconformances, 8D and CAPA",
     "documents:view": "See the document library",
     "documents:edit": "Upload documents, confirm their classification and send them for approval",
+    "workflows:configure": "Change quality workflows and enable versions others changed",
     "ai:use": "Ask the AI assistant and receive drafts",
     "ai:configure": "Configure the AI assistant",
     "users:view": "See who has access",
@@ -30,7 +31,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
                              "quality:view", "ai:use", "documents:view"}),
     "sales": frozenset({"dashboard:view", "inventory:view", "sales:view", "ai:use", "documents:view"}),
     "quality": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "quality:view", "quality:edit",
-                          "ai:use"} | _DOCS),
+                          "ai:use", "workflows:configure"} | _DOCS),
     "ai_specialist": frozenset(_VIEW | _DOCS | {"ai:use", "ai:configure", "users:view"}),
 }
 

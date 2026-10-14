@@ -169,6 +169,6 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
   <template v-if="tab === 'workflows' && flows">
     <p class="wq-muted mb-4 max-w-3xl">How nonconformance reports and corrective actions move, step by step. The workflow is configuration: these
       are the rules WenQuest Ops checks before every step. Signing, approval by someone else and the record history cannot be switched off.</p>
-    <Workflow v-for="(d, k) in flows" :key="k" :data="d" />
+    <Workflow v-for="(d, k) in flows" :key="k" :data="d" :kind="k" />
   </template>
 </template>

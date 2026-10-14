@@ -18,6 +18,8 @@ flows end to end on the installed system with the demo business loaded.
    of a procedure as obsolete from the Problems tab.
 8. Ledgers (ADR-0014 item 10): Quality imports the demo NCR log with a signature; Purchasing imports the supplier
    list, the one supplier not yet in ERPNext becomes a draft and is confirmed into ERPNext.
+9. Workflows (ADR-0015): Quality drafts a new NCR workflow version with an own field; the owner, who did not change
+   it, enables it with a password.
 """
 
 from __future__ import annotations
@@ -342,6 +344,31 @@ def ledgers(b: Browser) -> None:
     s.close()
 
 
+def workflows(b: Browser) -> None:
+    q = Session(b, "jordan@demo.example", PW)
+    p = q.go("/quality?tab=workflows", "text=Change this workflow")
+    p.get_by_role("button", name="Change this workflow").first.click()
+    p.wait_for_url("**/quality/workflows/*", timeout=30_000)
+    p.wait_for_selector("text=Your own fields")
+    p.fill("input[placeholder='lot_no']", "lot_no")
+    p.fill("input[placeholder='Lot number']", "Lot number")
+    p.get_by_role("button", name="Add field").click()
+    p.get_by_role("button", name="Save draft").click()
+    p.wait_for_selector("text=Saved.", timeout=30_000)
+    url = urllib.parse.urlparse(p.url).path
+    check(not q.errors, f"workflows: no script errors ({q.errors[:2]})")
+    q.close()
+    o = Session(b, OWNER, OWNER_PW)
+    op = o.go(url, "text=Enable")
+    op.fill("input[placeholder='Your password to sign']", OWNER_PW)
+    op.get_by_role("button", name="Enable (sign)").click()
+    op.wait_for_selector("text=Enabled. New records", timeout=30_000)
+    wf = o.get("/api/quality/workflows")["ncr"]
+    check(wf["enabled"]["version"] == 2 and "lot_no" in wf["workflow"]["fields"],
+          f"workflows: version {wf['enabled']['version']} enabled by the owner with an own field")
+    o.close()
+
+
 def main() -> int:
     with sync_playwright() as pw:
         b = pw.chromium.launch(args=[f"--host-resolver-rules=MAP {HOST} 127.0.0.1"])
@@ -357,6 +384,7 @@ def main() -> int:
         step("nonconformance", lambda: nonconformance(b))
         step("documents", lambda: documents(b))
         step("ledgers", lambda: ledgers(b))
+        step("workflows", lambda: workflows(b))
         b.close()
     for f in failures:
         print(f"::error title=Phase 1 smoke::{f}")
