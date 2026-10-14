@@ -6,8 +6,11 @@
 
 ## 背景
 
-ERPNext 有质量检验（Quality Inspection，含读数），但没有好用的不合格品处置、8D、纠正预防流程，也没有供应商质量评分和
-控制图。第 7 项已能由 AI 起草 NCR，确认后存成 `ncr_records`。第 8 项把质量流程做完整。做法参考数字工厂第 13 轮
+ERPNext 有质量检验（Quality Inspection，含读数），还有一个简单的质量管理模块（Non Conformance、Quality Action、
+Quality Procedure、Goal、Review、Meeting、Feedback）。后者没有口令签字、处置审批与职责分离、8D、分阶段的纠正预防，
+记录也能被有权限的人改删；要补这些就得在 ERPNext 里写定制应用，违反 ADR-0001。也没有供应商质量统计和控制图。
+（2026-10-13 改正：原文写作 ERPNext“没有好用的不合格品处置、8D、纠正预防流程”，没有提它自带的质量模块。
+项目负责人确认维持现状：质量记录在中枢，ERPNext 只管检验单。）第 7 项已能由 AI 起草 NCR，确认后存成 `ncr_records`。第 8 项把质量流程做完整。做法参考数字工厂第 13 轮
 （8D、SPC 公式），去掉教学情景。
 
 ## 决策
