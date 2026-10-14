@@ -25,7 +25,8 @@ def test_adrs_are_numbered_and_have_status():
 
 def test_plan_lists_phase_one_tasks():
     plan = (ROOT / "docs" / "plan.md").read_text(encoding="utf-8")
-    rows = re.findall(r"^\| (\d+) \|", plan.split("## 第 1 期分项任务")[1], flags=re.M)
+    section = plan.split("## 第 1 期分项任务")[1].split("\n## ")[0]          # up to the next section
+    rows = re.findall(r"^\| (\d+) \|", section, flags=re.M)
     assert rows == [str(i) for i in range(1, 12)]   # item 11 (ADR-0013) added after acceptance
 
 
