@@ -64,7 +64,7 @@ def order_late(conn, rule: dict, today: dt.date) -> list[Finding]:
                 Finding(
                     ("SalesOrder", o["key"]),
                     f"{o['title']} is {M.days(late)} late",
-                    f"Delivery date {due}; {o['props'].get('per_delivered', 0):g}% delivered.",
+                    f"Delivery date {due}; {round(o['props'].get('per_delivered') or 0):g}% delivered.",
                     sev,
                     {"days_late": late, "delivery_date": str(due)},
                 )
