@@ -1,14 +1,23 @@
 <script setup>
-import { onMounted, provide, ref } from 'vue'
+// The app frame (ADR-0013): Frappe's desktop shell with a sidebar like ERPNext's. Pages put their own PageHeader;
+// pages not yet moved to frappe-ui (13b) keep their own heading and old styles inside `.legacy`.
+import { computed, onMounted, provide, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import {
+  Avatar, DesktopShell, FrappeUIProvider, Sidebar, SidebarCollapseToggle, SidebarHeader,
+  SidebarItem, SidebarLabel,
+} from 'frappe-ui'
 import { api } from './api'
 import { setCurrency } from './format'
 import Tour from './components/Tour.vue'
 
+const route = useRoute()
 const ws = ref(null)
 const error = ref('')
 const touring = ref(false)
 provide('workspace', ws)
-provide('startTour', () => { touring.value = true })
+const startTour = () => { touring.value = true }
+provide('startTour', startTour)
 const TOUR_KEY = 'wqo-tour-done'
 function tourDone() {
   touring.value = false
@@ -30,34 +39,52 @@ async function signOut() {
   await fetch('/api/logout', { method: 'POST' })
   location.href = '/login'
 }
+
+const can = (p) => ws.value?.user.permissions.includes(p)
+const menu = computed(() => [
+  { label: 'My account', icon: 'lucide-user', route: '/account' },
+  { label: 'Help', icon: 'lucide-circle-help', route: '/help' },
+  { label: 'Take the guided tour', icon: 'lucide-map', onClick: startTour },
+  { label: 'Sign out', icon: 'lucide-log-out', onClick: signOut },
+])
+const legacy = computed(() => !route.meta.frappe)
 </script>
 
 <template>
-  <header class="top" v-if="ws">
-    <div class="brand">
-      <strong>{{ ws.company }}</strong>
-      <span v-if="ws.demo" class="tag">fictional demo</span>
-    </div>
-    <nav>
-      <RouterLink to="/" exact-active-class="on">Dashboard</RouterLink>
-      <RouterLink to="/assistant" active-class="on">Assistant</RouterLink>
-      <RouterLink to="/anomalies" active-class="on">Anomalies</RouterLink>
-      <RouterLink v-if="ws.user.permissions.includes('quality:view')" to="/quality" active-class="on">Quality</RouterLink>
-      <RouterLink to="/objects" active-class="on">Objects</RouterLink>
-      <RouterLink to="/drafts" active-class="on">Drafts</RouterLink>
-      <RouterLink v-if="ws.user.permissions.includes('users:view')" to="/people" active-class="on">People</RouterLink>
-      <RouterLink to="/help" active-class="on">Help</RouterLink>
-      <a v-if="ws.erp_url" :href="ws.erp_url + '/login'" target="_blank" rel="noopener">ERPNext ↗</a>
-    </nav>
-    <div class="me">
-      <RouterLink to="/account" title="My account">{{ ws.user.name }}</RouterLink>
-      <button class="link" @click="signOut">Sign out</button>
-    </div>
-  </header>
-  <main>
-    <p v-if="error" class="err">{{ error }}</p>
-    <RouterView v-if="ws" />
-    <Tour v-if="ws && touring" :permissions="ws.user.permissions" @done="tourDone" />
-  </main>
-  <footer v-if="ws" class="muted">WenQuest Ops {{ ws.version }}</footer>
+  <FrappeUIProvider>
+    <div v-if="error && !ws" class="p-8 text-base text-ink-red-7">{{ error }}</div>
+    <DesktopShell v-if="ws">
+      <template #sidebar>
+        <Sidebar class="bg-surface-sidebar border-e border-outline-gray-1">
+          <SidebarHeader :title="ws.company" :subtitle="ws.demo ? 'Fictional demo' : 'WenQuest Ops'" :menu-items="menu" />
+          <div class="flex-1 overflow-y-auto">
+            <SidebarItem label="Dashboard" icon="lucide-layout-dashboard" route="/" :active="route.path === '/'" />
+            <SidebarItem label="Assistant" icon="lucide-sparkles" route="/assistant" />
+            <SidebarItem label="Anomalies" icon="lucide-triangle-alert" route="/anomalies" />
+            <SidebarItem label="Drafts" icon="lucide-file-pen-line" route="/drafts" />
+            <SidebarLabel divider>Records</SidebarLabel>
+            <SidebarItem v-if="can('quality:view')" label="Quality" icon="lucide-shield-check" route="/quality" />
+            <SidebarItem label="Objects" icon="lucide-boxes" route="/objects" />
+            <SidebarLabel divider>Workspace</SidebarLabel>
+            <SidebarItem v-if="can('users:view')" label="People" icon="lucide-users" route="/people" />
+            <SidebarItem label="Help" icon="lucide-circle-help" route="/help" />
+            <SidebarItem v-if="ws.erp_url" label="ERPNext" icon="lucide-external-link" :href="ws.erp_url + '/login'"
+                         target="_blank" rel="noopener" />
+          </div>
+          <SidebarItem :label="ws.user.name" route="/account" title="My account">
+            <template #prefix><Avatar :label="ws.user.name" size="sm" /></template>
+          </SidebarItem>
+          <div class="flex items-center justify-between">
+            <SidebarCollapseToggle />
+            <span class="px-2 text-xs text-ink-gray-4">v{{ ws.version }}</span>
+          </div>
+        </Sidebar>
+      </template>
+
+      <main class="page" :class="{ legacy }">
+        <RouterView />
+      </main>
+      <Tour v-if="touring" :permissions="ws.user.permissions" @done="tourDone" />
+    </DesktopShell>
+  </FrappeUIProvider>
 </template>
