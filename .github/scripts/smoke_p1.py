@@ -54,7 +54,7 @@ class Session:
         p.fill("#password", password)
         p.click("button[type=submit]")
         p.wait_for_url(f"{BASE}/", timeout=30_000)
-        p.wait_for_selector("header.top", timeout=30_000)
+        p.wait_for_selector('nav[aria-label="Main"]', timeout=30_000)
         self.me = self.get("/api/me")
 
     def get(self, path: str):
@@ -72,7 +72,7 @@ class Session:
             raise RuntimeError(f"POST {path}: HTTP {r.status} {r.text()[:200]}")
         return r.json()
 
-    def go(self, path: str, ready: str = "main h1") -> Page:
+    def go(self, path: str, ready: str = "h1") -> Page:
         self.page.goto(f"{BASE}{path}")
         self.page.wait_for_selector(ready, timeout=30_000)
         self.page.wait_for_load_state("networkidle")
@@ -93,13 +93,13 @@ def roles(b: Browser, people: list[dict]) -> None:
     for u in people:
         s = Session(b, u["email"], OWNER_PW if u["email"] == OWNER else PW)
         perms = P.of(u["roles"])
-        nav = s.page.locator("header.top nav a").all_inner_texts()
+        nav = s.page.locator('nav[aria-label="Main"] a').all_inner_texts()
         check(("Quality" in nav) == ("quality:view" in perms), f"{u['email']}: Quality in the menu only if allowed")
         for path in ["/", "/assistant", "/anomalies", "/objects", "/drafts", "/help"] + \
                 (["/quality", "/quality?tab=incoming", "/quality?tab=suppliers", "/quality?tab=spc"]
                  if "quality:view" in perms else []):
             try:
-                s.go(path, "main h1, main .help-nav")
+                s.go(path, "h1, main .help-nav")
             except Exception as exc:
                 check(False, f"{u['email']}: {path} did not load ({str(exc).splitlines()[0]})")
         check(("People" in nav) == ("users:view" in perms), f"{u['email']}: People in the menu only if allowed")
@@ -108,7 +108,7 @@ def roles(b: Browser, people: list[dict]) -> None:
                 s.go("/people", "table.grid")
             except Exception as exc:
                 check(False, f"{u['email']}: /people did not load ({str(exc).splitlines()[0]})")
-        s.go("/account", "main h1")
+        s.go("/account", "h1")
         check(not s.errors, f"{u['email']}: no script errors ({s.errors[:2]})")
         if "quality:view" not in perms:
             check(s.status("/api/quality/ncrs") == 403, f"{u['email']}: quality API refused")
@@ -132,7 +132,7 @@ def set_passwords(owner: Session, people: list[dict]) -> None:
 
 def own_password(b: Browser) -> None:
     s = Session(b, "riley@demo.example", PW)
-    p = s.go("/account", "main h1")
+    p = s.go("/account", "h1")
     p.fill("input[placeholder='Current password']", PW)
     p.fill("input[placeholder='New password']", "Riley changed 2026")
     p.fill("input[placeholder='New password again']", "Riley changed 2026")
@@ -146,14 +146,14 @@ def own_password(b: Browser) -> None:
 
 def confirm_newest(s: Session, doctype: str) -> dict:
     """Confirm the newest pending draft of ``doctype`` on the Drafts page; return it as the API sees it after."""
-    s.go("/drafts", "main h1")
+    s.go("/drafts", "h1")
     s.page.wait_for_selector("article.draft", timeout=30_000)
     card = s.page.locator("article.draft", has_text=doctype).filter(has_text="pending").first
     card.get_by_role("button", name="Confirm").click()
     d = None
     for _ in range(60):
         d = next(x for x in s.get("/api/erp/drafts") if x["doctype"] == doctype)
-        if d["status"] != "pending":
+        if d["status"] not in ("pending", "confirming"):   # confirming: ERPNext is still answering
             break
         time.sleep(1)
     return d
@@ -164,7 +164,7 @@ def purchasing(b: Browser) -> None:
     short = [a for a in s.get("/api/anomalies") if a["rule"] == "item_short"]
     check(bool(short), "purchasing: sees short items")
     item = short[0]["subject"][1]
-    s.go(f"/o/Item/{urllib.parse.quote(item, safe='')}", "main h1")
+    s.go(f"/o/Item/{urllib.parse.quote(item, safe='')}", "h1")
     s.page.get_by_role("button", name="Draft a replenishment purchase order").click()
     s.page.wait_for_url(f"{BASE}/drafts", timeout=60_000)
     d = confirm_newest(s, "Purchase Order")
@@ -180,7 +180,7 @@ def sales(b: Browser) -> None:
     if not late:
         return
     key = late[0]["subject"][1]
-    s.go(f"/o/SalesOrder/{urllib.parse.quote(key, safe='')}", "main h1")
+    s.go(f"/o/SalesOrder/{urllib.parse.quote(key, safe='')}", "h1")
     s.page.get_by_role("button", name="Draft a delay message to the customer").click()
     s.page.wait_for_url(f"{BASE}/drafts", timeout=60_000)
     d = confirm_newest(s, "Customer Message")
@@ -206,7 +206,7 @@ def incoming(b: Browser) -> None:
 
 def nonconformance(b: Browser) -> None:
     q = Session(b, "jordan@demo.example", PW)
-    p = q.go("/quality", "main h1")
+    p = q.go("/quality", "h1")
     p.get_by_role("button", name="New nonconformance").click()
     p.fill("form.form input[placeholder=Title]", "Smoke test: dented boxes")
     p.fill("form.form textarea", "3 shipping boxes dented in the warehouse.")
@@ -224,7 +224,7 @@ def nonconformance(b: Browser) -> None:
     p.get_by_role("button", name="Submit disposition").click()
     p.wait_for_selector("text=someone else must approve it")
     m = Session(b, "sam@demo.example", PW)
-    mp = m.go(urllib.parse.urlparse(url).path, "main h1")
+    mp = m.go(urllib.parse.urlparse(url).path, "h1")
     mp.fill("input[placeholder='Your password to sign'] >> nth=0", PW)
     mp.get_by_role("button", name="Approve (sign)").click()
     mp.wait_for_selector("text=Close (sign)")

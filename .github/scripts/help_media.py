@@ -72,7 +72,7 @@ def pick_option(page: Page, select: str, text: str) -> None:
 def facts(page: Page) -> dict:
     anoms = api(page, "/api/anomalies")
     late = next((a for a in anoms if a["rule"] == "order_late"), None)
-    ncrs = api(page, "/api/quality/ncrs?status=all")
+    ncrs = api(page, "/api/quality/ncrs") or api(page, "/api/quality/ncrs?status=all")   # an open one if any
     capas = api(page, "/api/quality/capas?status=all")
     return {"late": late["id"] if late else None, "anomaly": anoms[0]["id"] if anoms else None,
             "ncr": ncrs[0]["id"] if ncrs else None, "capa": capas[0]["id"] if capas else None}
@@ -131,6 +131,11 @@ def screens(b) -> dict:
     return f
 
 
+def nav(page: Page, label: str) -> None:
+    """Click a page in the sidebar."""
+    page.locator('nav[aria-label="Main"]').get_by_role("link", name=label, exact=True).click()
+
+
 def video(b, name: str, steps) -> None:
     d = OUT / "videos" / name
     ctx = b.new_context(viewport=VIEW, ignore_https_errors=True, record_video_dir=str(d), record_video_size=VIEW)
@@ -156,9 +161,9 @@ def flow_late_order(f: dict):
     def run(page: Page) -> None:
         page.wait_for_selector(".cards")
         time.sleep(2)
-        page.hover(".cards .card >> nth=0")
+        page.hover(".cards article >> nth=0")
         time.sleep(2)
-        page.click("text=Anomalies >> nth=0")
+        nav(page, "Anomalies")
         page.wait_for_selector("table.grid")
         time.sleep(2)
         if f["late"]:
@@ -171,7 +176,7 @@ def flow_late_order(f: dict):
 
 
 def flow_assistant(page: Page) -> None:
-    page.click("text=Assistant >> nth=0")
+    nav(page, "Assistant")
     page.wait_for_selector(".search input")
     time.sleep(1)
     page.type(".search input", "Which orders are late, and why?", delay=60)
@@ -184,7 +189,7 @@ def flow_assistant(page: Page) -> None:
 
 def flow_quality(f: dict):
     def run(page: Page) -> None:
-        page.click("text=Quality >> nth=0")
+        nav(page, "Quality")
         page.wait_for_selector("table.grid")
         time.sleep(2)
         if f["ncr"]:

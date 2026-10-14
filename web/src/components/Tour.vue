@@ -3,6 +3,7 @@
 // (remembered in this browser) and can be restarted from Help.
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { Button } from 'frappe-ui'
 
 const props = defineProps({ permissions: Array })
 const emit = defineEmits(['done'])
@@ -43,15 +44,16 @@ watch(i, place, { immediate: true })
 </script>
 
 <template>
-  <div class="tour" role="dialog" aria-live="polite" :style="{ top: box.top + 'px', left: box.left + 'px' }">
-    <p class="muted small">Step {{ i + 1 }} of {{ steps.length }}</p>
-    <h3>{{ steps[i].title }}</h3>
-    <p>{{ steps[i].text }}</p>
-    <div class="row">
-      <button v-if="i > 0" @click="i--">Back</button>
-      <button v-if="i < steps.length - 1" @click="i++">Next</button>
-      <button v-else @click="finish">Done</button>
-      <button class="link" @click="finish">Skip the tour</button>
+  <div class="tour rounded-lg border border-outline-gray-2 bg-surface-base p-4 shadow-xl" role="dialog" aria-live="polite"
+       :style="{ top: box.top + 'px', left: box.left + 'px' }">
+    <p class="text-xs font-medium uppercase tracking-wide text-ink-gray-5">Step {{ i + 1 }} of {{ steps.length }}</p>
+    <h3 class="mt-1 text-base font-semibold text-ink-gray-9">{{ steps[i].title }}</h3>
+    <p class="mt-1 text-p-sm text-ink-gray-7">{{ steps[i].text }}</p>
+    <div class="mt-3 flex items-center gap-2">
+      <Button v-if="i > 0" label="Back" @click="i--" />
+      <Button v-if="i < steps.length - 1" variant="solid" label="Next" @click="i++" />
+      <Button v-else variant="solid" label="Done" @click="finish" />
+      <Button variant="ghost" label="Skip the tour" class="ms-auto" @click="finish" />
     </div>
   </div>
 </template>
