@@ -20,6 +20,7 @@ from wqops.hub.ont import project as OP
 from wqops.hub.quality import incoming as IN
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import workflow as W
+from wqops.hub.quality import workflow_admin as WA
 
 
 def _iso(row: dict) -> dict:
@@ -58,7 +59,13 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
                             "capas": capas, "eightd": _iso(e) if e else None, "sections": Q.SECTIONS,
                             "dispositions": {k: {"name": t["name"], "requires_approval": t["requires_approval"],
                                                  "active": t["active"]} for k, t in types.items()},
-                            "workflow": wf_brief(c, "ncr", row)}
+                            "workflow": wf_brief(c, "ncr", row), **own(c, "ncr", row)}
+
+    def own(c, kind: str, row: dict) -> dict:
+        """The company's own fields and extra approvals on a record (ADR-0015, 15b)."""
+        cfg = W.of(c, kind, row)
+        return {"fields": cfg.get("fields") or {}, "custom": row.get("custom") or {},
+                "approvals": Q.approvals(c, kind, row)}
 
     def wf_brief(c, kind: str, row: dict) -> dict:
         """The workflow version the record runs under and what can happen next (ADR-0015)."""
@@ -101,7 +108,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         pw = str(d.get("password", ""))
         qty = d.get("quantity")
         steps = {
-            "update": lambda: Q.update_ncr(c, nid, u["email"], owner=d.get("owner"), severity=d.get("severity")),
+            "update": lambda: Q.update_ncr(c, nid, u["email"], owner=d.get("owner"), severity=d.get("severity"),
+                                           custom=d.get("custom")),
             "contain": lambda: Q.contain(c, nid, u["email"], str(d.get("containment", ""))),
             "disposition": lambda: Q.submit_disposition(c, nid, u["email"], str(d.get("disposition", "")),
                                                         None if qty in (None, "") else float(qty),
@@ -134,7 +142,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     def capa_view(c, row: dict) -> dict:
         return _iso(row) | {"actions": [_iso(a) for a in Q.actions(c, row["id"])], "ncrs": Q.capa_ncrs(c, row["id"]),
                             "history": Q.history(c, "capa", row["id"]),
-                            "signatures": Q.signatures(c, "capa", row["id"]), "workflow": wf_brief(c, "capa", row)}
+                            "signatures": Q.signatures(c, "capa", row["id"]), "workflow": wf_brief(c, "capa", row),
+                            **own(c, "capa", row)}
 
     @app.get("/api/quality/capas")
     def capas(status: str = "active", u=Depends(user_dep), c=Depends(conn_dep)):
@@ -173,7 +182,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         today = OA.today(company()[0])
         steps = {
             "update": lambda: Q.update_capa(c, cid, u["email"], **{k: d.get(k) for k in (
-                "title", "description", "owner", "risk", "containment", "root_cause")}),
+                "title", "description", "owner", "risk", "containment", "root_cause", "custom")}),
             "link": lambda: Q.link_ncr(c, cid, int(d.get("ncr_id", 0)), u["email"]),
             "submit": lambda: Q.submit_capa(c, cid, u["email"]),
             "plan": lambda: Q.plan_actions(c, cid, u["email"]),
@@ -247,10 +256,63 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
                 f"select status, count(*) as n from {table} group by 1")}  # noqa: S608 - fixed table names
             versions = c.execute("select id, version, status, fingerprint, note, created_by, enabled_by, enabled_at "
                                  "from workflow_versions where kind = %s order by version desc", (kind,)).fetchall()
-            out[kind] = {"enabled": _iso({k: v[k] for k in ("id", "version", "fingerprint", "enabled_by", "enabled_at",
+            out[kind] = {"can_configure": P.allows(u["roles"], "workflows:configure"),
+                         "enabled": _iso({k: v[k] for k in ("id", "version", "fingerprint", "enabled_by", "enabled_at",
                                                               "note")}),
                          "workflow": W.view(v["config"]), "counts": counts, "versions": [_iso(x) for x in versions]}
         return out
+
+    @app.post("/api/quality/{kind}s/{rid}/approvals/{name}")
+    async def give_approval(kind: str, rid: int, name: str, request: Request, u=Depends(user_dep),  # noqa: PLR0917
+                            c=Depends(conn_dep)):
+        """An extra signed approval the record's workflow asks for (ADR-0015, 15b)."""
+        if kind not in W.KINDS:
+            raise HTTPException(404, "no such record kind")
+        need(u, "quality:view")
+        d = await body(request)
+        run(c, lambda: Q.approve_extra(c, kind, rid, name, u, str(d.get("password", ""))))
+        row = Q.ncr(c, rid) if kind == "ncr" else Q.capa(c, rid)
+        return ncr_view(c, row) if kind == "ncr" else capa_view(c, row)
+
+    # ---------------------------------------------------------------- changing workflows (15b)
+
+    def admin(fn):
+        try:
+            return fn()
+        except WA.AdminError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(404, "not found") from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+
+    @app.post("/api/quality/workflows/{kind}/drafts", status_code=201)
+    def new_draft(kind: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "workflows:configure")
+        return WA.view(c, admin(lambda: WA.new_draft(c, kind, u["email"])))
+
+    @app.get("/api/quality/workflows/versions/{vid}")
+    def version(vid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        return WA.view(c, admin(lambda: WA.get(c, vid)))
+
+    @app.put("/api/quality/workflows/versions/{vid}")
+    async def save_version(vid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "workflows:configure")
+        d = await body(request)
+        return WA.view(c, admin(lambda: WA.save(c, vid, u["email"], d.get("config"), d.get("note"))))
+
+    @app.post("/api/quality/workflows/versions/{vid}/enable")
+    async def enable_version(vid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "workflows:configure")
+        d = await body(request)
+        return WA.view(c, admin(lambda: WA.enable(c, vid, u, str(d.get("password", "")))))
+
+    @app.post("/api/quality/workflows/versions/{vid}/discard")
+    async def discard_version(vid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "workflows:configure")
+        d = await body(request)
+        return WA.view(c, admin(lambda: WA.discard(c, vid, u["email"], str(d.get("reason", "")))))
 
     @app.get("/api/quality/suppliers")
     def supplier_quality(days: int = 90, u=Depends(user_dep), c=Depends(conn_dep)):

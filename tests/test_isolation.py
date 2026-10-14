@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1] / "wqops"
 DECISION = ["hub/quality/records.py", "hub/quality/auto.py", "hub/quality/incoming.py", "hub/quality/spc.py",
             "hub/ont/metrics.py", "hub/ont/anomaly.py", "hub/ont/chain.py",
             "hub/docs/library.py", "hub/docs/classify.py", "hub/docs/extract.py", "hub/docs/store.py",
-            "hub/docs/checks.py", "hub/docs/ledger.py", "hub/docs/ledgers.py", "hub/quality/workflow.py"]
+            "hub/docs/checks.py", "hub/docs/ledger.py", "hub/docs/ledgers.py", "hub/quality/workflow.py",
+            "hub/quality/workflow_admin.py"]
 FORBIDDEN = {"openai", "anthropic", "requests", "httpx", "urllib", "urllib3", "aiohttp", "socket", "http",
              "langchain", "litellm", "boto3"}
 
