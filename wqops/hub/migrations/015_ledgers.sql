@@ -30,15 +30,19 @@ create table ledger_rows (
     import_id   bigint not null references ledger_imports (id),
     document_id bigint not null references documents (id),
     target      text not null,
+    sheet       text not null,
     row_no      integer not null,
     outcome     text not null check (outcome in ('imported', 'drafted', 'skipped')),
     ref         text,                            -- NCR-00012, CAPA-00003, draft 41
     note        text not null default '',
     at          timestamptz not null default now(),
-    primary key (document_id, target, row_no, import_id)
+    primary key (document_id, target, sheet, row_no, import_id)
 );
 create trigger ledger_rows_append_only before update or delete on ledger_rows
     for each row execute function wqo_append_only();
+
+-- a ledger that does not say how serious a nonconformance was leaves it unknown; it is set before closing
+alter table ncr_records alter column severity drop not null;
 
 -- where an imported quality record came from, and the dates the ledger gives
 alter table ncr_records add column external_no text;

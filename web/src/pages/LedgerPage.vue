@@ -39,7 +39,12 @@ function set(x) {
   sheet.value = x.preview.sheet
   header.value = x.preview.header_row
   password.value = ''
+  saved.value = snapshot()
 }
+// the import uses the saved mapping: what is on screen must be saved before signing
+const saved = ref('')
+const snapshot = () => JSON.stringify([pick.value, vals.value])
+const dirty = computed(() => L.value?.status === 'proposed' && snapshot() !== saved.value)
 async function load() {
   error.value = ''
   try { set(await api(`/api/ledgers/${route.params.id}`)) } catch (e) { error.value = e.message }
@@ -62,11 +67,13 @@ async function save(extra = {}) {
     done.value = 'Saved. Check the rows below.'
   } catch (e) { error.value = e.message }
 }
-async function changeSheet() {
+async function retable(headerRow) {
+  // other columns: the mapping starts again from the column names
   error.value = ''
-  try { set(await api(`/api/ledgers/${L.value.id}`, { method: 'PUT', body: { mapping: {}, values: {}, sheet: sheet.value, header_row: null } })) }
+  try { set(await api(`/api/ledgers/${L.value.id}`, { method: 'PUT', body: { mapping: {}, values: {}, sheet: sheet.value, header_row: headerRow } })) }
   catch (e) { error.value = e.message }
 }
+const changeSheet = () => retable(null)
 async function doImport() {
   busy.value = true; error.value = ''; done.value = ''
   try {
@@ -98,7 +105,7 @@ const show = (r, f) => r.values[f] ?? ''
         <label class="flex items-center gap-2">Sheet
           <select v-model="sheet" class="wq-select" :disabled="L.status !== 'proposed'" @change="changeSheet"><option v-for="s in pv.sheets" :key="s">{{ s }}</option></select></label>
         <label class="flex items-center gap-2">Header row
-          <input v-model.number="header" class="wq-input w-20" type="number" min="1" :disabled="L.status !== 'proposed'" @change="save()"></label>
+          <input v-model.number="header" class="wq-input w-20" type="number" min="1" :disabled="L.status !== 'proposed'" @change="retable(header)"></label>
         <span>{{ pv.total }} rows under it</span>
       </div>
       <div class="overflow-x-auto">
@@ -122,7 +129,7 @@ const show = (r, f) => r.values[f] ?? ''
           </tr></tbody>
         </table>
       </div>
-      <div v-if="L.status === 'proposed'" class="mt-4"><Button icon-left="lucide-save" label="Save the mapping" @click="save()" />
+      <div v-if="L.status === 'proposed'" class="mt-4"><Button :variant="dirty ? 'solid' : 'subtle'" icon-left="lucide-save" label="Save the mapping" @click="save()" />
         <span class="wq-muted ms-2">Words left “unknown” stay empty on the record; nothing is guessed.</span></div>
     </section>
 
@@ -149,8 +156,9 @@ const show = (r, f) => r.values[f] ?? ''
         Sign with your password.</p>
       <div class="flex flex-wrap items-center gap-2">
         <input v-model="password" class="wq-input max-w-56" type="password" placeholder="Your password to sign" autocomplete="current-password">
-        <Button variant="solid" icon-left="lucide-pen-line" :loading="busy" :label="`Import ${pv.ready} rows (sign)`" :disabled="!pv.ready" @click="doImport" />
+        <Button variant="solid" icon-left="lucide-pen-line" :loading="busy" :label="`Import ${pv.ready} rows (sign)`" :disabled="!pv.ready || dirty" @click="doImport" />
       </div>
+      <p v-if="dirty" class="mt-2 text-sm text-ink-amber-7">You changed the mapping: save it first, so the rows above show what will be imported.</p>
     </section>
 
     <template v-if="L.outcomes">

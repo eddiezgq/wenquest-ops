@@ -48,7 +48,7 @@ const label = (s) => s.replaceAll('_', ' ')
 <template>
   <PageTop :title="n ? `${n.name} ${n.title}` : 'Nonconformance'" :crumbs="[{ label: 'Quality', to: '/quality?tab=ncrs' }]">
     <template v-if="n">
-      <Badge :theme="n.severity === 'major' ? 'red' : 'gray'" variant="outline" :label="n.severity" size="lg" />
+      <Badge :theme="n.severity === 'major' ? 'red' : n.severity ? 'gray' : 'amber'" variant="outline" :label="n.severity || 'severity unknown'" size="lg" />
       <Badge :theme="STATUS[n.status] || 'gray'" :label="label(n.status)" size="lg" />
     </template>
   </PageTop>
@@ -68,6 +68,11 @@ const label = (s) => s.replaceAll('_', ' ')
           <template v-if="n.disposition"><dt>Disposition</dt><dd>{{ n.dispositions[n.disposition]?.name }}, {{ fmt(n.disposition_qty) }} — {{ n.disposition_reason }}
             <span class="text-sm text-ink-gray-5">(submitted by {{ n.disposition_by }}<template v-if="n.approved_by">, approved by {{ n.approved_by }}</template>)</span></dd></template>
           <template v-if="n.cancel_reason"><dt>Cancelled because</dt><dd>{{ n.cancel_reason }}</dd></template>
+          <template v-if="n.source_doc"><dt>From the ledger</dt><dd><RouterLink :to="`/documents/${n.source_doc}`" class="wq-link">row {{ n.source_row }}</RouterLink>
+            <span v-if="n.external_no" class="text-sm text-ink-gray-5"> (there: {{ n.external_no }}<template v-if="n.reported_on">, reported {{ n.reported_on }}</template>)</span></dd></template>
+          <template v-if="!n.severity && canEdit && !['closed', 'cancelled'].includes(n.status)"><dt>Severity</dt><dd class="flex items-center gap-2">
+            <span class="text-ink-amber-7">unknown —</span>
+            <Button size="sm" label="Minor" @click="step('update', { severity: 'minor' })" /><Button size="sm" label="Major" @click="step('update', { severity: 'major' })" /></dd></template>
         </dl>
         <p class="mt-4 text-sm"><RouterLink :to="objectPath('Nonconformance', n.name)" class="wq-link">Object page and links</RouterLink></p>
       </section>

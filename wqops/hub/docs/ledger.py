@@ -20,6 +20,8 @@ from wqops.hub.docs import classify as K
 from wqops.hub.docs import extract as X
 
 MAX_ROWS = 5000
+MAX_COLS = 100
+EXCEL_ERRORS = {"#N/A", "#REF!", "#VALUE!", "#DIV/0!", "#NAME?", "#NUM!", "#NULL!", "#SPILL!", "#CALC!"}
 
 
 @dataclass(frozen=True)
@@ -120,7 +122,7 @@ class Table:
 
 
 def _cell(v) -> str:
-    if v is None:
+    if v is None or (isinstance(v, str) and v.strip() in EXCEL_ERRORS):   # a formula error is no value
         return ""
     if isinstance(v, dt.datetime):
         return v.date().isoformat() if v.time() == dt.time(0) else v.isoformat(sep=" ", timespec="minutes")
@@ -128,22 +130,43 @@ def _cell(v) -> str:
         return v.isoformat()
     if isinstance(v, float) and v.is_integer():
         return str(int(v))
-    return str(v).strip()
+    return str(v).replace("\x00", "").strip()
+
+
+def _text(data: bytes) -> str:
+    """CSV text: UTF-8, UTF-16 (with its mark), Chinese GB18030, else Windows-1252."""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+    try:
+        text = data.decode("gb18030")
+        if re.search(r"[\u4e00-\u9fff]", text):
+            return text
+    except UnicodeDecodeError:
+        pass
+    return data.decode("cp1252", errors="replace")
 
 
 def sheets_of(name: str, data: bytes) -> dict[str, list[list[str]]]:
     ext = X.suffix(name)
     if ext == ".csv":
-        text = X._decode(data)
-        return {"CSV": [list(r) for r in csv.reader(io.StringIO(text))][:MAX_ROWS]}
+        csv.field_size_limit(1_000_000)
+        reader = csv.reader(io.StringIO(_text(data).replace("\x00", "")))
+        return {"CSV": [[c.strip() for c in r[:MAX_COLS]] for _, r in zip(range(MAX_ROWS), reader, strict=False)]}
     if ext in (".xlsx", ".xlsm"):
         import openpyxl  # noqa: PLC0415
 
         wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
         out = {}
         for ws in wb.worksheets:
-            out[ws.title] = [[_cell(v) for v in row] for _, row in zip(range(MAX_ROWS), ws.iter_rows(values_only=True),
-                                                                           strict=False)]
+            cells = ws.iter_rows(values_only=True, max_col=MAX_COLS)       # sheets formatted far to the right
+            rows = [[_cell(v) for v in row] for _, row in zip(range(MAX_ROWS), cells, strict=False)]
+            while rows and not any(rows[-1]):
+                rows.pop()
+            out[ws.title] = [r[:max((i + 1 for i, c in enumerate(r) if c), default=0)] for r in rows]
         wb.close()
         return out
     raise ValueError("a ledger is an Excel (.xlsx) or CSV file")
@@ -176,12 +199,15 @@ def table(name: str, data: bytes, sheet: str = "", header_row: int = 0) -> Table
         raise ValueError("the header row is outside the sheet")
     seen: dict[str, int] = {}
     headers = []
-    for i, raw in enumerate(rows[hr - 1]):      # unique, non-empty header names
+    width = max((len(r) for r in rows), default=0)
+    head = rows[hr - 1] + [""] * (width - len(rows[hr - 1]))
+    for i, raw in enumerate(head):              # unique, non-empty header names
         h = raw.strip() or (f"Column {i + 1}" if any(i < len(r) and r[i].strip() for r in rows[hr:]) else "")
-        if h in seen:
-            seen[h] += 1
-            h = f"{h} ({seen[h]})"
-        else:
+        if h:
+            base, k = h, 1
+            while h in seen:
+                k += 1
+                h = f"{base} ({k})"
             seen[h] = 1
         headers.append(h)
     return Table(names, sheet, [(i + 1, r) for i, r in enumerate(rows)], hr, headers)
@@ -276,6 +302,7 @@ def check_mapping(target: str, t: Table, flds: dict[str, Field], proposal: dict)
 # ---------------------------------------------------------------- rows
 
 def parse_date(s: str) -> dt.date | None:
+    """A date, or None when it cannot be read or could be read two ways (03/04/2024: March 4 or 3 April)."""
     s = s.strip()
     if not s:
         return None
@@ -283,12 +310,24 @@ def parse_date(s: str) -> dt.date | None:
         return dt.date.fromisoformat(s[:10])
     except ValueError:
         pass
+    m = re.fullmatch(r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})", s)
+    if m:
+        a, b, y = (int(x) for x in m.groups())
+        if a <= 12 and b <= 12 and a != b:
+            return None                         # day and month cannot be told apart
+        month, day = (a, b) if b > 12 or a == b else (b, a)
+        try:
+            return dt.date(y, month, day)
+        except ValueError:
+            return None
     found = K.dates_in(s)
     return found[0] if len(found) == 1 else None
 
 
 def parse_number(s: str) -> float | None:
-    m = re.fullmatch(r"\s*(-?\d[\d,]*(\.\d+)?)\s*([a-zA-Z]{0,5})\s*", s or "")
+    """A plain quantity: 12, 12.5, 1,200 or 1,200.5 (a comma only between groups of three digits), with an optional
+    unit after it; "12,5" could be twelve and a half or a typo, so it is not read."""
+    m = re.fullmatch(r"\s*(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([a-zA-Z]{0,5})\s*", s or "")
     return float(m.group(1).replace(",", "")) if m else None
 
 
@@ -297,7 +336,7 @@ def rows(t: Table, flds: dict[str, Field], mapping: dict, values: dict) -> list[
     unreadable values stay out (unknown) and are named in the problems; a row without a required field is not ok."""
     out = []
     for n, r in t.data():
-        vals, problems = {}, []
+        vals, problems, raws = {}, [], {}
         for f, spec in flds.items():
             m = mapping.get(f)
             if not m:
@@ -305,16 +344,17 @@ def rows(t: Table, flds: dict[str, Field], mapping: dict, values: dict) -> list[
             raw = m["value"] if "value" in m else r.get(m["column"], "")
             if raw == "":
                 continue
+            raws[f] = raw
             if spec.kind == "date":
                 d = parse_date(raw)
                 if d is None:
-                    problems.append(f"{spec.label}: {raw!r} is not a date")
+                    problems.append(f"{spec.label}: {raw!r} is not a date that can be read one way only")
                 else:
                     vals[f] = d.isoformat()
             elif spec.kind == "number":
                 x = parse_number(raw)
-                if x is None or x < 0:
-                    problems.append(f"{spec.label}: {raw!r} is not a quantity")
+                if x is None or x <= 0:
+                    problems.append(f"{spec.label}: {raw!r} is not a quantity above 0")
                 else:
                     vals[f] = x
             elif spec.kind == "choice":
@@ -326,8 +366,10 @@ def rows(t: Table, flds: dict[str, Field], mapping: dict, values: dict) -> list[
                     problems.append(f"{spec.label}: {raw!r} is not matched to one of ours, left unknown")
             else:
                 vals[f] = raw[:4000]
+                if len(raw) > 4000:
+                    problems.append(f"{spec.label}: cut to its first 4000 characters")
         missing = [spec.label for f, spec in flds.items() if spec.required and f not in vals]
         if missing:
             problems.append("missing " + ", ".join(missing))
-        out.append({"row": n, "values": vals, "problems": problems, "ok": not missing})
+        out.append({"row": n, "values": vals, "raw": raws, "problems": problems, "ok": not missing})
     return out

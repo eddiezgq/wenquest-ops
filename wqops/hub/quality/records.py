@@ -214,6 +214,8 @@ def reject_disposition(conn, ncr_id: int, email: str, reason: str) -> dict:
 def close_ncr(conn, ncr_id: int, user: dict, password: str, note: str = "") -> dict:
     row = ncr(conn, ncr_id)
     _need(row, "dispositioned")
+    if row["severity"] is None:
+        raise QualityError(f"{row['name']} has no severity (its ledger did not say); set minor or major first")
     if row["severity"] == "major" and not conn.execute(
             "select 1 from capa_ncrs l join capas c on c.id = l.capa_id where l.ncr_id = %s and c.status = 'closed'",
             (ncr_id,)).fetchone():

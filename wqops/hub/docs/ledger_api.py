@@ -34,6 +34,12 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     def allowed(u: dict) -> list[str]:
         return [t for t, x in LG.TARGETS.items() if P.allows(u["roles"], x["perm"])]
 
+    def number(v, what: str) -> int:
+        try:
+            return int(v or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, f"{what} must be a whole number") from exc
+
     def run(fn):
         try:
             return fn()
@@ -77,8 +83,9 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
 
         def work():
             with DB.connect(db_url) as c:
-                doc = run(lambda: LIB.get(c, int(d.get("document_id") or 0)))
-                t = run(lambda: LS.table_of(c, doc, str(d.get("sheet") or ""), int(d.get("header_row") or 0)))
+                doc = run(lambda: LIB.get(c, number(d.get("document_id"), "document_id")))
+                hr = number(d.get("header_row"), "header_row")
+                t = run(lambda: LS.table_of(c, doc, str(d.get("sheet") or ""), hr))
                 targets = {k: LS.flds(c, k) for k in kinds}
                 m = company()[0]
                 p = LAI.propose(c, {"email": u["email"], "roles": u["roles"]}, t, targets, model, target=target,
@@ -93,21 +100,20 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         need(u, "documents:view")
         return view(c, run(lambda: LS.get(c, lid)))
 
+    # plain functions: FastAPI runs them in its thread pool, so reading a large sheet does not hold up other requests
     @app.put("/api/ledgers/{lid}")
-    async def change(lid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+    def change(lid: int, d: dict, u=Depends(user_dep), c=Depends(conn_dep)):
         imp = run(lambda: LS.get(c, lid))
         need(u, LG.TARGETS[imp["target"]]["perm"])
-        d = await body(request)
         hr = d.get("header_row")
         return view(c, run(lambda: LS.update(c, u["email"], lid, mapping=d.get("mapping") or {},
                                              values=d.get("values") or {}, sheet=d.get("sheet"),
-                                             header_row=int(hr) if hr not in (None, "") else None)))
+                                             header_row=number(hr, "header_row") if hr not in (None, "") else None)))
 
     @app.post("/api/ledgers/{lid}/import")
-    async def do_import(lid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+    def do_import(lid: int, d: dict, u=Depends(user_dep), c=Depends(conn_dep)):
         imp = run(lambda: LS.get(c, lid))
         need(u, LG.TARGETS[imp["target"]]["perm"])
-        d = await body(request)
         out = run(lambda: LS.run_import(c, u, lid, str(d.get("password", ""))))
         if imp["target"] != "supplier":
             OP.project(c, manifest=company()[0])      # imported NCRs and CAPAs show in the ops hub at once

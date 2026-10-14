@@ -93,7 +93,7 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
         <tbody><tr v-for="r in rows" :key="r.id">
           <td class="whitespace-nowrap"><RouterLink :to="`/quality/${tab === 'ncrs' ? 'ncr' : 'capa'}/${r.id}`" class="font-medium text-ink-gray-9 hover:underline">{{ r.name }}</RouterLink></td>
           <td>{{ r.title }}</td>
-          <td class="capitalize">{{ tab === 'ncrs' ? r.severity : r.kind }}</td>
+          <td class="capitalize">{{ tab === 'ncrs' ? (r.severity || 'unknown') : r.kind }}</td>
           <td><Badge :theme="STATUS[r.status] || 'gray'" :label="label(r.status)" /></td>
           <td class="text-sm text-ink-gray-6">{{ r.owner }}</td><td class="whitespace-nowrap text-sm text-ink-gray-5">{{ ago(r.created_at) }}</td></tr></tbody>
       </table>
