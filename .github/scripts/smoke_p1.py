@@ -185,7 +185,7 @@ def sales(b: Browser) -> None:
     s.page.wait_for_url(f"{BASE}/drafts", timeout=60_000)
     d = confirm_newest(s, "Customer Message")
     check(d["status"] == "confirmed", f"sales: delay message for {key} confirmed ({d.get('error')})")
-    s.page.select_option("main select", "confirmed")
+    s.page.select_option('select[aria-label="Show"]', "confirmed")
     s.page.wait_for_selector("article.draft", timeout=30_000)
     check(s.page.get_by_role("button", name="Copy to send").count() > 0, "sales: message ready to copy")
     s.close()
