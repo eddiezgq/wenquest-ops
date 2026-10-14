@@ -7,11 +7,39 @@
 ## 一、准备一台机器
 
 - **Ubuntu 22.04 或 24.04**，4 核、8 GB 内存（建议 16 GB）、40 GB 空闲磁盘。只在 Ubuntu 上测过（CI）。
-  - 家里的 Windows 电脑：可以试 WSL2 里的 Ubuntu 加 Docker（没测过，遇到问题记下来就是收获）。
+  - Windows 电脑：在 WSL2 的 Ubuntu 里装，见下面“Windows 用 WSL2”。PowerShell 里不能直接运行这些命令
+    （`&&`、`变量=值 命令`、`\` 续行、`.sh` 脚本都是 Linux shell 的写法）。
   - Mac：暂不支持（安装脚本按 Linux 写）。
   - 也可以租一台云主机（Ubuntu、8 GB 内存）；用完删掉。
 - 装 Docker：`curl -fsSL https://get.docker.com | sh`，然后 `sudo usermod -aG docker $USER` 并重新登录。
 - 装 git，拉代码：`git clone https://github.com/eddiezgq/wenquest-ops.git && cd wenquest-ops`
+
+### Windows 用 WSL2
+
+1. **装 Ubuntu**：以管理员身份打开 PowerShell，运行 `wsl --install -d Ubuntu-24.04`，按提示重启，
+   再从开始菜单打开 “Ubuntu 24.04”，设一个 Linux 用户名和密码。以后的命令都在这个 Ubuntu 窗口里输入。
+2. **给够内存**：WSL 默认只用电脑一半的内存。在 PowerShell 运行 `notepad $env:USERPROFILE\.wslconfig`，写入
+   下面两行（电脑 16 GB 写 `10GB`，32 GB 写 `16GB`），保存后运行 `wsl --shutdown`，再打开 Ubuntu：
+   ```
+   [wsl2]
+   memory=10GB
+   ```
+   在 Ubuntu 里 `free -g` 看 total 至少 8。
+3. **装 Docker**（在 Ubuntu 里，不用 Docker Desktop）：
+   ```bash
+   curl -fsSL https://get.docker.com | sh
+   sudo usermod -aG docker $USER
+   exit
+   ```
+   重新打开 Ubuntu，`docker run --rm hello-world` 能打印欢迎信息即可。若提示连不上 Docker，运行
+   `sudo service docker start`。
+4. **代码放在 Ubuntu 的主目录里**，不要在 `/mnt/c/...` 下运行（慢，且 Windows 换行符会弄坏脚本）。
+   仓库是私有的，最省事的是复制 Windows 里已经拉好的代码，再按仓库原样重写一遍文件：
+   ```bash
+   cp -r /mnt/c/Users/<你的 Windows 用户名>/wenquest-ops ~/
+   cd ~/wenquest-ops && git config core.autocrlf false && git reset --hard
+   ```
+5. 接着做下面第二步。装好后在 **Windows 的浏览器**里打开 `https://ops.localtest.me` 即可（WSL2 把端口转到了 Windows）。
 
 ## 二、安装（与 CI 相同的做法）
 

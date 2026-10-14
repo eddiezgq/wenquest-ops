@@ -1,0 +1,7 @@
+# Shell scripts and the Dockerfile must keep Unix line endings, also when checked out on Windows
+*.sh text eol=lf
+Dockerfile text eol=lf
+deploy/Caddyfile text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
