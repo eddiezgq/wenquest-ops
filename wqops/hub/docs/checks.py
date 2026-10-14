@@ -25,17 +25,25 @@ SEVERITY = {"high": 0, "medium": 1, "info": 2}
 
 
 def norm_no(n: str | None) -> str:
-    return re.sub(r"\s+", "", n or "").upper()
+    """Numbers compared as written, ignoring case and spaces or underscores in place of dashes (F RI 001 = F-RI-001)."""
+    return re.sub(r"[\s_]+", "-", (n or "").strip()).upper()
+
+
+def norm_rev(rev: str | None) -> str:
+    """"Rev. C", "rev c" and "C" are one revision; so are "01" and "1"."""
+    r = re.sub(r"^(REVISION|REV)[\s.:#-]*", "", (rev or "").strip().upper())
+    return re.sub(r"\d+", lambda m: str(int(m.group(0))), r)
 
 
 def rev_key(rev: str | None) -> tuple:
-    """Order of revisions: numbers by value, letters by the alphabet (A < B < ... < Z < AA), numbers before letters."""
-    r = (rev or "").strip().upper()
-    if re.fullmatch(r"\d+(\.\d+)?", r):
-        return (1, float(r), "")
+    """Order of revisions: numbers part by part (1.9 < 1.10), letters by the alphabet (A < B < ... < Z < AA),
+    numbers before letters."""
+    r = norm_rev(rev)
+    if re.fullmatch(r"\d+(\.\d+)*", r):
+        return (1, tuple(int(x) for x in r.split(".")), "")
     if re.fullmatch(r"[A-Z]{1,3}", r):
-        return (2, float(len(r)), r)
-    return (0, 0.0, r)
+        return (2, (len(r),), r)
+    return (0, (), r)
 
 
 def _when(d: dict) -> dt.date:
@@ -73,7 +81,8 @@ def process_codes(docs: list[dict], processes: dict[str, dict]) -> dict[str, str
     seen: dict[str, Counter] = defaultdict(Counter)
     for d in docs:
         parts = norm_no(d.get("number")).split("-")
-        if d.get("process") and len(parts) == 3 and parts[1].isalpha() and d["status"] in LIVE:
+        if d.get("process") and len(parts) == 3 and parts[1].isalpha() and parts[1].isascii() \
+                and 1 <= len(parts[1]) <= 4 and d["status"] in LIVE:
             seen[d["process"]][parts[1]] += 1
     return {p: (seen[p].most_common(1)[0][0] if seen[p] else (info.get("short") or "GEN"))
             for p, info in processes.items()}
@@ -91,12 +100,14 @@ def conventions(docs: list[dict], rules: dict[str, dict]) -> dict[str, dict]:
         if len(nums) >= 2 and shapes.most_common(1)[0][1] / len(nums) >= 0.6:
             shape = shapes.most_common(1)[0][0]
             same = [n for n in nums if _shape(n) == shape]
-            (prefix, digits), _ = Counter(p for p in map(_prefix, same) if p).most_common(1)[0]
-            parts = prefix.rstrip("-").split("-")
-            mids = {norm_no(n).split("-")[1] for n in same if len(norm_no(n).split("-")) == 3}
-            tmpl = f"{parts[0]}-{{process}}-{{seq}}" if len(parts) == 2 and len(mids) > 1 else prefix + "{seq}"
-            out[t] = {"template": tmpl, "digits": digits, "source": "learned", "examples": sorted(set(same))[:4]}
-            continue
+            prefixes = Counter(p for p in map(_prefix, same) if p)
+            if prefixes:                                 # numbers like 1001 have no prefix to learn: default
+                (prefix, digits), _ = prefixes.most_common(1)[0]
+                parts = prefix.rstrip("-").split("-")
+                mid = len(parts) == 2 and prefix.endswith("-") and parts[1].isalpha() and parts[1].isascii()
+                tmpl = f"{parts[0]}-{{process}}-{{seq}}" if mid else prefix + "{seq}"
+                out[t] = {"template": tmpl, "digits": digits, "source": "learned", "examples": sorted(set(same))[:4]}
+                continue
         tmpl, digits = DEFAULT_RULES[t]
         out[t] = {"template": tmpl, "digits": digits, "source": "default"}
     return out
@@ -110,13 +121,15 @@ def matches(number: str, conv: dict) -> bool:
     """Whether a number follows the type's convention (any process code, any sequence number)."""
     rx = ""
     for part in re.split(r"(\{process\}|\{seq\})", conv["template"]):
-        rx += r"[A-Z]{2,4}" if part == "{process}" else rf"\d{{{conv['digits']},}}" if part == "{seq}" \
+        rx += r"[A-Z]{1,4}" if part == "{process}" else rf"\d{{{conv['digits']},}}" if part == "{seq}" \
             else re.escape(part.upper())
     return re.fullmatch(rx, norm_no(number)) is not None
 
 
-def suggest_number(doc: dict, docs: list[dict], convs: dict[str, dict], codes: dict[str, str]) -> str | None:
-    """The next free number in the type's convention, for a numbered document without a (proper) number."""
+def suggest_number(doc: dict, docs: list[dict], convs: dict[str, dict], codes: dict[str, str],
+                   taken: set[str] | None = None) -> str | None:
+    """The next free number in the type's convention, for a numbered document without a (proper) number. Numbers
+    already suggested to other documents (``taken``) are not suggested again."""
     t = doc.get("doc_type")
     if t not in convs:
         return None
@@ -124,12 +137,15 @@ def suggest_number(doc: dict, docs: list[dict], convs: dict[str, dict], codes: d
     code = codes.get(doc.get("process") or "", "GEN")
     base = render(conv["template"], conv["digits"], code, 0)
     prefix = base[: len(base) - conv["digits"]]
-    used = {norm_no(d["number"]) for d in docs if d.get("number") and d["id"] != doc["id"]}
-    seqs = [int(m.group(1)) for n in used if (m := re.fullmatch(re.escape(prefix) + r"(\d+)", n))]
+    taken = taken if taken is not None else set()
+    used = {norm_no(d["number"]) for d in docs if d.get("number")} | taken
+    seqs = [int(m.group(1)) for n in used if (m := re.fullmatch(re.escape(norm_no(prefix)) + r"(\d+)", n))]
     seq = max(seqs, default=0) + 1
-    while render(conv["template"], conv["digits"], code, seq) in used:
+    while norm_no(render(conv["template"], conv["digits"], code, seq)) in used:
         seq += 1
-    return render(conv["template"], conv["digits"], code, seq)
+    out = render(conv["template"], conv["digits"], code, seq)
+    taken.add(norm_no(out))
+    return out
 
 
 def standard_name(doc: dict) -> str | None:
@@ -174,19 +190,26 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
         by_sha[d["sha256"]].append(d)
     for group in by_sha.values():
         if len(group) > 1:
-            keep = min(group, key=lambda d: (d["status"] not in ("effective", "confirmed"), d["id"]))
+            keep = min(group, key=lambda d: (d["status"] not in ("effective", "confirmed"), d["id"]))  # = keeper
             names = ", ".join(f"{d['path']}/{d['original_name']}".strip("/") for d in group)
             out.append(_issue("duplicate", "medium", f"Same file {len(group)} times: {group[0]['original_name']}",
                               f"Identical content: {names}. Keep one; mark the others as not kept.",
                               [d["id"] for d in group], keep["process"], keep=keep["id"]))
-    dup_ids = {d["id"] for g in by_sha.values() if len(g) > 1 for d in g if d is not min(g, key=lambda x: x["id"])}
+    def keeper(g):
+        return min(g, key=lambda d: (d["status"] not in ("effective", "confirmed"), d["id"]))
+
+    dup_ids = {d["id"] for g in by_sha.values() if len(g) > 1 for d in g if d is not keeper(g)}
+    taken: set[str] = set()                         # suggested numbers, one per document
 
     # one number: revisions, which is current, and conflicts
     by_no = defaultdict(list)
     for d in live:
         if d.get("number") and d.get("doc_type") in NUMBERED and d["id"] not in dup_ids:
             by_no[norm_no(d["number"])].append(d)
-    for no, group in by_no.items():
+    for no, everything in by_no.items():
+        ids = {d["id"] for d in everything}
+        # a new revision uploaded on purpose (it replaces one of these) is work in progress, not a problem
+        group = [d for d in everything if not (d.get("supersedes") in ids and d["status"] in ("draft", "in_review"))]
         if len(group) < 2:
             continue
         types = {d["doc_type"] for d in group}
@@ -197,12 +220,14 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
                               "; ".join(f"{label(d)} ({K.TYPES.get(d['doc_type'], d['doc_type'])})" for d in group)
                               + ". Give one of them a new number.", [d["id"] for d in group], group[0]["process"]))
             continue
-        revs = [norm_no(d.get("revision")) for d in group]
+        revs = [norm_rev(d.get("revision")) for d in group if d.get("revision")]
         if len(set(revs)) < len(revs):
             out.append(_issue("same_revision", "high", f"{no}: the same revision more than once",
                               ", ".join(f"{label(d)} ({d['original_name']})" for d in group)
                               + ". If the files differ, one of them needs another revision.",
                               [d["id"] for d in group], group[0]["process"]))
+            continue
+        if len(revs) < len(group):                  # without revisions the order is unknown; no_revision says so
             continue
         cur = newest(group)
         older = [d for d in group if d is not cur and d["status"] != "obsolete"]
@@ -219,13 +244,13 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
         if d["id"] in dup_ids or d.get("doc_type") not in NUMBERED:
             continue
         if not d.get("number"):
-            sug = suggest_number(d, docs, convs, codes)
+            sug = suggest_number(d, docs, convs, codes, taken)
             out.append(_issue("no_number", "medium", f"No number: {d.get('title') or d['original_name']}",
                               f"Suggested number: {sug}." if sug else "Give it a number.", [d["id"]], d.get("process"),
                               suggest=sug))
         elif convs.get(d["doc_type"], {}).get("source") != "default" and \
                 not matches(d["number"], convs[d["doc_type"]]):
-            sug = suggest_number(d, docs, convs, codes)
+            sug = suggest_number(d, docs, convs, codes, taken)
             conv = convs[d["doc_type"]]
             example = render(conv["template"], conv["digits"], codes.get(d.get("process") or "", "XX"), 1)
             out.append(_issue("odd_number", "info", f"{d['number']} differs from your other "

@@ -503,7 +503,7 @@ def overview(conn) -> dict:
 # ---------------------------------------------------------------- checks and numbering (14b)
 
 CHECK_COLS = ("id, sha256, status, doc_type, process, number, title, revision, effective_date, refs, original_name, "
-              "path")
+              "path, supersedes")
 
 
 def process_info(conn) -> dict[str, dict]:
@@ -549,7 +549,11 @@ def set_rule(conn, email: str, doc_type: str, template: str, digits: int) -> dic
     if template.count("{seq}") != 1 or not template.endswith("{seq}") or not re.fullmatch(
             r"[A-Z0-9._/-]*(\{process\}[A-Z0-9._/-]*)?\{seq\}", template):
         raise DocError("a rule looks like QP-{seq} or F-{process}-{seq}: letters, digits and - before {seq} at the end")
-    if not 1 <= int(digits) <= 6:
+    try:
+        digits = int(digits)
+    except (TypeError, ValueError) as exc:
+        raise DocError("the sequence number has 1 to 6 digits") from exc
+    if not 1 <= digits <= 6:
         raise DocError("the sequence number has 1 to 6 digits")
     return conn.execute("insert into doc_number_rules (doc_type, template, digits, updated_by) values (%s, %s, %s, %s) "
                         "on conflict (doc_type) do update set template = excluded.template, digits = excluded.digits, "
@@ -571,6 +575,8 @@ def archive(conn, email: str, doc_id: int, reason: str) -> dict:
         if doc["status"] not in ("to_classify", "to_review", "draft"):
             raise DocError("only a file waiting for review or a draft can be kept as obsolete; make an effective "
                            "document obsolete instead")
+        if doc["supersedes"]:
+            raise DocError("this is a new revision in progress, not an older one; send it back or leave it")
         f = {k: doc[k] for k in EDITABLE}
         if not f["doc_type"] or f["process"] not in processes(conn) or not f["title"]:
             raise DocError("give it a type, process and title first, so it can be found later")

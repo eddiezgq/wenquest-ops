@@ -103,12 +103,13 @@ def test_numbering_is_learned_from_the_company_and_suggested():
     by = {(i["kind"], i["docs"][0]): i for i in found}
     assert by[("no_number", 4)]["suggest"] == "F-QA-013"                  # next free in this process's series
     assert by[("no_number", 8)]["suggest"] == "QP-05"
-    assert by[("odd_number", 5)]["suggest"] == "F-QA-013"
+    assert by[("odd_number", 5)]["suggest"] == "F-QA-014"                 # F-QA-013 is already suggested to 4
     assert ("odd_number", 1) not in by and ("odd_number", 3) not in by
     found, convs, _ = run(docs, {"form": {"template": "FRM-{seq}", "digits": 4}})
     assert convs["form"]["source"] == "rule"
-    assert {i["docs"][0]: i["suggest"] for i in found if i["kind"] in ("no_number", "odd_number")
-            and docs[i["docs"][0] - 1]["doc_type"] == "form"}[4] == "FRM-0001"
+    forms = sorted(i["suggest"] for i in found if i["kind"] in ("no_number", "odd_number")
+                   and docs[i["docs"][0] - 1]["doc_type"] == "form")
+    assert forms == ["FRM-0001", "FRM-0002", "FRM-0003", "FRM-0004", "FRM-0005"]    # every form off the rule
     assert CK.standard_name(doc(1, number="QP-08", revision="C", title="Control: of NC?", name="x.PDF")) == \
         "QP-08 Control of NC Rev C.pdf"
     assert CK.standard_name(doc(1)) is None
@@ -203,3 +204,37 @@ def test_checks_api(db_url):
     old = next(d for d in c.get("/api/docs?status=all&q=QP-08").json() if d["revision"] == "B")
     r = c.post(f"/api/docs/{old['id']}/archive", json={"reason": "replaced by rev C"}).json()
     assert r["status"] == "obsolete" and r["history"][-1]["action"] == "kept as obsolete"
+
+
+def test_odd_data_from_the_review():
+    """Cases an independent review found: none of them may crash or mislead."""
+    assert CK.rev_key("1.10") > CK.rev_key("1.9") and CK.norm_rev("Rev. c") == "C" and CK.norm_rev("01") == "1"
+    found, convs, _ = run([doc(1, doc_type="form", number="1001"), doc(2, doc_type="form", number="1002")])
+    assert convs["form"]["source"] == "default"                           # all digits: nothing to learn, no crash
+    b, c = doc(1, number="QP-08", revision="Rev B"), doc(2, number="QP-08", revision="C")
+    assert next(i for i in run([c, b])[0] if i["kind"] == "revisions")["keep"] == 2
+    found, _, _ = run([doc(1, number="QP-06", revision="01"), doc(2, number="QP-06", revision="1")])
+    assert "same_revision" in kinds(found)
+    found, _, _ = run([doc(1, number="QP-06"), doc(2, number="QP-06")])
+    assert "same_revision" not in kinds(found) and kinds(found).count("no_revision") == 2
+    eff = doc(1, number="QP-01", revision="B", status="effective", date="2025-01-01")
+    new = dict(doc(2, number="QP-01", revision="C", status="draft", date="2025-01-01"), supersedes=1)
+    assert "revisions" not in kinds(run([eff, new])[0])                  # a revision in progress is no problem
+    two = [doc(1, doc_type="form", number="F-QA-010"), doc(2, doc_type="form", number="F-QA-011"),
+           doc(3, doc_type="form", title="Gauge list A"), doc(4, doc_type="form", title="Gauge list B"),
+           doc(5, doc_type="form", process="purchasing", title="Supplier list")]
+    found, convs, _ = run(two)
+    sug = {i["docs"][0]: i["suggest"] for i in found if i["kind"] == "no_number"}
+    assert sug[3] != sug[4] and {sug[3], sug[4]} == {"F-QA-012", "F-QA-013"}   # never the same suggestion twice
+    assert convs["form"]["template"] == "F-{process}-{seq}" and sug[5] == "F-PU-001"   # another process, its code
+    assert CK.norm_no("F RI 001") == "F-RI-001"
+
+
+def test_archive_and_rules_refuse_bad_input(world):
+    with pytest.raises(LIB.DocError, match="1 to 6 digits"):
+        LIB.set_rule(world, JORDAN, "form", "F-{seq}", "abc")
+    _, (qp,) = imported(world, ["QP-05"])
+    world.execute("update documents set supersedes = %s, doc_type = 'procedure', process = 'receiving', "
+                  "title = 'x', status = 'draft' where id = %s", (qp["id"], qp["id"]))
+    with pytest.raises(LIB.DocError, match="new revision in progress"):
+        LIB.archive(world, JORDAN, qp["id"], "older")

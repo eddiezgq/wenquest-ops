@@ -241,7 +241,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         need(u, "documents:edit")
         d = await body(request)
         return _iso(run(lambda: LIB.set_rule(c, u["email"], doc_type, str(d.get("template", "")),
-                                             int(d.get("digits") or 0))))
+                                             d.get("digits"))))
 
     @app.delete("/api/docs/numbering/{doc_type}")
     def clear_numbering(doc_type: str, u=Depends(user_dep), c=Depends(conn_dep)):
