@@ -1,0 +1,56 @@
+# Default workflow of a corrective or preventive action (ADR-0015): the Phase 1 behaviour (ADR-0009, ADR-0010).
+kind: capa
+label: Corrective or preventive action
+numbering: {prefix: CAPA, digits: 5}
+initial: draft
+states:
+  draft: {label: Draft}
+  investigation: {label: Investigation}
+  implementation: {label: Implementation}
+  effectiveness: {label: Effectiveness check}
+  closed: {label: Closed, final: true}
+  cancelled: {label: Cancelled, final: true}
+steps:
+  submit:
+    label: Start the investigation
+    from: [draft]
+    to: investigation
+    permission: quality:edit
+    required: [description, owner, risk]
+  plan:
+    label: Start implementation
+    from: [investigation]
+    to: implementation
+    permission: quality:edit
+    required: [containment, root_cause, actions]
+  to_effectiveness:
+    label: Check effectiveness
+    from: [implementation]
+    to: effectiveness
+    permission: quality:edit
+    required: [actions_done]
+  not_effective:
+    label: Not effective
+    from: [effectiveness]
+    to: implementation
+    permission: quality:edit
+    required: [evidence]
+  effective:
+    label: Effective, close
+    kind: close
+    from: [effectiveness]
+    to: closed
+    permission: quality:edit
+    sign: Corrective action closed (effective)
+    not_by: [owner]
+    verb: close a corrective action
+    required: [evidence]
+  cancel:
+    label: Cancel
+    from: [draft, investigation, implementation, effectiveness]
+    to: cancelled
+    permission: quality:edit
+    reason: true
+rules:
+  # one open corrective action per nonconformance report
+  one_open_capa_per_ncr: true

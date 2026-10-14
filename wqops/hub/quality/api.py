@@ -19,6 +19,7 @@ from wqops.hub.ont import api as OA
 from wqops.hub.ont import project as OP
 from wqops.hub.quality import incoming as IN
 from wqops.hub.quality import records as Q
+from wqops.hub.quality import workflow as W
 
 
 def _iso(row: dict) -> dict:
@@ -56,7 +57,16 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         return _iso(row) | {"history": Q.history(c, "ncr", row["id"]), "signatures": Q.signatures(c, "ncr", row["id"]),
                             "capas": capas, "eightd": _iso(e) if e else None, "sections": Q.SECTIONS,
                             "dispositions": {k: {"name": t["name"], "requires_approval": t["requires_approval"],
-                                                 "active": t["active"]} for k, t in types.items()}}
+                                                 "active": t["active"]} for k, t in types.items()},
+                            "workflow": wf_brief(c, "ncr", row)}
+
+    def wf_brief(c, kind: str, row: dict) -> dict:
+        """The workflow version the record runs under and what can happen next (ADR-0015)."""
+        v = W.version(c, kind, row.get("workflow_version"))
+        nxt = [{"step": k, "label": s.get("label", k), "to": s.get("to"), "signed": bool(s.get("sign"))}
+               for k, s in v["config"]["steps"].items() if row["status"] in s["from"]]
+        return {"version": v["version"], "id": v["id"], "next": nxt,
+                "state": v["config"]["states"].get(row["status"], {}).get("label", row["status"])}
 
     @app.get("/api/quality/ncrs")
     def ncrs(status: str = "active", u=Depends(user_dep), c=Depends(conn_dep)):
@@ -124,7 +134,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     def capa_view(c, row: dict) -> dict:
         return _iso(row) | {"actions": [_iso(a) for a in Q.actions(c, row["id"])], "ncrs": Q.capa_ncrs(c, row["id"]),
                             "history": Q.history(c, "capa", row["id"]),
-                            "signatures": Q.signatures(c, "capa", row["id"])}
+                            "signatures": Q.signatures(c, "capa", row["id"]), "workflow": wf_brief(c, "capa", row)}
 
     @app.get("/api/quality/capas")
     def capas(status: str = "active", u=Depends(user_dep), c=Depends(conn_dep)):
@@ -225,6 +235,22 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
                              summary=f"Incoming inspection of {line['item_code']} from {line['receipt']}")
         except D.DraftError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/quality/workflows")
+    def workflows(u=Depends(user_dep), c=Depends(conn_dep)):
+        """The enabled workflow of each kind of record, in plain words (ADR-0015; read-only in 15a)."""
+        need(u, "quality:view")
+        out = {}
+        for kind, table in W.KINDS.items():
+            v = W.ensure(c, kind)
+            counts = {r["status"]: r["n"] for r in c.execute(
+                f"select status, count(*) as n from {table} group by 1")}  # noqa: S608 - fixed table names
+            versions = c.execute("select id, version, status, fingerprint, note, created_by, enabled_by, enabled_at "
+                                 "from workflow_versions where kind = %s order by version desc", (kind,)).fetchall()
+            out[kind] = {"enabled": _iso({k: v[k] for k in ("id", "version", "fingerprint", "enabled_by", "enabled_at",
+                                                              "note")}),
+                         "workflow": W.view(v["config"]), "counts": counts, "versions": [_iso(x) for x in versions]}
+        return out
 
     @app.get("/api/quality/suppliers")
     def supplier_quality(days: int = 90, u=Depends(user_dep), c=Depends(conn_dep)):

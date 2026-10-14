@@ -8,6 +8,7 @@ import { STATUS, label } from '../ui/themes'
 import { api, objectPath } from '../api'
 import { ago, fmt } from '../format'
 import ControlChart from '../components/ControlChart.vue'
+import Workflow from '../components/Workflow.vue'
 
 const ws = inject('workspace')
 const route = useRoute()
@@ -18,6 +19,7 @@ const error = ref('')
 const rows = ref([])
 const filter = ref('active')
 const scores = ref(null)
+const flows = ref(null)
 const params = ref([])
 const pick = ref(null)
 const spc = ref(null)
@@ -32,6 +34,7 @@ async function load() {
     if (tab.value === 'capas') rows.value = await api(`/api/quality/capas?status=${filter.value}`)
     if (tab.value === 'incoming') rows.value = await api('/api/quality/incoming')
     if (tab.value === 'suppliers') scores.value = await api('/api/quality/suppliers')
+    if (tab.value === 'workflows') flows.value = await api('/api/quality/workflows')
     if (tab.value === 'spc') { params.value = await api('/api/quality/spc/parameters'); if (!pick.value && params.value[0]) pick.value = params.value[0] }
   } catch (e) { error.value = e.message }
 }
@@ -53,7 +56,7 @@ async function draftInspection(x) {
     router.push('/drafts')
   } catch (e) { error.value = e.message }
 }
-const TABS = { ncrs: 'Nonconformances', capas: 'Corrective actions', incoming: 'Incoming inspection', suppliers: 'Supplier quality', spc: 'SPC' }
+const TABS = { ncrs: 'Nonconformances', capas: 'Corrective actions', incoming: 'Incoming inspection', suppliers: 'Supplier quality', spc: 'SPC', workflows: 'Workflows' }
 const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
 </script>
 
@@ -162,5 +165,10 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
         </div>
       </template>
     </template>
+  </template>
+  <template v-if="tab === 'workflows' && flows">
+    <p class="wq-muted mb-4 max-w-3xl">How nonconformance reports and corrective actions move, step by step. The workflow is configuration: these
+      are the rules WenQuest Ops checks before every step. Signing, approval by someone else and the record history cannot be switched off.</p>
+    <Workflow v-for="(d, k) in flows" :key="k" :data="d" />
   </template>
 </template>

@@ -102,7 +102,8 @@ def roles(b: Browser, people: list[dict]) -> None:
         nav = s.page.locator('nav[aria-label="Main"] a').all_inner_texts()
         check(("Quality" in nav) == ("quality:view" in perms), f"{u['email']}: Quality in the menu only if allowed")
         for path in ["/", "/assistant", "/anomalies", "/objects", "/drafts", "/help", "/documents"] + \
-                (["/quality", "/quality?tab=incoming", "/quality?tab=suppliers", "/quality?tab=spc"]
+                (["/quality", "/quality?tab=incoming", "/quality?tab=suppliers", "/quality?tab=spc",
+                  "/quality?tab=workflows"]
                  if "quality:view" in perms else []):
             try:
                 s.go(path, "h1, main .help-nav")
