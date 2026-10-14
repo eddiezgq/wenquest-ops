@@ -19,7 +19,7 @@ import './style.css'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: Dashboard, meta: { title: 'Dashboard', frappe: true } },
+    { path: '/', component: Dashboard, meta: { title: 'Dashboard' } },
     { path: '/objects', component: Objects, meta: { title: 'Objects' } },
     { path: '/o/:type/:key(.*)', component: ObjectPage, meta: { title: 'Object' } },
     { path: '/anomalies', component: Anomalies, meta: { title: 'Anomalies' } },

@@ -3,6 +3,10 @@
 // actions, signatures and history.
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Badge, Button } from 'frappe-ui'
+import PageTop from '../ui/PageTop.vue'
+import Trail from '../ui/Trail.vue'
+import { STATUS } from '../ui/themes'
 import { api, objectPath } from '../api'
 import { ago, fmt } from '../format'
 
@@ -38,80 +42,97 @@ async function newCapa() {
   } catch (e) { error.value = e.message }
 }
 watch(() => route.params.id, load, { immediate: true })
-const label = (s) => s.replace('_', ' ')
+const label = (s) => s.replaceAll('_', ' ')
 </script>
 
 <template>
-  <p v-if="error" class="err">{{ error }}</p>
+  <PageTop :title="n ? `${n.name} ${n.title}` : 'Nonconformance'" :crumbs="[{ label: 'Quality', to: '/quality?tab=ncrs' }]">
+    <template v-if="n">
+      <Badge :theme="n.severity === 'major' ? 'red' : 'gray'" variant="outline" :label="n.severity" size="lg" />
+      <Badge :theme="STATUS[n.status] || 'gray'" :label="label(n.status)" size="lg" />
+    </template>
+  </PageTop>
+  <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <template v-if="n">
-    <p class="muted small"><RouterLink to="/quality?tab=ncrs">Nonconformances</RouterLink> · <RouterLink :to="objectPath('Nonconformance', n.name)">object page</RouterLink></p>
-    <h1>{{ n.name }} {{ n.title }} <span class="tag">{{ label(n.status) }}</span> <span class="tag">{{ n.severity }}</span></h1>
-    <p>{{ n.description }}</p>
-    <table class="props">
-      <tr v-if="n.item_code"><th>Item</th><td><RouterLink :to="objectPath('Item', n.item_code)">{{ n.item_code }}</RouterLink></td></tr>
-      <tr v-if="n.supplier"><th>Supplier</th><td><RouterLink :to="objectPath('Supplier', n.supplier)">{{ n.supplier }}</RouterLink></td></tr>
-      <tr v-if="n.receipt"><th>Receipt</th><td><RouterLink :to="objectPath('PurchaseReceipt', n.receipt)">{{ n.receipt }}</RouterLink></td></tr>
-      <tr v-if="n.inspection"><th>Inspection</th><td><RouterLink :to="objectPath('QualityInspection', n.inspection)">{{ n.inspection }}</RouterLink></td></tr>
-      <tr v-if="n.quantity !== null"><th>Quantity</th><td>{{ fmt(n.quantity) }}</td></tr>
-      <tr><th>Owner</th><td>{{ n.owner || 'not assigned' }} <span class="muted small">(opened by {{ n.created_by }})</span></td></tr>
-      <tr v-if="n.containment"><th>Containment</th><td>{{ n.containment }}</td></tr>
-      <tr v-if="n.disposition"><th>Disposition</th><td>{{ n.dispositions[n.disposition]?.name }}, {{ fmt(n.disposition_qty) }} — {{ n.disposition_reason }}
-        <span class="muted small">(submitted by {{ n.disposition_by }}<template v-if="n.approved_by">, approved by {{ n.approved_by }}</template>)</span></td></tr>
-      <tr v-if="n.cancel_reason"><th>Cancelled because</th><td>{{ n.cancel_reason }}</td></tr>
-    </table>
+    <div class="grid gap-6 lg:grid-cols-[3fr_2fr]">
+      <section class="wq-panel p-5">
+        <p class="text-p-base text-ink-gray-9">{{ n.description }}</p>
+        <dl class="wq-dl mt-4">
+          <template v-if="n.item_code"><dt>Item</dt><dd><RouterLink :to="objectPath('Item', n.item_code)" class="wq-link">{{ n.item_code }}</RouterLink></dd></template>
+          <template v-if="n.supplier"><dt>Supplier</dt><dd><RouterLink :to="objectPath('Supplier', n.supplier)" class="wq-link">{{ n.supplier }}</RouterLink></dd></template>
+          <template v-if="n.receipt"><dt>Receipt</dt><dd><RouterLink :to="objectPath('PurchaseReceipt', n.receipt)" class="wq-link">{{ n.receipt }}</RouterLink></dd></template>
+          <template v-if="n.inspection"><dt>Inspection</dt><dd><RouterLink :to="objectPath('QualityInspection', n.inspection)" class="wq-link">{{ n.inspection }}</RouterLink></dd></template>
+          <template v-if="n.quantity !== null"><dt>Quantity</dt><dd>{{ fmt(n.quantity) }}</dd></template>
+          <dt>Owner</dt><dd>{{ n.owner || 'not assigned' }} <span class="text-sm text-ink-gray-5">(opened by {{ n.created_by }})</span></dd>
+          <template v-if="n.containment"><dt>Containment</dt><dd>{{ n.containment }}</dd></template>
+          <template v-if="n.disposition"><dt>Disposition</dt><dd>{{ n.dispositions[n.disposition]?.name }}, {{ fmt(n.disposition_qty) }} — {{ n.disposition_reason }}
+            <span class="text-sm text-ink-gray-5">(submitted by {{ n.disposition_by }}<template v-if="n.approved_by">, approved by {{ n.approved_by }}</template>)</span></dd></template>
+          <template v-if="n.cancel_reason"><dt>Cancelled because</dt><dd>{{ n.cancel_reason }}</dd></template>
+        </dl>
+        <p class="mt-4 text-sm"><RouterLink :to="objectPath('Nonconformance', n.name)" class="wq-link">Object page and links</RouterLink></p>
+      </section>
 
-    <div v-if="canEdit && !['closed', 'cancelled'].includes(n.status)" class="card">
-      <template v-if="n.status === 'open'">
-        <h3>Contain</h3><p class="small muted">What was done so bad parts go no further?</p>
-        <div class="actions"><input v-model="f.containment" placeholder="e.g. lot moved to QC Hold, open orders checked"><button @click="step('contain', { containment: f.containment })">Save containment</button></div>
-      </template>
-      <template v-if="n.status === 'contained'">
-        <h3>Disposition</h3>
-        <div class="actions"><select v-model="f.disposition"><option value="" disabled>Type</option>
-          <option v-for="[k, t] in activeTypes" :key="k" :value="k">{{ t.name }}{{ t.requires_approval ? ' (needs approval)' : '' }}</option></select>
-          <input v-model="f.quantity" type="number" min="0" step="any" placeholder="Quantity" style="max-width:8rem">
-          <input v-model="f.reason" placeholder="Reason">
-          <button @click="step('disposition', { disposition: f.disposition, quantity: f.quantity === '' ? null : Number(f.quantity), reason: f.reason })">Submit disposition</button></div>
-      </template>
-      <template v-if="n.status === 'pending_approval'">
-        <h3>Approve the disposition</h3>
-        <p v-if="n.disposition_by === me" class="muted small">You submitted it; someone else must approve it.</p>
-        <div v-else class="actions"><input v-model="f.password" type="password" placeholder="Your password to sign" autocomplete="current-password">
-          <button @click="step('approve', { password: f.password })">Approve (sign)</button>
-          <input v-model="f.reason" placeholder="Reason, if not approving"><button @click="step('reject-disposition', { reason: f.reason })">Not approved</button></div>
-      </template>
-      <template v-if="n.status === 'dispositioned'">
-        <h3>Close</h3><p v-if="n.severity === 'major'" class="small muted">A major report closes when a linked corrective action is closed.</p>
-        <div class="actions"><input v-model="f.note" placeholder="Closing note"><input v-model="f.password" type="password" placeholder="Your password to sign" autocomplete="current-password">
-          <button @click="step('close', { note: f.note, password: f.password })">Close (sign)</button></div>
-      </template>
-      <div class="actions"><input v-model="f.cancel" placeholder="Reason to cancel"><button @click="step('cancel', { reason: f.cancel })">Cancel the report</button></div>
+      <section v-if="canEdit && !['closed', 'cancelled'].includes(n.status)" class="wq-panel h-fit p-5">
+        <template v-if="n.status === 'open'">
+          <h3 class="text-base font-semibold text-ink-gray-9">Contain</h3><p class="wq-muted mt-1">What was done so bad parts go no further?</p>
+          <div class="mt-3 grid gap-2"><input v-model="f.containment" class="wq-input" placeholder="e.g. lot moved to QC Hold, open orders checked">
+            <div><Button variant="solid" label="Save containment" @click="step('contain', { containment: f.containment })" /></div></div>
+        </template>
+        <template v-if="n.status === 'contained'">
+          <h3 class="text-base font-semibold text-ink-gray-9">Disposition</h3>
+          <div class="mt-3 grid gap-2"><select v-model="f.disposition" class="wq-select"><option value="" disabled>Type</option>
+            <option v-for="[k, t] in activeTypes" :key="k" :value="k">{{ t.name }}{{ t.requires_approval ? ' (needs approval)' : '' }}</option></select>
+            <input v-model="f.quantity" class="wq-input" type="number" min="0" step="any" placeholder="Quantity">
+            <input v-model="f.reason" class="wq-input" placeholder="Reason">
+            <div><Button variant="solid" label="Submit disposition" @click="step('disposition', { disposition: f.disposition, quantity: f.quantity === '' ? null : Number(f.quantity), reason: f.reason })" /></div></div>
+        </template>
+        <template v-if="n.status === 'pending_approval'">
+          <h3 class="text-base font-semibold text-ink-gray-9">Approve the disposition</h3>
+          <p v-if="n.disposition_by === me" class="wq-muted mt-1">You submitted it; someone else must approve it.</p>
+          <div v-else class="mt-3 grid gap-2"><input v-model="f.password" class="wq-input" type="password" placeholder="Your password to sign" autocomplete="current-password">
+            <div><Button variant="solid" icon-left="lucide-pen-line" label="Approve (sign)" @click="step('approve', { password: f.password })" /></div>
+            <input v-model="f.reason" class="wq-input mt-2" placeholder="Reason, if not approving"><div><Button label="Not approved" @click="step('reject-disposition', { reason: f.reason })" /></div></div>
+        </template>
+        <template v-if="n.status === 'dispositioned'">
+          <h3 class="text-base font-semibold text-ink-gray-9">Close</h3><p v-if="n.severity === 'major'" class="wq-muted mt-1">A major report closes when a linked corrective action is closed.</p>
+          <div class="mt-3 grid gap-2"><input v-model="f.note" class="wq-input" placeholder="Closing note"><input v-model="f.password" class="wq-input" type="password" placeholder="Your password to sign" autocomplete="current-password">
+            <div><Button variant="solid" icon-left="lucide-pen-line" label="Close (sign)" @click="step('close', { note: f.note, password: f.password })" /></div></div>
+        </template>
+        <div class="mt-5 flex gap-2 border-t border-outline-gray-1 pt-4"><input v-model="f.cancel" class="wq-input flex-1" placeholder="Reason to cancel">
+          <Button theme="red" label="Cancel the report" @click="step('cancel', { reason: f.cancel })" /></div>
+      </section>
     </div>
 
-    <h2>8D <span v-if="n.eightd?.complete" class="tag">complete</span></h2>
-    <div class="eightd">
-      <label v-for="(lbl, k) in n.sections" :key="k">{{ lbl }}
-        <textarea v-model="eight[k]" :disabled="!canEdit || n.eightd?.complete || ['closed', 'cancelled'].includes(n.status)" rows="2"></textarea></label>
-    </div>
-    <div class="actions" v-if="canEdit && !n.eightd?.complete && !['closed', 'cancelled'].includes(n.status)">
-      <button @click="step('8d', { sections: eight })">Save 8D</button>
-      <input v-model="f.password" type="password" placeholder="Your password to sign" autocomplete="current-password" style="max-width:14rem">
-      <button @click="step('8d-complete', { password: f.password })">Mark 8D complete (sign)</button>
+    <h2 class="wq-h2 mt-8 flex items-center gap-2">8D <Badge v-if="n.eightd?.complete" theme="green" label="complete" /></h2>
+    <div class="wq-panel p-5">
+      <div class="grid gap-4 md:grid-cols-2">
+        <label v-for="(lbl, k) in n.sections" :key="k" class="wq-field">{{ lbl }}
+          <textarea v-model="eight[k]" class="wq-textarea" :disabled="!canEdit || n.eightd?.complete || ['closed', 'cancelled'].includes(n.status)" rows="2"></textarea></label>
+      </div>
+      <div v-if="canEdit && !n.eightd?.complete && !['closed', 'cancelled'].includes(n.status)" class="mt-4 flex flex-wrap items-center gap-2 border-t border-outline-gray-1 pt-4">
+        <Button label="Save 8D" @click="step('8d', { sections: eight })" />
+        <input v-model="f.password" class="wq-input max-w-56" type="password" placeholder="Your password to sign" autocomplete="current-password">
+        <Button variant="solid" icon-left="lucide-pen-line" label="Mark 8D complete (sign)" @click="step('8d-complete', { password: f.password })" />
+      </div>
     </div>
 
-    <h2>Corrective and preventive actions</h2>
-    <ul class="list"><li v-for="c in n.capas" :key="c.id"><RouterLink :to="`/quality/capa/${c.id}`">{{ c.name }} {{ c.title }}</RouterLink> — {{ c.kind }}, {{ label(c.status) }}</li></ul>
-    <form v-if="canEdit && !['closed', 'cancelled'].includes(n.status)" class="actions" @submit.prevent="newCapa">
-      <select v-model="capa.kind"><option value="corrective">Corrective</option><option value="preventive">Preventive</option></select>
-      <input v-model="capa.title" placeholder="Title" required><input v-model="capa.description" placeholder="Problem">
-      <select v-model="capa.risk"><option value="low">Low risk</option><option value="medium">Medium risk</option><option value="high">High risk</option></select>
-      <button>Open corrective action</button>
+    <h2 class="wq-h2 mt-8">Corrective and preventive actions</h2>
+    <ul v-if="n.capas.length" class="wq-panel mb-3 divide-y divide-outline-gray-1">
+      <li v-for="c in n.capas" :key="c.id" class="flex items-center gap-3 px-4 py-2.5">
+        <RouterLink :to="`/quality/capa/${c.id}`" class="font-medium text-ink-gray-9 hover:underline">{{ c.name }} {{ c.title }}</RouterLink>
+        <span class="text-sm capitalize text-ink-gray-5">{{ c.kind }}</span>
+        <Badge :theme="STATUS[c.status] || 'gray'" :label="label(c.status)" class="ms-auto" /></li>
+    </ul>
+    <form v-if="canEdit && !['closed', 'cancelled'].includes(n.status)" class="flex flex-wrap gap-2" @submit.prevent="newCapa">
+      <select v-model="capa.kind" class="wq-select"><option value="corrective">Corrective</option><option value="preventive">Preventive</option></select>
+      <input v-model="capa.title" class="wq-input max-w-64" placeholder="Title" required><input v-model="capa.description" class="wq-input max-w-80" placeholder="Problem">
+      <select v-model="capa.risk" class="wq-select"><option value="low">Low risk</option><option value="medium">Medium risk</option><option value="high">High risk</option></select>
+      <Button type="submit" icon-left="lucide-plus" label="Open corrective action" />
     </form>
 
-    <h2>Signatures</h2>
-    <p v-if="!n.signatures.length" class="muted small">None yet.</p>
-    <ul class="list small"><li v-for="(s, i) in n.signatures" :key="i">{{ s.meaning }} — {{ s.name }} ({{ s.email }}), {{ ago(s.at) }}</li></ul>
-    <h2>History</h2>
-    <ul class="list small"><li v-for="(h, i) in n.history" :key="i">{{ ago(h.at) }} — <b>{{ h.action }}</b> {{ h.email }} <span class="muted">{{ h.note }}</span></li></ul>
+    <h2 class="wq-h2 mt-8">Signatures</h2>
+    <Trail :items="n.signatures" kind="signatures" />
+    <h2 class="wq-h2 mt-8">History</h2>
+    <Trail :items="n.history" />
   </template>
 </template>

@@ -1,6 +1,6 @@
 <script setup>
-// The app frame (ADR-0013): Frappe's desktop shell with a sidebar like ERPNext's. Pages put their own PageHeader;
-// pages not yet moved to frappe-ui (13b) keep their own heading and old styles inside `.legacy`.
+// The app frame (ADR-0013): Frappe's desktop shell with a sidebar like ERPNext's. Each page puts its own header
+// (ui/PageTop.vue).
 import { computed, onMounted, provide, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
@@ -47,7 +47,6 @@ const menu = computed(() => [
   { label: 'Take the guided tour', icon: 'lucide-map', onClick: startTour },
   { label: 'Sign out', icon: 'lucide-log-out', onClick: signOut },
 ])
-const legacy = computed(() => !route.meta.frappe)
 </script>
 
 <template>
@@ -81,7 +80,7 @@ const legacy = computed(() => !route.meta.frappe)
         </Sidebar>
       </template>
 
-      <main class="page" :class="{ legacy }">
+      <main class="page">
         <RouterView />
       </main>
       <Tour v-if="touring" :permissions="ws.user.permissions" @done="tourDone" />

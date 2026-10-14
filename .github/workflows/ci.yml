@@ -1,6 +1,6 @@
 name: CI
 
-# Private repository: Actions minutes are billed (same approach as freecad-ai-parts ADR-0067).
+# Public since 2026-10-14 (Actions minutes no longer billed); the heavy install job still runs only when needed.
 # Lint and unit tests run on every push; the full install runs when deployment files change, nightly when main has
 # new commits, on manual runs, or with the PR label full-ci.
 on:

@@ -3,6 +3,8 @@
 import { computed, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import MarkdownIt from 'markdown-it'
+import { Button } from 'frappe-ui'
+import PageTop from '../ui/PageTop.vue'
 
 const pages = import.meta.glob('../help/*.md', { query: '?raw', import: 'default', eager: true })
 // screenshots recorded by CI on the demo company (ADR-0012 item 7), referenced in the pages as img/<name>.webp
@@ -31,11 +33,16 @@ function click(e) {
 </script>
 
 <template>
-  <div class="help">
-    <nav class="help-nav">
-      <RouterLink v-for="p in list" :key="p.slug" :to="`/help/${p.slug}`" :class="{ on: p.slug === page.slug }">{{ p.title }}</RouterLink>
-      <a href="#" @click.prevent="tour()">Take the guided tour</a>
+  <PageTop :title="page.title" :crumbs="[{ label: 'Help', to: '/help' }]">
+    <Button icon-left="lucide-map" label="Take the guided tour" @click="tour()" />
+  </PageTop>
+  <div class="help grid gap-8 md:grid-cols-[13rem_1fr]">
+    <nav class="help-nav flex flex-col gap-0.5">
+      <RouterLink v-for="p in list" :key="p.slug" :to="`/help/${p.slug}`"
+                  class="rounded-4 px-2.5 py-1.5 text-base"
+                  :class="p.slug === page.slug ? 'bg-surface-gray-3 font-medium text-ink-gray-9' : 'text-ink-gray-6 hover:bg-surface-gray-2'">{{ p.title }}</RouterLink>
     </nav>
-    <article class="card prose" v-html="html" @click="click"></article>
+    <article class="prose prose-sm max-w-3xl [&>h1:first-child]:hidden text-ink-gray-8 prose-headings:text-ink-gray-9 prose-a:text-ink-gray-9 prose-img:rounded-5 prose-img:border prose-img:border-outline-gray-2"
+             v-html="html" @click="click"></article>
   </div>
 </template>

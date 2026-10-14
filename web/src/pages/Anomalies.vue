@@ -1,5 +1,8 @@
 <script setup>
 import { ref, watch } from 'vue'
+import { Badge } from 'frappe-ui'
+import PageTop from '../ui/PageTop.vue'
+import { SEV, STATUS } from '../ui/themes'
 import { api, objectPath } from '../api'
 import { ago } from '../format'
 
@@ -13,25 +16,27 @@ watch(status, load, { immediate: true })
 </script>
 
 <template>
-  <div class="head">
-    <h1>Anomalies</h1>
-    <label class="muted">Show <select v-model="status">
+  <PageTop title="Anomalies">
+    <select v-model="status" class="wq-select" aria-label="Show">
       <option value="active">Active</option><option value="resolved">Resolved</option>
-      <option value="closed">Closed</option><option value="all">All</option></select></label>
+      <option value="closed">Closed</option><option value="all">All</option></select>
+  </PageTop>
+  <p v-if="error" class="wq-error">{{ error }}</p>
+  <p v-if="!rows.length" class="wq-muted">None.</p>
+  <div v-else class="wq-panel overflow-x-auto">
+    <table class="wq-table">
+      <thead><tr><th class="w-24">Severity</th><th>What</th><th>Rule</th><th>About</th><th>Status</th><th>Since</th></tr></thead>
+      <tbody>
+        <tr v-for="a in rows" :key="a.id">
+          <td><Badge :theme="SEV[a.severity]" :label="a.severity" class="capitalize" /></td>
+          <td><RouterLink :to="`/anomalies/${a.id}`" class="font-medium text-ink-gray-9 hover:underline">{{ a.title }}</RouterLink>
+            <div class="mt-0.5 text-sm text-ink-gray-5">{{ a.detail }}</div></td>
+          <td class="text-sm text-ink-gray-6">{{ a.rule_name }}</td>
+          <td class="text-sm"><RouterLink :to="objectPath(...a.subject)" class="wq-link">{{ a.subject[1] }}</RouterLink></td>
+          <td><Badge :theme="STATUS[a.status] || 'gray'" :label="a.status" variant="outline" /></td>
+          <td class="whitespace-nowrap text-sm text-ink-gray-5">{{ ago(a.first_seen) }}</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
-  <p v-if="error" class="err">{{ error }}</p>
-  <p v-if="!rows.length" class="muted">None.</p>
-  <table v-else class="grid">
-    <thead><tr><th>Severity</th><th>What</th><th>Rule</th><th>About</th><th>Status</th><th>Since</th></tr></thead>
-    <tbody>
-      <tr v-for="a in rows" :key="a.id" :class="a.severity">
-        <td><span class="sev">{{ a.severity }}</span></td>
-        <td><RouterLink :to="`/anomalies/${a.id}`">{{ a.title }}</RouterLink><div class="muted small">{{ a.detail }}</div></td>
-        <td class="small">{{ a.rule_name }}</td>
-        <td class="small"><RouterLink :to="objectPath(...a.subject)">{{ a.subject[1] }}</RouterLink></td>
-        <td>{{ a.status }}</td>
-        <td class="small">{{ ago(a.first_seen) }}</td>
-      </tr>
-    </tbody>
-  </table>
 </template>

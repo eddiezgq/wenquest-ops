@@ -44,7 +44,7 @@ watch(i, place, { immediate: true })
 </script>
 
 <template>
-  <div class="tour rounded-lg border border-outline-gray-2 bg-surface-base p-4 shadow-xl" role="dialog" aria-live="polite"
+  <div class="tour rounded-5 border border-outline-gray-2 bg-surface-base p-4 shadow-xl" role="dialog" aria-live="polite"
        :style="{ top: box.top + 'px', left: box.left + 'px' }">
     <p class="text-xs font-medium uppercase tracking-wide text-ink-gray-5">Step {{ i + 1 }} of {{ steps.length }}</p>
     <h3 class="mt-1 text-base font-semibold text-ink-gray-9">{{ steps[i].title }}</h3>

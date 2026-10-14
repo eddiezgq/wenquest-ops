@@ -1,7 +1,9 @@
 <script setup>
 // The dashboard in Frappe's design (ADR-0013, 13a). Same numbers and lists as before; only the look changed.
 import { onMounted, ref, watch } from 'vue'
-import { Badge, PageHeader, PageHeaderTitle, Select, Tooltip } from 'frappe-ui'
+import { Badge, Select, Tooltip } from 'frappe-ui'
+import PageTop from '../ui/PageTop.vue'
+import { SEV } from '../ui/themes'
 import { api, objectPath } from '../api'
 import { fmt } from '../format'
 import Trend from '../components/Trend.vue'
@@ -28,22 +30,18 @@ onMounted(load)
 watch(days, load)
 
 const unitOf = { on_time_delivery: '%', supplier_on_time: '%', open_nonconformances: '' }
-const SEV = { critical: 'red', warn: 'amber', info: 'blue' }
 const valueUnit = (m) => (['items', 'inspections', 'open'].includes(m.unit) ? '' : m.unit)
 </script>
 
 <template>
-  <PageHeader>
-    <PageHeaderTitle><h1 class="text-lg font-semibold text-ink-gray-9">Dashboard</h1></PageHeaderTitle>
-    <div class="flex items-center gap-3">
-      <span v-if="data" class="hidden text-sm text-ink-gray-5 sm:inline">As of {{ data.as_of }}</span>
-      <Select v-model="days" :options="PERIODS" class="w-36" />
-    </div>
-  </PageHeader>
+  <PageTop title="Dashboard">
+    <span v-if="data" class="hidden text-sm text-ink-gray-5 sm:inline">As of {{ data.as_of }}</span>
+    <Select v-model="days" :options="PERIODS" class="w-36" />
+  </PageTop>
 
-  <p v-if="error" class="mb-4 text-base text-ink-red-7">{{ error }}</p>
+  <p v-if="error" class="wq-error mb-4">{{ error }}</p>
 
-  <section v-if="brief" class="brief mb-5 rounded-lg border border-outline-gray-2 bg-surface-gray-1 p-4">
+  <section v-if="brief" class="brief mb-5 rounded-5 border border-outline-gray-2 bg-surface-gray-1 p-4">
     <div class="mb-2 flex items-center gap-2">
       <span class="lucide-sun size-4 text-ink-amber-6" />
       <h2 class="text-base font-semibold text-ink-gray-9">Daily brief</h2>
@@ -56,7 +54,7 @@ const valueUnit = (m) => (['items', 'inspections', 'open'].includes(m.unit) ? ''
     <p class="mb-3 text-sm text-ink-gray-5">Hover a number to see how it is counted.</p>
     <section class="cards grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <article v-for="m in data.metrics" :key="m.name"
-               class="flex flex-col rounded-lg border border-outline-gray-2 bg-surface-base p-4">
+               class="flex flex-col rounded-5 border border-outline-gray-2 bg-surface-base p-4">
         <h3 class="text-sm font-medium text-ink-gray-5">{{ m.label }}</h3>
         <Tooltip :text="m.definition" side="bottom">
           <p class="mt-1 w-fit cursor-help text-3xl font-semibold tracking-tight text-ink-gray-9">
@@ -104,7 +102,7 @@ const valueUnit = (m) => (['items', 'inspections', 'open'].includes(m.unit) ? ''
         <RouterLink to="/anomalies" class="text-sm text-ink-gray-5 hover:text-ink-gray-8">All anomalies →</RouterLink>
       </div>
       <p v-if="!active.length" class="text-base text-ink-gray-5">No open anomalies.</p>
-      <ul v-else class="anoms divide-y divide-outline-gray-1 rounded-lg border border-outline-gray-2">
+      <ul v-else class="anoms divide-y divide-outline-gray-1 rounded-5 border border-outline-gray-2">
         <li v-for="a in active.slice(0, 8)" :key="a.id" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
           <Badge :theme="SEV[a.severity] || 'gray'" :label="a.severity" class="w-16 justify-center capitalize" />
           <RouterLink :to="`/anomalies/${a.id}`" class="text-base text-ink-gray-8 hover:underline">{{ a.title }}</RouterLink>

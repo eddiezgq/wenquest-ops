@@ -3,6 +3,9 @@
 // check, closed (signed by someone other than the owner) or cancelled.
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { Badge, Button } from 'frappe-ui'
+import PageTop from '../ui/PageTop.vue'
+import Trail from '../ui/Trail.vue'
 import { api } from '../api'
 import { ago } from '../format'
 
@@ -37,52 +40,75 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
 </script>
 
 <template>
-  <p v-if="error" class="err">{{ error }}</p>
+  <PageTop :title="c ? `${c.name} ${c.title}` : 'Corrective action'" :crumbs="[{ label: 'Quality', to: '/quality?tab=capas' }]">
+    <template v-if="c">
+      <Badge :label="c.kind" variant="outline" size="lg" class="capitalize" />
+      <Badge v-if="c.risk" :theme="c.risk === 'high' ? 'red' : c.risk === 'medium' ? 'amber' : 'gray'" :label="`${c.risk} risk`" size="lg" />
+    </template>
+  </PageTop>
+  <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <template v-if="c">
-    <p class="muted small"><RouterLink to="/quality?tab=capas">Corrective actions</RouterLink></p>
-    <h1>{{ c.name }} {{ c.title }} <span class="tag">{{ c.kind }}</span> <span class="tag" v-if="c.risk">{{ c.risk }} risk</span></h1>
-    <nav class="stages"><span v-for="s in STAGES" :key="s" :class="{ on: c.status === s, done: STAGES.indexOf(s) < STAGES.indexOf(c.status) }">{{ s.replace('_', ' ') }}</span>
-      <span v-if="c.status === 'cancelled'" class="on">cancelled</span></nav>
-    <p v-if="c.ncrs.length">For <template v-for="(x, i) in c.ncrs" :key="x.id"><span v-if="i">, </span><RouterLink :to="`/quality/ncr/${x.id}`">{{ x.name }} {{ x.title }}</RouterLink></template></p>
-    <table class="props">
-      <tr v-for="k in ['description', 'owner', 'containment', 'root_cause']" :key="k" v-show="c[k]"><th>{{ LABELS[k] }}</th><td>{{ c[k] }}</td></tr>
-      <tr v-if="c.verification_result"><th>Effectiveness</th><td>{{ c.verification_result }} — {{ c.verification_method }} ({{ c.verified_by }})</td></tr>
-      <tr v-if="c.cancel_reason"><th>Cancelled because</th><td>{{ c.cancel_reason }}</td></tr>
-    </table>
-
-    <form v-if="canEdit && FIELDS[c.status]" class="card form" @submit.prevent="step('update', edit)">
-      <label v-for="k in FIELDS[c.status]" :key="k" class="small muted">{{ LABELS[k] }}
-        <select v-if="k === 'risk'" v-model="edit.risk"><option value="">—</option><option>low</option><option>medium</option><option>high</option></select>
-        <textarea v-else-if="['description', 'containment', 'root_cause'].includes(k)" v-model="edit[k]" rows="2"></textarea>
-        <input v-else v-model="edit[k]"></label>
-      <div class="actions"><button>Save</button><button type="button" @click="step(NEXT[c.status][0])">{{ NEXT[c.status][1] }}</button></div>
-    </form>
-
-    <h2>Actions</h2>
-    <table class="grid"><thead><tr><th>Kind</th><th>Action</th><th>Owner</th><th>Due</th><th>Done</th></tr></thead>
-      <tbody><tr v-for="a in c.actions" :key="a.id" :class="{ warn: !a.done && a.due && a.due < today }">
-        <td class="small">{{ a.kind }}</td><td>{{ a.text }}</td><td class="small">{{ a.owner }}</td><td class="small">{{ a.due }}</td>
-        <td><template v-if="a.done">✓ {{ a.done_by }} <div class="muted small">{{ a.evidence }}</div></template>
-          <div v-else-if="(canEdit || a.owner === me) && ['investigation', 'implementation'].includes(c.status)" class="row">
-            <input v-model="evidence[a.id]" placeholder="Evidence"><button @click="step('action-done', { action_id: a.id, evidence: evidence[a.id] })">Done</button></div></td></tr></tbody></table>
-    <form v-if="canEdit && ['draft', 'investigation', 'implementation'].includes(c.status)" class="actions" @submit.prevent="step('action', add); add = { text: '', owner: '', due: '', kind: 'corrective' }">
-      <select v-model="add.kind"><option value="correction">Correction</option><option value="corrective">Corrective</option><option value="preventive">Preventive</option></select>
-      <input v-model="add.text" placeholder="New action" required><input v-model="add.owner" placeholder="Owner email"><input v-model="add.due" type="date" :min="today"><button>Add</button></form>
-
-    <div v-if="canEdit && c.status === 'effectiveness'" class="card">
-      <h3>Effectiveness check</h3>
-      <p v-if="c.owner === me" class="muted small">You own this action; someone else must close it as effective.</p>
-      <div class="actions"><input v-model="check.evidence" placeholder="Evidence: data and period checked">
-        <input v-if="c.owner !== me" v-model="check.password" type="password" placeholder="Your password to sign" autocomplete="current-password">
-        <button v-if="c.owner !== me" @click="step('effectiveness', { result: 'effective', ...check })">Effective — close (sign)</button>
-        <button @click="step('effectiveness', { result: 'ineffective', evidence: check.evidence })">Not effective — back to implementation</button></div>
+    <ol class="stages mb-6 flex flex-wrap items-center gap-1">
+      <template v-for="(s, i) in STAGES" :key="s">
+        <li class="flex items-center gap-1.5 rounded-full px-3 py-1 text-sm capitalize"
+            :class="c.status === s ? 'bg-surface-gray-7 font-medium text-ink-base' : STAGES.indexOf(s) < STAGES.indexOf(c.status) ? 'bg-surface-gray-2 text-ink-gray-8' : 'text-ink-gray-4'">
+          <span v-if="STAGES.indexOf(s) < STAGES.indexOf(c.status)" class="lucide-check size-3.5" />{{ s }}</li>
+        <span v-if="i < STAGES.length - 1" class="lucide-chevron-right size-3.5 text-ink-gray-4" />
+      </template>
+      <li v-if="c.status === 'cancelled'" class="ms-2 rounded-full bg-surface-red-2 px-3 py-1 text-sm text-ink-red-7">cancelled</li>
+    </ol>
+    <div class="grid gap-6 lg:grid-cols-[3fr_2fr]">
+      <section class="wq-panel p-5">
+        <p v-if="c.ncrs.length" class="mb-3 text-sm text-ink-gray-6">For <template v-for="(x, i) in c.ncrs" :key="x.id"><span v-if="i">, </span><RouterLink :to="`/quality/ncr/${x.id}`" class="wq-link">{{ x.name }} {{ x.title }}</RouterLink></template></p>
+        <dl class="wq-dl">
+          <template v-for="k in ['description', 'owner', 'containment', 'root_cause']" :key="k"><template v-if="c[k]"><dt>{{ LABELS[k] }}</dt><dd>{{ c[k] }}</dd></template></template>
+          <template v-if="c.verification_result"><dt>Effectiveness</dt><dd>{{ c.verification_result }} — {{ c.verification_method }} ({{ c.verified_by }})</dd></template>
+          <template v-if="c.cancel_reason"><dt>Cancelled because</dt><dd>{{ c.cancel_reason }}</dd></template>
+        </dl>
+      </section>
+      <form v-if="canEdit && FIELDS[c.status]" class="form wq-panel grid h-fit gap-3 p-5" @submit.prevent="step('update', edit)">
+        <label v-for="k in FIELDS[c.status]" :key="k" class="wq-field">{{ LABELS[k] }}
+          <select v-if="k === 'risk'" v-model="edit.risk" class="wq-select"><option value="">—</option><option>low</option><option>medium</option><option>high</option></select>
+          <textarea v-else-if="['description', 'containment', 'root_cause'].includes(k)" v-model="edit[k]" class="wq-textarea" rows="2"></textarea>
+          <input v-else v-model="edit[k]" class="wq-input"></label>
+        <div class="flex flex-wrap gap-2"><Button type="submit" label="Save" /><Button variant="solid" :label="NEXT[c.status][1]" @click="step(NEXT[c.status][0])" /></div>
+      </form>
+      <section v-if="canEdit && c.status === 'effectiveness'" class="wq-panel grid h-fit gap-2 p-5">
+        <h3 class="text-base font-semibold text-ink-gray-9">Effectiveness check</h3>
+        <p v-if="c.owner === me" class="wq-muted">You own this action; someone else must close it as effective.</p>
+        <input v-model="check.evidence" class="wq-input" placeholder="Evidence: data and period checked">
+        <input v-if="c.owner !== me" v-model="check.password" class="wq-input" type="password" placeholder="Your password to sign" autocomplete="current-password">
+        <div class="flex flex-wrap gap-2">
+          <Button v-if="c.owner !== me" variant="solid" icon-left="lucide-pen-line" label="Effective — close (sign)" @click="step('effectiveness', { result: 'effective', ...check })" />
+          <Button label="Not effective — back to implementation" @click="step('effectiveness', { result: 'ineffective', evidence: check.evidence })" /></div>
+      </section>
     </div>
-    <div v-if="canEdit && !['closed', 'cancelled'].includes(c.status)" class="actions"><input v-model="cancel" placeholder="Reason to cancel"><button @click="step('cancel', { reason: cancel })">Cancel</button></div>
 
-    <h2>Signatures</h2>
-    <p v-if="!c.signatures.length" class="muted small">None yet.</p>
-    <ul class="list small"><li v-for="(s, i) in c.signatures" :key="i">{{ s.meaning }} — {{ s.name }} ({{ s.email }}), {{ ago(s.at) }}</li></ul>
-    <h2>History</h2>
-    <ul class="list small"><li v-for="(h, i) in c.history" :key="i">{{ ago(h.at) }} — <b>{{ h.action }}</b> {{ h.email }} <span class="muted">{{ h.note }}</span></li></ul>
+    <h2 class="wq-h2 mt-8">Actions</h2>
+    <div class="wq-panel overflow-x-auto">
+      <table class="wq-table">
+        <thead><tr><th>Kind</th><th>Action</th><th>Owner</th><th>Due</th><th>Done</th></tr></thead>
+        <tbody><tr v-for="a in c.actions" :key="a.id">
+          <td class="text-sm capitalize">{{ a.kind }}</td><td>{{ a.text }}</td><td class="text-sm text-ink-gray-6">{{ a.owner }}</td>
+          <td class="whitespace-nowrap text-sm" :class="!a.done && a.due && a.due < today ? 'font-medium text-ink-red-7' : ''">{{ a.due }}
+            <Badge v-if="!a.done && a.due && a.due < today" theme="red" label="overdue" class="ms-1" /></td>
+          <td><template v-if="a.done"><span class="text-ink-green-7">✓</span> {{ a.done_by }} <div class="text-sm text-ink-gray-5">{{ a.evidence }}</div></template>
+            <div v-else-if="(canEdit || a.owner === me) && ['investigation', 'implementation'].includes(c.status)" class="flex gap-2">
+              <input v-model="evidence[a.id]" class="wq-input w-48" placeholder="Evidence"><Button label="Done" @click="step('action-done', { action_id: a.id, evidence: evidence[a.id] })" /></div></td></tr></tbody>
+      </table>
+    </div>
+    <form v-if="canEdit && ['draft', 'investigation', 'implementation'].includes(c.status)" class="mt-3 flex flex-wrap gap-2"
+          @submit.prevent="step('action', add); add = { text: '', owner: '', due: '', kind: 'corrective' }">
+      <select v-model="add.kind" class="wq-select"><option value="correction">Correction</option><option value="corrective">Corrective</option><option value="preventive">Preventive</option></select>
+      <input v-model="add.text" class="wq-input max-w-80" placeholder="New action" required><input v-model="add.owner" class="wq-input max-w-56" placeholder="Owner email">
+      <input v-model="add.due" class="wq-input w-40" type="date" :min="today"><Button type="submit" icon-left="lucide-plus" label="Add" /></form>
+
+    <div v-if="canEdit && !['closed', 'cancelled'].includes(c.status)" class="mt-6 flex max-w-xl gap-2">
+      <input v-model="cancel" class="wq-input flex-1" placeholder="Reason to cancel"><Button theme="red" label="Cancel" @click="step('cancel', { reason: cancel })" /></div>
+
+    <h2 class="wq-h2 mt-8">Signatures</h2>
+    <Trail :items="c.signatures" kind="signatures" />
+    <h2 class="wq-h2 mt-8">History</h2>
+    <Trail :items="c.history" />
   </template>
 </template>

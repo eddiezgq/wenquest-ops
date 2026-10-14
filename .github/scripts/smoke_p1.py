@@ -105,7 +105,7 @@ def roles(b: Browser, people: list[dict]) -> None:
         check(("People" in nav) == ("users:view" in perms), f"{u['email']}: People in the menu only if allowed")
         if "users:view" in perms:
             try:
-                s.go("/people", "table.grid")
+                s.go("/people", "main table")
             except Exception as exc:
                 check(False, f"{u['email']}: /people did not load ({str(exc).splitlines()[0]})")
         s.go("/account", "h1")
@@ -118,11 +118,11 @@ def roles(b: Browser, people: list[dict]) -> None:
 
 
 def set_passwords(owner: Session, people: list[dict]) -> None:
-    p = owner.go("/people", "table.grid")
+    p = owner.go("/people", "main table")
     for u in people:
         if u["email"] == OWNER:
             continue
-        row = p.locator("table.grid tbody tr", has_text=u["email"])
+        row = p.locator("main table tbody tr", has_text=u["email"])
         row.locator("input[type=password]").fill(PW)
         row.get_by_role("button", name="Set").click()
         p.wait_for_selector(f"text=Password set for {u['name']}", timeout=30_000)
@@ -185,7 +185,7 @@ def sales(b: Browser) -> None:
     s.page.wait_for_url(f"{BASE}/drafts", timeout=60_000)
     d = confirm_newest(s, "Customer Message")
     check(d["status"] == "confirmed", f"sales: delay message for {key} confirmed ({d.get('error')})")
-    s.page.select_option("main select", "confirmed")
+    s.page.select_option('select[aria-label="Show"]', "confirmed")
     s.page.wait_for_selector("article.draft", timeout=30_000)
     check(s.page.get_by_role("button", name="Copy to send").count() > 0, "sales: message ready to copy")
     s.close()
@@ -193,8 +193,8 @@ def sales(b: Browser) -> None:
 
 def incoming(b: Browser) -> None:
     s = Session(b, "jordan@demo.example", PW)
-    p = s.go("/quality?tab=incoming", "table.grid")
-    row = p.locator("table.grid tbody tr").first
+    p = s.go("/quality?tab=incoming", "main table")
+    row = p.locator("main table tbody tr").first
     row.locator("input").fill("5")
     row.get_by_role("button", name="Draft inspection").click()
     p.wait_for_url(f"{BASE}/drafts", timeout=60_000)

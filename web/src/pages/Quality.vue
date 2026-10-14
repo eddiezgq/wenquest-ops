@@ -2,6 +2,9 @@
 // Quality (ADR-0009): nonconformance reports, corrective actions, incoming inspection, supplier scores, SPC.
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Badge, Button } from 'frappe-ui'
+import PageTop from '../ui/PageTop.vue'
+import { STATUS, label } from '../ui/themes'
 import { api, objectPath } from '../api'
 import { ago, fmt } from '../format'
 import ControlChart from '../components/ControlChart.vue'
@@ -55,79 +58,107 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
 </script>
 
 <template>
-  <h1>Quality</h1>
-  <nav class="tabs"><a v-for="(l, k) in TABS" :key="k" href="#" :class="{ on: tab === k }" @click.prevent="tab = k">{{ l }}</a></nav>
-  <p v-if="error" class="err">{{ error }}</p>
+  <PageTop title="Quality">
+    <Button v-if="tab === 'ncrs' && canEdit" variant="solid" icon-left="lucide-plus" label="New nonconformance" @click="showNew = !showNew" />
+  </PageTop>
+  <nav class="tabs -mt-2 mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
+    <a v-for="(l, k) in TABS" :key="k" href="#" @click.prevent="tab = k"
+       class="-mb-px whitespace-nowrap border-b-2 py-2.5 text-base transition-colors"
+       :class="tab === k ? 'border-outline-gray-9 font-medium text-ink-gray-9' : 'border-transparent text-ink-gray-5 hover:text-ink-gray-8'">{{ l }}</a>
+  </nav>
+  <p v-if="error" class="wq-error mb-4">{{ error }}</p>
 
   <template v-if="tab === 'ncrs' || tab === 'capas'">
-    <div class="head">
-      <label class="muted">Show <select v-model="filter"><option value="active">Open</option><option value="closed">Closed</option>
-        <option v-if="tab === 'ncrs'" value="cancelled">Cancelled</option><option value="all">All</option></select></label>
-      <button v-if="tab === 'ncrs' && canEdit" @click="showNew = !showNew">New nonconformance</button>
-    </div>
-    <form v-if="showNew && tab === 'ncrs'" class="card form" @submit.prevent="newNcr">
-      <input v-model="form.title" placeholder="Title" required>
-      <textarea v-model="form.description" placeholder="What is wrong, how many, where found" required></textarea>
-      <div class="row"><select v-model="form.severity"><option value="minor">Minor</option><option value="major">Major (needs a corrective action)</option></select>
-        <input v-model="form.item_code" placeholder="Item code (optional)"><input v-model="form.supplier" placeholder="Supplier (optional)">
-        <input v-model="form.quantity" type="number" min="0" step="any" placeholder="Quantity"></div>
-      <button>Open the report</button>
+    <form v-if="showNew && tab === 'ncrs'" class="form wq-panel mb-5 grid gap-3 p-5" @submit.prevent="newNcr">
+      <h2 class="text-base font-semibold text-ink-gray-9">New nonconformance</h2>
+      <input v-model="form.title" class="wq-input" placeholder="Title" required>
+      <textarea v-model="form.description" class="wq-textarea" rows="3" placeholder="What is wrong, how many, where found" required></textarea>
+      <div class="grid gap-3 sm:grid-cols-4">
+        <select v-model="form.severity" class="wq-select"><option value="minor">Minor</option><option value="major">Major (needs a corrective action)</option></select>
+        <input v-model="form.item_code" class="wq-input" placeholder="Item code (optional)">
+        <input v-model="form.supplier" class="wq-input" placeholder="Supplier (optional)">
+        <input v-model="form.quantity" class="wq-input" type="number" min="0" step="any" placeholder="Quantity">
+      </div>
+      <div><Button type="submit" variant="solid" label="Open the report" /></div>
     </form>
-    <p v-if="!rows.length" class="muted">None.</p>
-    <table v-else class="grid">
-      <thead><tr><th>Number</th><th>Title</th><th>{{ tab === 'ncrs' ? 'Severity' : 'Kind' }}</th><th>Status</th><th>Owner</th><th>Opened</th></tr></thead>
-      <tbody><tr v-for="r in rows" :key="r.id">
-        <td><RouterLink :to="`/quality/${tab === 'ncrs' ? 'ncr' : 'capa'}/${r.id}`">{{ r.name }}</RouterLink></td>
-        <td>{{ r.title }}</td><td>{{ tab === 'ncrs' ? r.severity : r.kind }}</td><td>{{ r.status.replace('_', ' ') }}</td>
-        <td class="small">{{ r.owner }}</td><td class="small">{{ ago(r.created_at) }}</td></tr></tbody>
-    </table>
+    <div class="mb-3 flex items-center gap-2">
+      <span class="wq-muted">Show</span>
+      <select v-model="filter" class="wq-select" aria-label="Show"><option value="active">Open</option><option value="closed">Closed</option>
+        <option v-if="tab === 'ncrs'" value="cancelled">Cancelled</option><option value="all">All</option></select>
+    </div>
+    <p v-if="!rows.length" class="wq-muted">None.</p>
+    <div v-else class="wq-panel overflow-x-auto">
+      <table class="wq-table">
+        <thead><tr><th>Number</th><th>Title</th><th>{{ tab === 'ncrs' ? 'Severity' : 'Kind' }}</th><th>Status</th><th>Owner</th><th>Opened</th></tr></thead>
+        <tbody><tr v-for="r in rows" :key="r.id">
+          <td class="whitespace-nowrap"><RouterLink :to="`/quality/${tab === 'ncrs' ? 'ncr' : 'capa'}/${r.id}`" class="font-medium text-ink-gray-9 hover:underline">{{ r.name }}</RouterLink></td>
+          <td>{{ r.title }}</td>
+          <td class="capitalize">{{ tab === 'ncrs' ? r.severity : r.kind }}</td>
+          <td><Badge :theme="STATUS[r.status] || 'gray'" :label="label(r.status)" /></td>
+          <td class="text-sm text-ink-gray-6">{{ r.owner }}</td><td class="whitespace-nowrap text-sm text-ink-gray-5">{{ ago(r.created_at) }}</td></tr></tbody>
+      </table>
+    </div>
   </template>
 
   <template v-if="tab === 'incoming'">
-    <p class="muted small">Receipts of items marked "inspect on receipt" in ERPNext that have no inspection yet. A draft inspection goes to Drafts for Quality to confirm; it is then created in ERPNext.</p>
-    <p v-if="!rows.length" class="muted">Nothing waiting.</p>
-    <table v-else class="grid">
-      <thead><tr><th>Receipt</th><th>Item</th><th>Qty</th><th>Supplier</th><th>Received</th><th></th></tr></thead>
-      <tbody><tr v-for="x in rows" :key="x.receipt + x.item_code">
-        <td><RouterLink :to="objectPath('PurchaseReceipt', x.receipt)">{{ x.receipt }}</RouterLink> <span v-if="x.draft" class="tag">draft, waiting for inspection</span></td>
-        <td><RouterLink :to="objectPath('Item', x.item_code)">{{ x.item_code }}</RouterLink></td><td>{{ fmt(x.qty) }}</td>
-        <td>{{ x.supplier }}</td><td>{{ x.received }}</td>
-        <td v-if="canEdit" class="row"><input v-model="sample[x.receipt + x.item_code]" type="number" min="1" placeholder="Sample size" style="width:7rem">
-          <button :disabled="!(Number(sample[x.receipt + x.item_code]) > 0)" title="Enter the sample size first" @click="draftInspection(x)">Draft inspection</button></td></tr></tbody>
-    </table>
-    <p v-if="rows.length && canEdit" class="muted small">Enter how many pieces you will inspect, then draft the inspection.</p>
-    <p v-if="error" class="err">{{ error }}</p>
+    <p class="wq-muted mb-3">Receipts of items marked "inspect on receipt" in ERPNext that have no inspection yet. A draft inspection goes to Drafts for Quality to confirm; it is then created in ERPNext.</p>
+    <p v-if="!rows.length" class="wq-muted">Nothing waiting.</p>
+    <div v-else class="wq-panel overflow-x-auto">
+      <table class="wq-table">
+        <thead><tr><th>Receipt</th><th>Item</th><th>Qty</th><th>Supplier</th><th>Received</th><th v-if="canEdit">Inspect</th></tr></thead>
+        <tbody><tr v-for="x in rows" :key="x.receipt + x.item_code">
+          <td><RouterLink :to="objectPath('PurchaseReceipt', x.receipt)" class="wq-link">{{ x.receipt }}</RouterLink>
+            <Badge v-if="x.draft" theme="amber" label="draft, waiting for inspection" class="ms-2" /></td>
+          <td><RouterLink :to="objectPath('Item', x.item_code)" class="wq-link">{{ x.item_code }}</RouterLink></td><td>{{ fmt(x.qty) }}</td>
+          <td>{{ x.supplier }}</td><td class="whitespace-nowrap">{{ x.received }}</td>
+          <td v-if="canEdit"><div class="flex items-center gap-2">
+            <input v-model="sample[x.receipt + x.item_code]" class="wq-input w-28" type="number" min="1" placeholder="Sample size">
+            <Button :disabled="!(Number(sample[x.receipt + x.item_code]) > 0)" title="Enter the sample size first" label="Draft inspection" @click="draftInspection(x)" />
+          </div></td></tr></tbody>
+      </table>
+    </div>
+    <p v-if="rows.length && canEdit" class="wq-muted mt-2">Enter how many pieces you will inspect, then draft the inspection.</p>
   </template>
 
   <template v-if="tab === 'suppliers' && scores">
-    <p class="muted small">{{ scores.period[0]}} to {{ scores.period[1] }}. Facts only: incoming lots inspected and rejected, on-time receipt lines,
+    <p class="wq-muted mb-3">{{ scores.period[0] }} to {{ scores.period[1] }}. Facts only: incoming lots inspected and rejected, on-time receipt lines,
       nonconformance reports, concessions (closed reports whose disposition needed approval) and open corrective actions.</p>
-    <table class="grid">
-      <thead><tr><th>Supplier</th><th>Lots</th><th>Rejected</th><th>Rejection rate</th><th>On time</th><th>NCRs</th><th>Concessions</th><th>Open CAPAs</th></tr></thead>
-      <tbody><tr v-for="s in scores.suppliers" :key="s.supplier">
-        <td><RouterLink :to="objectPath('Supplier', s.supplier)">{{ s.name }}</RouterLink></td>
-        <td>{{ s.lots }}</td><td>{{ s.rejected }}</td><td>{{ fmt(s.rejection_rate, '%') }}</td>
-        <td>{{ fmt(s.on_time, '%') }} <span class="muted small">({{ s.on_time_lines }} lines)</span></td>
-        <td>{{ s.ncrs }}</td><td>{{ s.concessions }}</td><td>{{ s.open_capas }}</td></tr></tbody>
-    </table>
+    <div class="wq-panel overflow-x-auto">
+      <table class="wq-table">
+        <thead><tr><th>Supplier</th><th>Lots</th><th>Rejected</th><th>Rejection rate</th><th>On time</th><th>NCRs</th><th>Concessions</th><th>Open CAPAs</th></tr></thead>
+        <tbody><tr v-for="s in scores.suppliers" :key="s.supplier">
+          <td><RouterLink :to="objectPath('Supplier', s.supplier)" class="font-medium text-ink-gray-9 hover:underline">{{ s.name }}</RouterLink></td>
+          <td>{{ s.lots }}</td><td>{{ s.rejected }}</td><td>{{ fmt(s.rejection_rate, '%') }}</td>
+          <td>{{ fmt(s.on_time, '%') }} <span class="text-sm text-ink-gray-5">({{ s.on_time_lines }} lines)</span></td>
+          <td>{{ s.ncrs }}</td><td>{{ s.concessions }}</td><td>{{ s.open_capas }}</td></tr></tbody>
+      </table>
+    </div>
   </template>
 
   <template v-if="tab === 'spc'">
-    <p v-if="!params.length" class="muted">No numeric readings yet. Enter measured values on ERPNext quality inspections to see control charts here.</p>
-    <label v-else class="muted">Item and parameter
-      <select v-model="pick"><option v-for="p in params" :key="p.item_code + p.parameter" :value="p">{{ p.item_code }} — {{ p.parameter }} ({{ p.inspections }} inspections)</option></select></label>
+    <p v-if="!params.length" class="wq-muted">No numeric readings yet. Enter measured values on ERPNext quality inspections to see control charts here.</p>
+    <div v-else class="mb-4 flex flex-wrap items-center gap-2">
+      <span class="wq-muted">Item and parameter</span>
+      <select v-model="pick" class="wq-select" aria-label="Item and parameter"><option v-for="p in params" :key="p.item_code + p.parameter" :value="p">{{ p.item_code }} — {{ p.parameter }} ({{ p.inspections }} inspections)</option></select>
+    </div>
     <template v-if="spc">
-      <p v-if="!spc.enough_data" class="muted">{{ spc.note }}</p>
+      <p v-if="!spc.enough_data" class="wq-muted">{{ spc.note }}</p>
       <template v-else>
         <ControlChart :data="spc" />
-        <div class="cards">
-          <div class="card"><h3>Signals</h3><p v-if="!spc.signals.length" class="muted">No rule broken.</p>
-            <ul class="list small"><li v-for="s in spc.signals" :key="s.index + '-' + s.rule">Rule {{ s.rule }}: {{ s.text }}</li></ul></div>
-          <div class="card"><h3>Capability</h3>
-            <p v-if="!spc.capability" class="muted small">Needs both spec limits on the readings.</p>
-            <table v-else class="props small"><tr><th>Cp</th><td>{{ r3(spc.capability.Cp) }}</td><th>Cpk</th><td>{{ r3(spc.capability.Cpk) }}</td></tr>
-              <tr><th>Pp</th><td>{{ r3(spc.capability.Pp) }}</td><th>Ppk</th><td>{{ r3(spc.capability.Ppk) }}</td></tr>
-              <tr><th>Values</th><td>{{ spc.capability.n }}</td><th>Out of spec</th><td>{{ spc.out_of_spec }}</td></tr></table></div>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <section class="wq-panel p-4"><h3 class="mb-2 text-base font-semibold text-ink-gray-9">Signals</h3>
+            <p v-if="!spc.signals.length" class="wq-muted">No rule broken.</p>
+            <ul class="divide-y divide-outline-gray-1 text-sm">
+              <li v-for="s in spc.signals" :key="s.index + '-' + s.rule" class="py-1.5 text-ink-gray-8">
+                <Badge theme="red" :label="`Rule ${s.rule}`" class="me-2" />{{ s.text }}</li></ul></section>
+          <section class="wq-panel p-4"><h3 class="mb-2 text-base font-semibold text-ink-gray-9">Capability</h3>
+            <p v-if="!spc.capability" class="wq-muted">Needs both spec limits on the readings.</p>
+            <dl v-else class="grid grid-cols-3 gap-3">
+              <div v-for="[k, v] in [['Cp', r3(spc.capability.Cp)], ['Cpk', r3(spc.capability.Cpk)], ['Pp', r3(spc.capability.Pp)],
+                                       ['Ppk', r3(spc.capability.Ppk)], ['Values', spc.capability.n], ['Out of spec', spc.out_of_spec]]" :key="k"
+                   class="rounded-4 bg-surface-gray-1 p-3">
+                <dt class="text-sm text-ink-gray-5">{{ k }}</dt><dd class="m-0 text-xl font-semibold text-ink-gray-9">{{ v }}</dd></div>
+            </dl></section>
         </div>
       </template>
     </template>

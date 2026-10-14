@@ -23,12 +23,13 @@ const parts = computed(() => {
 </script>
 
 <template>
-  <div class="answer">
-    <p v-for="(l, i) in parts" :key="i" :class="{ unverified: l.bad }" :title="l.bad ? 'A number here was not found in the data the assistant looked at' : ''">
+  <div class="answer space-y-1 text-p-base text-ink-gray-8">
+    <p v-for="(l, i) in parts" :key="i" :class="{ 'rounded bg-surface-amber-2': l.bad }"
+       :title="l.bad ? 'A number here was not found in the data the assistant looked at' : ''">
       <template v-for="(p, j) in l.pieces" :key="j">
-        <RouterLink v-if="p.link" :to="p.link">{{ p.text }}</RouterLink><template v-else>{{ p.text }}</template>
+        <RouterLink v-if="p.link" :to="p.link" class="wq-link">{{ p.text }}</RouterLink><template v-else>{{ p.text }}</template>
       </template>
-      <span v-if="l.bad" class="tag warn">unverified</span>
+      <span v-if="l.bad" class="ms-2 rounded-3 border border-outline-amber-3 px-1.5 text-xs text-ink-amber-7">unverified</span>
     </p>
   </div>
 </template>

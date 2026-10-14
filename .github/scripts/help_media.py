@@ -86,7 +86,7 @@ def screens(b) -> dict:
     f = facts(page)
     print("facts", json.dumps(f))
     shot(page, "dashboard", "/", ".cards", full=True)
-    shot(page, "anomalies", "/anomalies", "table.grid")
+    shot(page, "anomalies", "/anomalies", "main table")
     if f["late"]:
         shot(page, "anomaly-late-order", f"/anomalies/{f['late']}", "h1", full=True)
     else:
@@ -103,13 +103,13 @@ def screens(b) -> dict:
         print("shot assistant")
     except Exception as exc:
         failures.append(f"assistant: {exc}".splitlines()[0])
-    shot(page, "quality-ncrs", "/quality", "table.grid")
+    shot(page, "quality-ncrs", "/quality", "main table")
     if f["ncr"]:
         shot(page, "quality-ncr", f"/quality/ncr/{f['ncr']}", "h1", full=True)
     if f["capa"]:
         shot(page, "quality-capa", f"/quality/capa/{f['capa']}", "h1", full=True)
-    shot(page, "quality-incoming", "/quality?tab=incoming", "table.grid")
-    shot(page, "quality-suppliers", "/quality?tab=suppliers", "table.grid")
+    shot(page, "quality-incoming", "/quality?tab=incoming", "main table")
+    shot(page, "quality-suppliers", "/quality?tab=suppliers", "main table")
     try:
         go(page, "/quality?tab=spc", "select")
         pick_option(page, "select", SPC_ITEM)
@@ -164,7 +164,7 @@ def flow_late_order(f: dict):
         page.hover(".cards article >> nth=0")
         time.sleep(2)
         nav(page, "Anomalies")
-        page.wait_for_selector("table.grid")
+        page.wait_for_selector("main table")
         time.sleep(2)
         if f["late"]:
             page.click(f"a[href='/anomalies/{f['late']}']")
@@ -190,7 +190,7 @@ def flow_assistant(page: Page) -> None:
 def flow_quality(f: dict):
     def run(page: Page) -> None:
         nav(page, "Quality")
-        page.wait_for_selector("table.grid")
+        page.wait_for_selector("main table")
         time.sleep(2)
         if f["ncr"]:
             page.click(f"a[href='/quality/ncr/{f['ncr']}']")
@@ -205,7 +205,7 @@ def flow_quality(f: dict):
             page.mouse.wheel(0, 600)
             time.sleep(2)
         page.goto(f"{BASE}/quality?tab=incoming")
-        page.wait_for_selector("table.grid")
+        page.wait_for_selector("main table")
         time.sleep(2)
         page.click("nav.tabs >> text=SPC")
         page.wait_for_selector("select")
