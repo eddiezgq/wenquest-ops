@@ -16,6 +16,7 @@ import Account from './pages/Account.vue'
 import People from './pages/People.vue'
 import Documents from './pages/Documents.vue'
 import DocumentPage from './pages/DocumentPage.vue'
+import LedgerPage from './pages/LedgerPage.vue'
 import './style.css'
 
 const router = createRouter({
@@ -35,6 +36,7 @@ const router = createRouter({
     { path: '/account', component: Account, meta: { title: 'My account' } },
     { path: '/people', component: People, meta: { title: 'People' } },
     { path: '/documents', component: Documents, meta: { title: 'Documents' } },
+    { path: '/documents/ledger/:id', component: LedgerPage, meta: { title: 'Import a ledger' } },
     { path: '/documents/:id', component: DocumentPage, meta: { title: 'Document' } },
   ],
   scrollBehavior: () => ({ top: 0 }),

@@ -32,6 +32,7 @@ async function copy(d) {
 }
 watch(status, load, { immediate: true })
 const WHAT = { 'Purchase Order': 'Creates a draft purchase order in ERPNext; submit it there.',
+  Supplier: 'Creates the supplier in ERPNext.',
   'Material Request': 'Creates a draft material request in ERPNext.', 'Quality Inspection': 'Creates a draft inspection in ERPNext.',
   'Customer Message': 'Marks the message ready; you send it yourself.', 'Nonconformance Report': 'Opens a nonconformance report (NCR).' }
 </script>
@@ -72,6 +73,10 @@ const WHAT = { 'Purchase Order': 'Creates a draft purchase order in ERPNext; sub
     </template>
     <template v-else-if="d.doctype === 'Nonconformance Report'">
       <p class="mt-3 text-base font-medium text-ink-gray-8">{{ d.payload.title }}</p><p class="mt-1 text-p-sm text-ink-gray-7">{{ d.payload.description }}</p>
+    </template>
+    <template v-else-if="d.doctype === 'Supplier'">
+      <p class="mt-3 text-base font-medium text-ink-gray-8">{{ d.payload.supplier_name }}</p>
+      <pre class="mt-1 whitespace-pre-wrap font-sans text-p-sm text-ink-gray-7">{{ d.payload.supplier_details }}</pre>
     </template>
     <pre v-else class="mt-3 whitespace-pre-wrap rounded-3 bg-surface-gray-1 p-3 text-xs text-ink-gray-7">{{ JSON.stringify(d.payload, null, 2) }}</pre>
     <p v-if="d.erp_url" class="mt-3 text-sm text-ink-gray-6">In ERPNext: <a :href="d.erp_url" target="_blank" rel="noopener" class="wq-link">{{ d.erp_name }} ↗</a> (submit it there)</p>

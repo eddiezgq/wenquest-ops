@@ -19,6 +19,7 @@ DRAFTABLE: dict[str, tuple[str, tuple[str, ...]]] = {
     "Quality Inspection": ("quality:edit", ("inspection_type", "reference_type", "reference_name", "item_code")),
     "Customer Message": ("sales:view", ("customer", "sales_order", "subject", "body")),
     "Nonconformance Report": ("quality:edit", ("inspection", "item_code", "title", "description")),
+    "Supplier": ("purchasing:draft", ("supplier_name",)),      # from an imported supplier list (ADR-0014 item 10)
 }
 HUB_KINDS = {"Customer Message", "Nonconformance Report"}
 # set by ERPNext, or would turn a draft into something else
@@ -149,9 +150,13 @@ def confirm(conn, user: dict, draft_id: int, erp: ErpClient) -> dict:
 def _erp_fields(erp: ErpClient, user: dict, row: dict) -> dict:
     """Fields ERPNext needs that only the confirmation knows. A quality inspection needs an ERPNext user as the
     inspector: the person confirming if they have an ERPNext account (made at their first sign-in there),
-    otherwise the account WenQuest Ops uses; the person is in the draft log either way."""
+    otherwise the account WenQuest Ops uses; the person is in the draft log either way. A supplier goes into the
+    first supplier group ERPNext has, unless the draft names one."""
     if row["doctype"] == "Quality Inspection" and not row["payload"].get("inspected_by"):
         return {"inspected_by": user["email"] if erp.get("User", user["email"]) else erp.logged_user()}
+    if row["doctype"] == "Supplier" and not row["payload"].get("supplier_group"):
+        groups = erp.list("Supplier Group", filters=[["is_group", "=", 0]], order_by="name asc", limit=1)
+        return {"supplier_group": groups[0]["name"]} if groups else {}     # ERPNext's own first group
     return {}
 
 

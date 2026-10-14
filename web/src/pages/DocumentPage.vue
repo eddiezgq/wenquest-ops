@@ -37,7 +37,19 @@ async function load() {
   try {
     meta.value ||= await api('/api/docs/meta')
     set(await api(`/api/docs/${route.params.id}`))
+    ledgers.value = /\.(xlsx|xlsm|csv)$/i.test(d.value.original_name) ? await api(`/api/ledgers?document_id=${d.value.id}`) : null
   } catch (e) { error.value = e.message }
+}
+// a spreadsheet can be imported as a historical ledger (ADR-0014 item 10)
+const ledgers = ref(null)
+const ledgerKind = ref('')
+const reading = ref(false)
+async function readLedger() {
+  reading.value = true; error.value = ''
+  try {
+    const r = await api('/api/ledgers', { method: 'POST', body: { document_id: d.value.id, target: ledgerKind.value || undefined } })
+    router.push(`/documents/ledger/${r.id}`)
+  } catch (e) { error.value = e.message } finally { reading.value = false }
 }
 function set(doc) {
   d.value = doc
@@ -201,6 +213,18 @@ async function newRevision() {
     </div>
 
     <aside class="flex flex-col gap-5">
+      <section v-if="ledgers && Object.keys(ledgers.kinds).length" class="ledger wq-panel p-4">
+        <h2 class="wq-h2">Import as a ledger</h2>
+        <p class="wq-muted mb-3">Bring this sheet's rows into WenQuest Ops: {{ meta.ai ? 'AI proposes' : 'the rules propose' }} which column is which; you check, then import with your password.</p>
+        <div class="flex flex-wrap items-center gap-2">
+          <select v-model="ledgerKind" class="wq-select" aria-label="Kind of ledger"><option value="">{{ meta.ai ? 'Let AI tell what it is' : 'Guess from the columns' }}</option>
+            <option v-for="(l, k) in ledgers.kinds" :key="k" :value="k">{{ l }}</option></select>
+          <Button icon-left="lucide-table" :loading="reading" label="Read the ledger" @click="readLedger" />
+        </div>
+        <ul v-if="ledgers.imports.length" class="mt-3 text-sm">
+          <li v-for="l in ledgers.imports" :key="l.id" class="py-0.5"><RouterLink :to="`/documents/ledger/${l.id}`" class="wq-link">{{ ledgers.kinds[l.target] || l.target }}</RouterLink>
+            <span class="text-ink-gray-5"> — {{ l.status === 'imported' ? `imported ${l.result.imported + l.result.drafted} rows` : 'to check' }}</span></li></ul>
+      </section>
       <section class="wq-panel p-4">
         <h2 class="wq-h2">File</h2>
         <p class="break-all text-base text-ink-gray-9">{{ d.original_name }}</p>
