@@ -20,6 +20,8 @@ flows end to end on the installed system with the demo business loaded.
    list, the one supplier not yet in ERPNext becomes a draft and is confirmed into ERPNext.
 9. Workflows (ADR-0015): Quality drafts a new NCR workflow version with an own field; the owner, who did not change
    it, enables it with a password.
+10. Quality system (ADR-0016): Quality adopts ISO 9001:2015 with a password on the Quality system page; every control
+   point gets an answer from the records; the operations manager may look but not adopt.
 """
 
 from __future__ import annotations
@@ -105,7 +107,7 @@ def roles(b: Browser, people: list[dict]) -> None:
         check(("Quality" in nav) == ("quality:view" in perms), f"{u['email']}: Quality in the menu only if allowed")
         for path in ["/", "/assistant", "/anomalies", "/objects", "/drafts", "/help", "/documents"] + \
                 (["/quality", "/quality?tab=incoming", "/quality?tab=suppliers", "/quality?tab=spc",
-                  "/quality?tab=workflows"]
+                  "/quality?tab=workflows", "/system"]
                  if "quality:view" in perms else []):
             try:
                 s.go(path, "h1, main .help-nav")
@@ -372,6 +374,26 @@ def workflows(b: Browser) -> None:
     o.close()
 
 
+def quality_system(b: Browser) -> None:
+    q = Session(b, "jordan@demo.example", PW)
+    p = q.go("/system", "text=Adopt the standard (sign)")
+    p.fill("input[type=password]", PW)
+    p.get_by_role("button", name="Adopt the standard (sign)").click()
+    p.wait_for_selector("text=Adopted and checked", timeout=60_000)
+    v = q.get("/api/qms/iso9001")
+    answers = [c["result"]["status"] for proc in v["processes"] for c in proc["controls"] if c.get("result")]
+    total = sum(len(proc["controls"]) for proc in v["processes"])
+    check(v["enabled"]["edition"] == "2015" and len(answers) == total and "met" in answers,
+          f"quality system: ISO 9001:2015 adopted, {len(answers)} of {total} control points answered")
+    check(not q.errors, f"quality system: no script errors ({q.errors[:2]})")
+    q.close()
+    s = Session(b, "sam@demo.example", PW)
+    s.go("/system", "text=Earlier checks")
+    r = s.page.request.post(f"{BASE}/api/qms/iso9001/enable", data={"edition": "2015", "password": PW})
+    check(r.status == 403, f"quality system: the operations manager cannot adopt a standard (HTTP {r.status})")
+    s.close()
+
+
 def main() -> int:
     with sync_playwright() as pw:
         b = pw.chromium.launch(args=[f"--host-resolver-rules=MAP {HOST} 127.0.0.1"])
@@ -388,6 +410,7 @@ def main() -> int:
         step("documents", lambda: documents(b))
         step("ledgers", lambda: ledgers(b))
         step("workflows", lambda: workflows(b))
+        step("quality system", lambda: quality_system(b))
         b.close()
     for f in failures:
         print(f"::error title=Phase 1 smoke::{f}")

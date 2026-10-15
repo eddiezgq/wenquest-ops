@@ -1,0 +1,198 @@
+# ISO 9001 process pack (ADR-0016). The standard as processes and control points that WenQuest Ops checks against the
+# company's records. Summaries are our own words, not the standard's text; clause numbers per edition are reviewed by
+# the project lead before they are merged. A control point's rule is carried out by code (wqops/hub/system/rules.py);
+# missing data gives "unknown", never "met".
+#
+# rule kinds:
+#   <name>             a check on records (rules.py)
+#   linked_document    met when a person linked a document in effect in the library as its evidence
+#   register:<name>    evidence from a quality register (step 16b); unknown until then
+# may_exclude: the company may declare the control point does not apply, with a reason (signed)
+# settings: defaults the company can change on the Quality system page. A control point checked by a rule of our own
+# names its switch; switched off, the company shows how it meets the requirement with a linked document instead.
+standard: iso9001
+label: ISO 9001 quality management system
+version: 1
+editions:
+  "2015": {label: "ISO 9001:2015 (with Amendment 1:2024)", ready: true}
+  "2026": {label: "ISO 9001:2026", ready: false, note: "clause mapping after review of the published text"}
+settings:
+  window_days: {value: 365, min: 30, max: 3650, label: Days of records looked at}
+  ncr_contain_days: {value: 7, min: 0, max: 365, label: Days to contain a nonconformance}
+  concession_by_other: {value: true, label: A concession is approved by someone other than the person who proposed it}
+  major_needs_capa: {value: true, label: Every major nonconformance gets a corrective action}
+  capa_within_days: {value: 14, min: 0, max: 365, label: Days to open the corrective action for a major nonconformance}
+  actions_on_time: {value: true, label: Planned actions are checked against their due dates}
+  capa_overdue_days: {value: 0, min: 0, max: 365, label: Days an action may be late before it counts}
+processes:
+  context:
+    label: Context, scope and processes
+    controls:
+      - id: scope
+        summary: The scope of the system is stated as documented information, covering the products and services and
+          giving a reason for every requirement that does not apply.
+        clauses: {"2015": ["4.3"]}
+        rule: scope_declared
+        hint: the scope statement or quality manual
+      - id: processes
+        summary: The processes of the system, their sequence, owners, inputs and outputs are determined.
+        clauses: {"2015": ["4.4"]}
+        rule: linked_document
+        hint: a process map or quality manual
+  leadership:
+    label: Leadership and planning
+    controls:
+      - id: policy
+        summary: Top management has set a quality policy that is communicated and available.
+        clauses: {"2015": ["5.2"]}
+        rule: linked_document
+        hint: the quality policy
+      - id: roles
+        summary: Responsibilities and authorities for the system are assigned and known.
+        clauses: {"2015": ["5.3"]}
+        rule: linked_document
+        hint: an organization chart or responsibility matrix
+      - id: risks
+        summary: Risks and opportunities are determined and actions are planned and reviewed.
+        clauses: {"2015": ["6.1"]}
+        rule: register:risks
+      - id: objectives
+        summary: Quality objectives are set, measured and reviewed.
+        clauses: {"2015": ["6.2"]}
+        rule: register:objectives
+      - id: changes
+        summary: Changes to the system are planned and carried out in a controlled way.
+        clauses: {"2015": ["6.3"]}
+        rule: linked_document
+        hint: the procedure for planning changes
+  resources:
+    label: Resources and competence
+    controls:
+      - id: measuring
+        short: measuring equipment
+        summary: Measuring equipment is fit for use, identified, and calibrated or verified at set intervals.
+        clauses: {"2015": ["7.1.5"]}
+        rule: register:calibration
+        may_exclude: true
+      - id: competence
+        summary: People doing work that affects quality are competent, and their training is recorded.
+        clauses: {"2015": ["7.2"]}
+        rule: register:training
+  documents:
+    label: Control of documented information
+    controls:
+      - id: doc_approved
+        summary: Procedures, work instructions and forms are reviewed and approved before they are used.
+        clauses: {"2015": ["7.5.2"]}
+        rule: documents_approved
+      - id: doc_current
+        summary: Only the current revision of each document is in effect; duplicates and clashing numbers are resolved.
+        clauses: {"2015": ["7.5.3"]}
+        rule: documents_current
+      - id: doc_referenced
+        summary: The forms and records that procedures name are themselves controlled.
+        clauses: {"2015": ["7.5.1", "7.5.3"]}
+        rule: documents_referenced
+  operation:
+    label: Operation
+    controls:
+      - id: customer_feedback
+        summary: Customer enquiries, feedback and complaints are received, recorded and answered.
+        clauses: {"2015": ["8.2.1"]}
+        rule: register:complaints
+      - id: design
+        short: design and development
+        summary: Design and development is planned, reviewed, verified, validated and its changes controlled.
+        clauses: {"2015": ["8.3"]}
+        rule: linked_document
+        hint: the design and development procedure
+        may_exclude: true
+      - id: production
+        summary: Production and service provision are carried out under controlled conditions.
+        clauses: {"2015": ["8.5.1"]}
+        rule: linked_document
+        hint: work instructions or the production procedure
+      - id: traceability
+        summary: Outputs are identified, and traced where traceability is required.
+        clauses: {"2015": ["8.5.2"]}
+        rule: linked_document
+        hint: the identification and traceability procedure
+      - id: customer_property
+        short: customer property
+        summary: Property belonging to customers or external providers is identified, protected and reported if lost or damaged.
+        clauses: {"2015": ["8.5.3"]}
+        rule: linked_document
+        hint: the procedure for customer or supplier property
+        may_exclude: true
+      - id: post_delivery
+        short: post-delivery activities
+        summary: Post-delivery activities such as warranty and service are defined and carried out.
+        clauses: {"2015": ["8.5.5"]}
+        rule: linked_document
+        hint: the warranty, returns or service procedure
+        may_exclude: true
+  suppliers:
+    label: Externally provided products and services
+    controls:
+      - id: supplier_approval
+        summary: Suppliers are evaluated and approved before use and re-evaluated at set intervals.
+        clauses: {"2015": ["8.4.1"]}
+        rule: register:suppliers
+      - id: rejected_lots
+        summary: Incoming lots that fail inspection are recorded as nonconforming and kept from use.
+        clauses: {"2015": ["8.4.2", "8.6", "8.7.1"]}
+        rule: rejected_lots_have_ncr
+  nonconforming:
+    label: Control of nonconforming outputs
+    controls:
+      - id: ncr_contained
+        summary: Nonconforming outputs are identified and contained promptly so they are not used or delivered by mistake.
+        clauses: {"2015": ["8.7.1"]}
+        rule: ncr_contained
+      - id: ncr_concession
+        summary: Acceptance under concession is authorized, and the authorization recorded.
+        our_rule: The authorization is signed by someone other than the person who proposed the concession.
+        switch: concession_by_other
+        hint: the procedure that says who authorizes concessions
+        clauses: {"2015": ["8.7.1", "8.7.2"]}
+        rule: ncr_concession_approved
+      - id: ncr_records
+        summary: Each nonconformity is recorded with its description, the action taken, any concession and who decided.
+        clauses: {"2015": ["8.7.2"]}
+        rule: ncr_recorded
+  evaluation:
+    label: Performance evaluation
+    controls:
+      - id: satisfaction
+        summary: The company finds out how satisfied its customers are, and uses what it learns.
+        clauses: {"2015": ["9.1.2"]}
+        rule: register:complaints
+      - id: audit
+        summary: Internal audits are planned and carried out at set intervals, and their findings followed up.
+        clauses: {"2015": ["9.2"]}
+        rule: register:audits
+      - id: review
+        summary: Top management reviews the system at set intervals and records its decisions.
+        clauses: {"2015": ["9.3"]}
+        rule: register:management_reviews
+  improvement:
+    label: Corrective action and improvement
+    controls:
+      - id: capa_for_major
+        summary: For each nonconformity, the need for action on its cause is evaluated.
+        our_rule: Every major nonconformance gets a corrective action within the set number of days.
+        switch: major_needs_capa
+        hint: the procedure that says when a corrective action is needed
+        clauses: {"2015": ["10.2.1"]}
+        rule: capa_for_major
+      - id: capa_on_time
+        summary: The actions needed are carried out.
+        our_rule: Each planned action is done by its due date.
+        switch: actions_on_time
+        hint: the procedure that says how actions are followed up
+        clauses: {"2015": ["10.2.1"]}
+        rule: capa_on_time
+      - id: capa_effective
+        summary: The effectiveness of each corrective action is reviewed and recorded before it is closed.
+        clauses: {"2015": ["10.2.1", "10.2.2"]}
+        rule: capa_effective

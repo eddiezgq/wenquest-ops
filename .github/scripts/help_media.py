@@ -120,6 +120,7 @@ def screens(b) -> dict:
     except Exception as exc:
         failures.append(f"quality-spc: {exc}".splitlines()[0])
     document_shots(page)
+    shot(page, "quality-system", "/system", "main section")
     shot(page, "help", "/help/quality", ".help-nav")
     ctx.close()
     # the tour as a new user sees it (nothing remembered in this browser yet)

@@ -7,12 +7,13 @@
 | Warehouse | Dashboard, stock, purchasing, quality | Mark own corrective-action steps done |
 | Purchasing | Dashboard, stock, purchasing, quality | Draft purchase orders |
 | Sales | Dashboard, stock, sales | Prepare customer messages |
-| Quality | Dashboard, stock, purchasing, quality | Edit and sign quality records |
+| Quality | Dashboard, stock, purchasing, quality | Edit and sign quality records, change workflows, adopt standards |
 | AI specialist | Dashboard, stock, sales, purchasing, quality | Configure the assistant, see all assistant runs |
 
 Everyone can use the assistant, with their own role's view, and read the document library. The owner, the
 operations manager, Quality and the AI specialist can also upload documents, confirm their classification and approve
-them. Roles come from the company manifest; ask the owner to
+them. The owner and Quality change quality workflows and adopt standards on the *Quality system* page; everyone who
+sees quality records sees that page. Roles come from the company manifest; ask the owner to
 change yours.
 
 **Your password.** Click your name at the top right (*My account*) to see what your role allows and to change your

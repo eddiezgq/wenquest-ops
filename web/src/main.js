@@ -19,6 +19,7 @@ import DocumentPage from './pages/DocumentPage.vue'
 import LedgerPage from './pages/LedgerPage.vue'
 import WorkflowEditor from './pages/WorkflowEditor.vue'
 import WorkflowProposal from './pages/WorkflowProposal.vue'
+import QualitySystem from './pages/QualitySystem.vue'
 import './style.css'
 
 const router = createRouter({
@@ -36,6 +37,7 @@ const router = createRouter({
     { path: '/quality/capa/:id', component: CapaPage, meta: { title: 'Corrective action' } },
     { path: '/quality/workflows/proposals/:id', component: WorkflowProposal, meta: { title: 'Suggested changes' } },
     { path: '/quality/workflows/:id', component: WorkflowEditor, meta: { title: 'Workflow' } },
+    { path: '/system', component: QualitySystem, meta: { title: 'Quality system' } },
     { path: '/help/:topic?', component: Help, meta: { title: 'Help' } },
     { path: '/account', component: Account, meta: { title: 'My account' } },
     { path: '/people', component: People, meta: { title: 'People' } },
