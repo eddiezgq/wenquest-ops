@@ -4,7 +4,7 @@ One entry per supplier and item, or per supplier for all its items. An entry is 
 approved with conditions) with a signature by someone other than the person who entered it (a setting),
 re-evaluated the same way, suspended or disqualified with a reason, and qualified again from the start. Approved
 entries change only by re-evaluation or after suspending them. Incoming inspection reads the list
-(wqops/hub/quality/approval.py); the supplier approval register of ISO 9001 can be brought in once, signed.
+(wqops/hub/quality/approval.py); the supplier approval register of ISO 9001 can be brought in as drafts to approve.
 
 Plain code: no AI, no network (tests/test_isolation.py).
 """
@@ -81,6 +81,7 @@ def add(conn, email: str, supplier: str, item_code: str | None, data: dict) -> d
         raise AslError(f"ERPNext has no item {item_code}")
     f = _fields(data)
     with conn.transaction():
+        conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-asl:{supplier}:{item_code or ''}",))
         if conn.execute("select 1 from asl_entries where supplier = %s and coalesce(item_code, '') = %s",
                         (supplier, item_code or "")).fetchone():
             raise AslError(f"{supplier} already has an entry for {item_code or 'all items'}")
@@ -111,7 +112,8 @@ def change(conn, email: str, entry_id: int, data: dict) -> dict:
 
 
 def approve(conn, user: dict, entry_id: int, password: str, *, reason: str, today: dt.date,
-            basis: str | None = None, review_due=None, condition: str | None = None) -> dict:
+            basis: str | None = None, review_due=None, condition: str | None = None,
+            risk: str | None = None) -> dict:
     """Approve (or, with a condition, approve with conditions) a draft or suspended entry, or re-evaluate an
     approved one: signed, with a reason, by someone other than the person who entered it (a setting)."""
     e = get(conn, entry_id)
@@ -120,31 +122,47 @@ def approve(conn, user: dict, entry_id: int, password: str, *, reason: str, toda
     if not reason.strip():
         raise AslError("give the reason")
     renew = e["status"] in ("approved", "conditional")
-    if I.settings(conn)["asl_approve_by_other"] and e["created_by"] == user["email"]:
-        raise PermissionError("someone other than the person who entered the supplier approves it")
+    if I.settings(conn)["asl_approve_by_other"] and user["email"] in _authors(conn, e):
+        raise PermissionError("someone other than the person who entered or changed the supplier's entry approves "
+                              "it")
     b = (basis if basis is not None else e["basis"]).strip()
     if not b:
         raise AslError("say what the approval rests on (certificates, audit, sample inspection)")
     due = _date(review_due, "the re-evaluation date") if review_due not in (None, "") else (
         None if renew else e["review_due"])
-    if renew and (due is None or due <= today):
-        raise AslError("a re-evaluation sets the next re-evaluation date, after today")
-    if due is not None and due < today:
-        raise AslError("the re-evaluation date is in the past")
+    if due is None or due <= today:
+        raise AslError("an approval sets when the supplier is re-evaluated next, after today")
+    risk = risk if risk is not None else e["risk"]
+    if risk not in AP.RISKS:
+        raise AslError("the risk is low, medium or high")
     cond = (condition if condition is not None else e["condition"]).strip()
     to = "conditional" if cond else "approved"
     Q.check_signer(conn, user, password)
+    what = ("re-evaluated" if renew else "approved") + (" with conditions" if cond else "")
     with conn.transaction():
-        row = conn.execute("update asl_entries set status = %s, basis = %s, condition = %s, review_due = %s, "
-                           "approved_by = %s, approved_at = now(), updated_at = now() where id = %s and status = %s "
-                           "returning *", (to, b[:4000], cond[:4000], due, user["email"], entry_id,
-                                           e["status"])).fetchone()
-        if row is None:
-            raise AslError("the entry changed meanwhile: open it again")
-        what = ("re-evaluated" if renew else "approved") + (" with conditions" if cond else "")
+        # signed first: the database lets an entry become approved only with a signature made in the same change
         Q._sign(conn, user, f"Supplier {what}", "asl", entry_id, f"{e['supplier']}, {e['item_code'] or 'all items'}")
+        row = conn.execute("update asl_entries set status = %s, basis = %s, condition = %s, review_due = %s, "
+                           "risk = %s, approved_by = %s, approved_at = now(), updated_at = now() where id = %s and "
+                           "status = %s and updated_at = %s returning *",
+                           (to, b[:4000], cond[:4000], due, risk, user["email"], entry_id, e["status"],
+                            e["updated_at"])).fetchone()
+        if row is None:
+            raise AslError("the entry changed since you opened it: look at it again before approving")
         log(conn, entry_id, user["email"], what, reason.strip())
     return row
+
+
+def _authors(conn, e: dict) -> set[str]:
+    """Who entered or changed the entry since it was last approved: they do not approve it themselves."""
+    rows = conn.execute("select email, action from asl_log where entry_id = %s order by id", (e["id"],)).fetchall()
+    out = {e["created_by"]}
+    for r in rows:
+        if r["action"].startswith(("approved", "re-evaluated")):
+            out = set()
+        elif r["action"] in ("entered", "changed", "brought in"):
+            out.add(r["email"])
+    return out | ({e["created_by"]} if e["approved_by"] is None else set())
 
 
 def move(conn, email: str, entry_id: int, to: str, reason: str) -> dict:
@@ -197,6 +215,8 @@ def listing(conn, today: dt.date) -> list[dict]:
 def check_lines(conn, supplier: str | None, items: list[str], today: dt.date) -> list[dict]:
     """For a purchase order: each item's standing with this supplier; what is not ok is listed."""
     entries = I.asl_entries(conn)
+    if not entries:                  # the list is not in use yet
+        return []
     out = []
     for code in items:
         s = AP.standing(entries, supplier, code, today)
@@ -205,41 +225,44 @@ def check_lines(conn, supplier: str | None, items: list[str], today: dt.date) ->
     return out
 
 
-def from_register(conn, user: dict, password: str) -> int:
-    """Bring the ISO 9001 supplier approval register into the list, once, signed: the latest entry per supplier
-    becomes an entry for all its items (approved, conditional, or disqualified if removed). Suppliers already on
-    the list, or not known to ERPNext, are left out."""
+def from_register(conn, email: str) -> dict:
+    """Bring the ISO 9001 supplier approval register into the list, once: the latest entry per supplier ERPNext knows
+    becomes an entry for all its items, a draft carrying the register's basis, conditions and next review for
+    someone to approve (or disqualified, if it was removed). Suppliers already on the list are left out; rows that
+    cannot be read are counted, not guessed."""
     known = {s["key"]: s for s in I.suppliers(conn)}
     by_name = {_norm(s["name"]): k for k, s in known.items()} | {_norm(k): k for k in known}
     have = {r["supplier"] for r in conn.execute("select supplier from asl_entries where item_code is null")}
     latest: dict[str, dict] = {}
+    skipped = 0
     for r in conn.execute("select id, \"values\" from qms_register_entries where register = 'suppliers' and "
                           "status <> 'void' order by id").fetchall():
-        v = r["values"]
+        v = r["values"] if isinstance(r["values"], dict) else {}
         key = by_name.get(_norm(v.get("supplier")))
-        if key and key not in have:
-            if key not in latest or str(v.get("approved_on") or "") >= str(latest[key]["values"].get("approved_on")
-                                                                           or ""):
-                latest[key] = r
+        if key is None or v.get("status") not in ("approved", "conditional", "removed"):
+            skipped += 1
+            continue
+        if key not in have and (key not in latest or str(v.get("approved_on") or "") >=
+                                str(latest[key]["values"].get("approved_on") or "")):
+            latest[key] = {"id": r["id"], "values": v}
     if not latest:
         raise AslError("there is nothing to bring in: no supplier in the register that ERPNext knows and the list "
                        "does not have yet")
-    Q.check_signer(conn, user, password)
     with conn.transaction():
         for key, r in latest.items():
             v = r["values"]
-            status = {"approved": "approved", "conditional": "conditional", "removed": "disqualified"}[v["status"]]
+            try:
+                due = _date(v.get("next_review"), "next review")
+            except AslError:
+                due = None
             basis = " ".join(x for x in (str(v.get("basis") or ""), f"Approved or evaluated on {v.get('approved_on')}."
-                                         if v.get("approved_on") else "") if x) or "See the supplier register."
+                                         if v.get("approved_on") else "") if x)
             row = conn.execute(
                 "insert into asl_entries (supplier, item_code, status, basis, condition, review_due, source, "
-                "created_by, approved_by, approved_at) values (%s, null, %s, %s, %s, %s, %s, %s, %s, %s) returning id",
-                (key, status, basis[:4000], "See the supplier register entry." if status == "conditional" else "",
-                 _date(v.get("next_review"), "next review"), f"supplier register entry #{r['id']}", user["email"],
-                 user["email"] if status != "disqualified" else None,
-                 dt.datetime.now(dt.UTC) if status != "disqualified" else None)).fetchone()
-            log(conn, row["id"], user["email"], "brought in", f"from supplier register entry #{r['id']}: "
-                f"{v.get('status')}" + (f", supplies {v['supplies']}" if v.get("supplies") else ""))
-        Q._sign(conn, user, "Supplier approvals brought in from the register", "asl", 0,
-                f"{len(latest)} suppliers")
-    return len(latest)
+                "created_by) values (%s, null, %s, %s, %s, %s, %s, %s) returning id",
+                (key, "disqualified" if v["status"] == "removed" else "draft", basis[:4000],
+                 "See the supplier register entry." if v["status"] == "conditional" else "", due,
+                 f"supplier register entry #{r['id']}", email)).fetchone()
+            log(conn, row["id"], email, "brought in", f"from supplier register entry #{r['id']}: {v['status']}"
+                + (f", supplies {v['supplies']}" if v.get("supplies") else ""))
+    return {"brought_in": len(latest), "skipped": skipped}

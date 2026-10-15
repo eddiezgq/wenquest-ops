@@ -24,20 +24,36 @@ create table asl_entries (
 create unique index asl_entries_pair on asl_entries (supplier, coalesce(item_code, ''));
 
 create or replace function wqo_asl_kept() returns trigger language plpgsql as $$
+declare
+    signed boolean;
 begin
     if tg_op = 'DELETE' then
         raise exception 'approved supplier list entries are kept: disqualify the supplier instead';
     end if;
-    if (new.supplier, new.item_code, new.created_by, new.created_at) is distinct from
-            (old.supplier, old.item_code, old.created_by, old.created_at) then
-        raise exception 'entry % keeps its supplier and item', old.id;
+    if tg_op = 'INSERT' then
+        if new.status not in ('draft', 'disqualified') or new.approved_by is not null or new.approved_at is not null then
+            raise exception 'a new entry is a draft (or disqualified): it is approved with a signature';
+        end if;
+        return new;
     end if;
-    -- approved or conditional content changes only with a new signed approval (a re-evaluation)
-    if old.status in ('approved', 'conditional') and new.status = old.status
-            and (new.basis, new.condition, new.review_due, new.risk) is distinct from
-                (old.basis, old.condition, old.review_due, old.risk)
-            and new.approved_at is not distinct from old.approved_at then
-        raise exception 'entry % is %: re-evaluate it, or suspend it to change it', old.id, old.status;
+    if (new.supplier, new.item_code, new.created_by, new.created_at, new.source) is distinct from
+            (old.supplier, old.item_code, old.created_by, old.created_at, old.source) then
+        raise exception 'entry % keeps its supplier, item and origin', old.id;
+    end if;
+    -- a new approval: approver and time change together, later than before, with the approver's signature made
+    -- in the same change
+    signed := (new.approved_by, new.approved_at) is distinct from (old.approved_by, old.approved_at);
+    if signed and not (new.status in ('approved', 'conditional') and new.approved_by is not null
+            and new.approved_at > coalesce(old.approved_at, '-infinity'::timestamptz)
+            and exists (select 1 from signatures where kind = 'asl' and ref_id = new.id and email = new.approved_by
+                        and at = now())) then
+        raise exception 'entry % is approved only with the approver''s signature', old.id;
+    end if;
+    -- becoming approved or conditional, or changing while so, needs that new approval
+    if new.status in ('approved', 'conditional') and not signed and (new.status <> old.status
+            or (new.basis, new.condition, new.review_due, new.risk) is distinct from
+               (old.basis, old.condition, old.review_due, old.risk)) then
+        raise exception 'entry % is %: re-evaluate it, or suspend it to change it', old.id, new.status;
     end if;
     if old.status = 'disqualified' and new.status = old.status and (new.basis, new.condition, new.review_due,
             new.risk) is distinct from (old.basis, old.condition, old.review_due, old.risk) then
@@ -52,7 +68,7 @@ begin
     end if;
     return new;
 end $$;
-create trigger asl_entries_kept before update or delete on asl_entries
+create trigger asl_entries_kept before insert or update or delete on asl_entries
     for each row execute function wqo_asl_kept();
 
 create table asl_log (

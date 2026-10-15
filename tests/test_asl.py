@@ -58,6 +58,10 @@ def test_standing():
     both = [e(1, "approved"), e(2, "suspended", "BOLT-B")]
     assert AP.standing(both, "Gulf Fasteners", "BOLT-B", T)["outcome"] == "block"
     assert AP.standing(both, "Gulf Fasteners", "WIDGET-A", T)["outcome"] == "ok"
+    # but a supplier suspended for all its items is blocked for every item
+    held = [e(1, "suspended"), e(2, "approved", "BOLT-B")]
+    assert AP.standing(held, "Gulf Fasteners", "BOLT-B", T)["why"] == ("Gulf Fasteners (all items) is suspended on the "
+                                                                      "approved supplier list")
     s = AP.standing([e(1, "conditional", condition="100% inspection of the first 3 lots")], "Gulf Fasteners", "X", T)
     assert s == {"outcome": "flag", "why": "conditional supplier: 100% inspection of the first 3 lots",
                  "entry": s["entry"]}
@@ -81,8 +85,11 @@ def test_approvals_signed_and_kept(world):
         A.approve(world, u(world, DANA), x["id"], PW, reason="ok", today=T)
     with pytest.raises(A.AslError, match="give the reason"):
         A.approve(world, u(world, DANA), x["id"], PW, reason="", today=T, basis="Audit 2026-09")
+    with pytest.raises(A.AslError, match="when the supplier is re-evaluated next"):
+        A.approve(world, u(world, DANA), x["id"], PW, reason="ok", today=T, basis="Audit 2026-09")
     with pytest.raises(Q.SignatureError):
-        A.approve(world, u(world, DANA), x["id"], "wrong", reason="ok", today=T, basis="Audit 2026-09")
+        A.approve(world, u(world, DANA), x["id"], "wrong", reason="ok", today=T, basis="Audit 2026-09",
+                  review_due="2027-09-30")
     ok = A.approve(world, u(world, DANA), x["id"], PW, reason="Audit passed", today=T, basis="Audit 2026-09",
                    review_due="2027-09-30")
     assert (ok["status"], ok["approved_by"]) == ("approved", DANA)
@@ -91,13 +98,22 @@ def test_approvals_signed_and_kept(world):
         A.change(world, JORDAN, x["id"], {"basis": "x"})
     with pytest.raises(psycopg.errors.RaiseException, match="re-evaluate it"):
         world.execute("update asl_entries set basis = 'x' where id = %s", (x["id"],))
-    with pytest.raises(A.AslError, match="next re-evaluation date, after today"):
+    with pytest.raises(psycopg.errors.RaiseException, match="only with the approver's signature"):
+        world.execute("update asl_entries set approved_by = %s, approved_at = now() + interval '1 second' "
+                      "where id = %s", (JORDAN, x["id"]))
+    with pytest.raises(psycopg.errors.RaiseException, match="is a draft"):
+        world.execute("insert into asl_entries (supplier, status, basis, created_by, approved_by, approved_at) "
+                      "values ('Acme Cable', 'approved', 'x', 'x', 'x', now())")
+    with pytest.raises(A.AslError, match="re-evaluated next, after today"):
         A.approve(world, u(world, DANA), x["id"], PW, reason="yearly", today=T, review_due=str(T))
     again = A.approve(world, u(world, DANA), x["id"], PW, reason="yearly", today=T, review_due="2028-09-30",
                       condition="Certificate of conformity with every lot")
     assert again["status"] == "conditional" and str(again["review_due"]) == "2028-09-30"
     A.move(world, DANA, x["id"], "suspended", "late certificates")
-    A.change(world, JORDAN, x["id"], {"condition": ""})
+    A.change(world, DANA, x["id"], {"condition": ""})
+    # Dana changed it, so Dana does not approve it again
+    with pytest.raises(PermissionError, match="entered or changed"):
+        A.approve(world, u(world, DANA), x["id"], PW, reason="x", today=T, review_due="2028-01-31")
     A.move(world, DANA, x["id"], "disqualified", "lost its certification")
     with pytest.raises(A.AslError, match="qualified again first"):
         A.approve(world, u(world, DANA), x["id"], PW, reason="x", today=T)
@@ -117,12 +133,17 @@ def test_incoming_inspection_reads_the_list(world):
     table(world)
     p = I.new_plan(world, JORDAN, "BOLT-B", 1.0, CHARS)
     I.enable_plan(world, u(world, DANA), p["id"], PW)
+    # an empty list is not in use yet; once it has an entry, a supplier not on it is blocked
+    first = I.start(world, JORDAN, "BOLT-B", receipt="PR-9", today=T)
+    assert first["supplier_standing"] is None
+    A.add(world, JORDAN, "Acme Cable", None, {})
     with pytest.raises(I.IqcError, match="Gulf Fasteners for BOLT-B is not on the approved supplier list"):
         I.start(world, JORDAN, "BOLT-B", receipt="PR-7", today=T)
     x = A.add(world, JORDAN, "Gulf Fasteners", None, {"basis": "Certificate"})
     with pytest.raises(I.IqcError, match="is draft on the approved supplier list"):
         I.start(world, JORDAN, "BOLT-B", receipt="PR-7", today=T)
-    A.approve(world, u(world, DANA), x["id"], PW, reason="ok", today=T, condition="First lots 100% inspected")
+    A.approve(world, u(world, DANA), x["id"], PW, reason="ok", today=T, condition="First lots 100% inspected",
+              review_due="2027-01-31")
     ins = I.start(world, JORDAN, "BOLT-B", receipt="PR-7", today=T)
     assert ins["supplier_standing"] == "conditional supplier: First lots 100% inspected"
     assert "conditional supplier" in I.history(world, "inspection", ins["id"])[0]["note"]
@@ -141,22 +162,35 @@ def test_register_brought_in_and_read_by_the_iso_check(world):
                                          "basis": "ISO 9001 certificate"})
     RG.create(world, DANA, "suppliers", {"supplier": "acme cable", "status": "removed", "approved_on": "2026-05-01"})
     RG.create(world, DANA, "suppliers", {"supplier": "Nobody Inc", "status": "approved", "approved_on": "2026-05-01"})
-    assert A.from_register(world, u(world, DANA), PW) == 2
+    RG.create(world, DANA, "suppliers", {"supplier": "Gulf Fasteners", "status": "conditional",
+                                         "approved_on": "2025-01-01"})                 # older: the latest counts
+    assert A.from_register(world, DANA) == {"brought_in": 2, "skipped": 1}
     rows = {r["supplier"]: r for r in A.listing(world, T)}
     assert set(rows) == {"Gulf Fasteners", "Acme Cable"}
     g = rows["Gulf Fasteners"]
-    assert (g["status"], g["review_due"], g["approved_by"]) == ("approved", "2027-03-01", DANA)
+    # brought in as a draft for someone else to approve
+    assert (g["status"], g["review_due"], g["approved_by"]) == ("draft", "2027-03-01", None)
     assert g["basis"] == "ISO 9001 certificate Approved or evaluated on 2026-03-01." and g["source"].startswith(
         "supplier register entry #")
     assert rows["Acme Cable"]["status"] == "disqualified"
     with pytest.raises(A.AslError, match="nothing to bring in"):
-        A.from_register(world, u(world, DANA), PW)
+        A.from_register(world, DANA)
+    with pytest.raises(PermissionError):
+        A.approve(world, u(world, DANA), g["id"], PW, reason="as in the register", today=T)
+    A.approve(world, u(world, JORDAN), g["id"], PW, reason="as in the register", today=T)
     # the ISO supplier check now reads the list: Acme Cable was bought from but is disqualified
     QMS.evaluate(world, "iso9001", T, "manual", JORDAN)
     r = QMS.latest(world, "iso9001")["results"]["supplier_approval"]
     assert r["status"] == "not_met" and "(approved supplier list)" in r["detail"]
     assert [(p["label"], p["why"]) for p in r["problems"]] == [
-        ("Acme Cable", "bought from but disqualified on the approved supplier list")]
+        ("Acme Cable", "bought from but Acme Cable (all items) is disqualified on the approved supplier list")]
+    # an approval for one item does not cover the supplier's other items
+    world.execute("update asl_entries set status = 'draft' where supplier = 'Acme Cable'")
+    a2 = A.add(world, JORDAN, "Acme Cable", "WIDGET-A", {"basis": "sample lots"})
+    A.approve(world, u(world, DANA), a2["id"], PW, reason="ok", today=T, review_due="2027-06-30")
+    QMS.evaluate(world, "iso9001", T, "manual", JORDAN)
+    r = QMS.latest(world, "iso9001")["results"]["supplier_approval"]
+    assert r["status"] == "not_met" and r["problems"][0]["why"].startswith("bought from but Acme Cable for ")
 
 
 def test_asl_api_and_purchase_drafts(db_url):
@@ -179,9 +213,10 @@ def test_asl_api_and_purchase_drafts(db_url):
     login(JORDAN)
     v = c.post("/api/asl", json={"supplier": "Gulf Fasteners", "basis": "Certificate"}).json()
     eid = v["entries"][0]["id"]
-    assert c.post(f"/api/asl/{eid}/approve", json={"password": PW, "reason": "ok"}).status_code == 403
+    assert c.post(f"/api/asl/{eid}/approve", json={"password": PW, "reason": "ok",
+                                                   "review_due": "2027-09-30"}).status_code == 403
     login(DANA)
-    v = c.post(f"/api/asl/{eid}/approve", json={"password": PW, "reason": "ok"}).json()
+    v = c.post(f"/api/asl/{eid}/approve", json={"password": PW, "reason": "ok", "review_due": "2027-09-30"}).json()
     assert v["entries"][0]["status"] == "approved"
     assert c.post(f"/api/asl/{eid}/explode", json={}).status_code == 404
     assert c.get(f"/api/asl/{eid}/history").json()["signatures"][0]["meaning"] == "Supplier approved"

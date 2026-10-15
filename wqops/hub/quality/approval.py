@@ -2,9 +2,10 @@
 
 Plain code: no AI, no network, no database (tests/test_isolation.py).
 
-An entry for the item counts before an entry for all the supplier's items. Approved and not due for re-evaluation:
-ok. Conditional, or approved but past its re-evaluation date: allowed, with a flag that goes with the record. No
-entry, a draft, suspended or disqualified: blocked.
+An entry for the item counts before an entry for all the supplier's items, except that a supplier suspended or
+disqualified for all its items is blocked for every item. Approved and not due for re-evaluation: ok. Conditional,
+or approved but past its re-evaluation date: allowed, with a flag that goes with the record. No entry, a draft,
+suspended or disqualified: blocked.
 """
 
 from __future__ import annotations
@@ -38,8 +39,11 @@ def standing(entries: list[dict], supplier: str | None, item_code: str | None, t
     """{outcome: ok | flag | block, why, entry}. ``supplier`` None: nothing to check against (block)."""
     if not supplier:
         return {"outcome": "block", "why": "no supplier is known for this lot", "entry": None}
+    every = entry_for(entries, supplier, None)
     e = entry_for(entries, supplier, item_code)
     what = f"{supplier}" + (f" for {item_code}" if item_code else "")
+    if every and every["status"] in ("suspended", "disqualified"):
+        e, what = every, f"{supplier} (all items)"
     if e is None:
         return {"outcome": "block", "why": f"{what} is not on the approved supplier list", "entry": None}
     st, due = e["status"], _day(e.get("review_due"))

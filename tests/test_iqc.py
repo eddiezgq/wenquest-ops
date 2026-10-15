@@ -62,7 +62,7 @@ def approved(conn):
     from wqops.hub.quality import asl as ASL
 
     e = ASL.add(conn, JORDAN, "Gulf Fasteners", None, {"basis": "ISO 9001 certificate and sample lots"})
-    ASL.approve(conn, u(conn, DANA), e["id"], PW, reason="Evaluated", today=AS_OF)
+    ASL.approve(conn, u(conn, DANA), e["id"], PW, reason="Evaluated", today=AS_OF, review_due="2027-09-30")
 
 
 def plan(conn):

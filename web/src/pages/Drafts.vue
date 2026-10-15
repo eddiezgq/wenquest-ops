@@ -67,7 +67,7 @@ const WHAT = { 'Purchase Order': 'Creates a draft purchase order in ERPNext; sub
       </div>
       <div v-if="d.asl?.length" class="mt-2 rounded-3 border border-outline-amber-3 bg-surface-amber-1 px-3 py-2 text-sm text-ink-amber-8">
         <p class="font-medium">Approved supplier list</p>
-        <ul class="list-disc ps-5"><li v-for="x in d.asl" :key="x.item_code">{{ x.item_code }}: {{ x.why }}{{ x.outcome === 'block' ? ' (its lots cannot be inspected until it is approved)' : '' }}</li></ul>
+        <ul class="list-disc ps-5"><li v-for="(x, i) in d.asl" :key="i">{{ x.item_code }}: {{ x.why }}{{ x.outcome === 'block' ? ' (its lots cannot be inspected until it is approved)' : '' }}</li></ul>
         <RouterLink to="/quality/suppliers" class="wq-link">Approved suppliers</RouterLink>
       </div>
     </template>

@@ -467,9 +467,11 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         day = OA.today(company()[0])
         for d in out:     # a purchase order for an item the supplier is not approved for says so (17c)
             if d["doctype"] == "Purchase Order" and d["status"] in ("pending", "failed"):
-                p = d["payload"]
-                d["asl"] = ASL.check_lines(c, p.get("supplier"), [i.get("item_code") for i in p.get("items") or []
-                                                                  if isinstance(i, dict)], day)
+                p = d["payload"] if isinstance(d["payload"], dict) else {}
+                lines = p.get("items") if isinstance(p.get("items"), list) else []
+                d["asl"] = ASL.check_lines(c, str(p.get("supplier") or "") or None,
+                                           [str(i["item_code"]) for i in lines if isinstance(i, dict)
+                                            and i.get("item_code")], day)
         return out
 
     @app.post("/api/erp/drafts/{draft_id}/confirm")

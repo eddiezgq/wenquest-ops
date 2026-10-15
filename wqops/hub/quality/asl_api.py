@@ -1,6 +1,6 @@
 """Approved supplier list endpoints, step 17c (ADR-0017). Seeing the list needs quality:view; entering, changing,
-approving, re-evaluating, suspending, disqualifying and bringing in the register need qms:configure. Approving,
-re-evaluating and bringing in are signed with the person's password.
+approving, re-evaluating, suspending, disqualifying and bringing in the register need qms:configure. Approving and
+re-evaluating are signed with the person's password.
 """
 
 from __future__ import annotations
@@ -76,11 +76,10 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         return {"history": A.history(c, eid), "signatures": Q.signatures(c, "asl", eid)}
 
     @app.post("/api/asl/from-register")
-    async def from_register(request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+    def from_register(u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "qms:configure")
-        d = await body(request)
-        n = run(lambda: A.from_register(c, u, str(d.get("password") or "")))
-        return {**page(c, u), "brought_in": n}
+        out = run(lambda: A.from_register(c, u["email"]))
+        return {**page(c, u), **out}
 
     @app.post("/api/asl/{eid}/{action}")
     async def act(eid: int, action: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -90,7 +89,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
             run(lambda: A.approve(c, u, ident(eid), str(d.get("password") or ""), reason=str(d.get("reason") or ""),
                                   today=today(), basis=d["basis"] if isinstance(d.get("basis"), str) else None,
                                   review_due=d.get("review_due"),
-                                  condition=d["condition"] if isinstance(d.get("condition"), str) else None))
+                                  condition=d["condition"] if isinstance(d.get("condition"), str) else None,
+                                  risk=d["risk"] if isinstance(d.get("risk"), str) else None))
         elif action in ("suspend", "disqualify", "requalify"):
             to = {"suspend": "suspended", "disqualify": "disqualified", "requalify": "draft"}[action]
             run(lambda: A.move(c, u["email"], ident(eid), to, str(d.get("reason") or "")))

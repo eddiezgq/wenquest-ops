@@ -31,7 +31,8 @@ SETTINGS = {
     "release_by_other": (True, "A lot is released or rejected by someone other than the inspector who signed it"),
     "unverified_reason": (True, "Releasing a lot sampled with an unchecked sampling table row needs a reason"),
     # the approved supplier list (17c)
-    "asl_enforced": (True, "Lots from a supplier not approved for the item cannot be inspected"),
+    "asl_enforced": (True, "Once the approved supplier list has entries, lots from a supplier not approved for the "
+                           "item cannot be inspected"),
     "asl_approve_by_other": (True, "A supplier is approved by someone other than the person who entered it"),
 }
 
@@ -473,8 +474,9 @@ def start(conn, email: str, item_code: str, lot_qty=None, *, receipt: str | None
     if qty < 1:
         raise IqcError("the lot size is at least 1")
     standing = None
-    if settings(conn)["asl_enforced"]:
-        st = AP.standing(asl_entries(conn), supplier, item_code, today or dt.datetime.now(dt.UTC).date())
+    entries = asl_entries(conn)
+    if settings(conn)["asl_enforced"] and entries:      # the list is in use once it has entries
+        st = AP.standing(entries, supplier, item_code, today or dt.datetime.now(dt.UTC).date())
         if st["outcome"] == "block":
             raise IqcError(f"{st['why']}: approve the supplier first (Approved suppliers)")
         standing = st["why"] if st["outcome"] == "flag" else "approved"

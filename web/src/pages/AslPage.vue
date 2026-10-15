@@ -42,8 +42,8 @@ const approve = (e) => run(`a${e.id}`, () => { const p = pw.value; pw.value = ''
 const save = (e) => run(`s${e.id}`, () => api(`/api/asl/${e.id}`, { method: 'PUT', body: { basis: act.value.basis, condition: act.value.condition, review_due: act.value.review_due, risk: act.value.risk } }), 'Saved.')
 const move = (e, what) => run(`m${e.id}`, () => api(`/api/asl/${e.id}/${what}`, { method: 'POST', body: { reason: act.value.reason } }),
   { suspend: 'Suspended.', disqualify: 'Disqualified.', requalify: 'Back to a draft, to approve again.' }[what])
-const bring = () => run('bring', async () => { const p = pw.value; pw.value = ''; const r = await api('/api/asl/from-register', { method: 'POST', body: { password: p } }); done.value = ''; return r },
-  'Brought in from the supplier approval register.')
+const bring = () => run('bring', () => api('/api/asl/from-register', { method: 'POST' }),
+  'Brought in from the supplier approval register as drafts: someone other than you approves each one.')
 const editable = (e) => ['draft', 'suspended'].includes(e.status)
 const approvable = (e) => ['draft', 'suspended', 'approved', 'conditional'].includes(e.status)
 </script>
@@ -71,9 +71,9 @@ const approvable = (e) => ['draft', 'suspended', 'approved', 'conditional'].incl
         <div><Button type="submit" variant="solid" label="Enter (draft)" :disabled="!form.supplier" :loading="busy === 'add'" /></div>
       </form>
       <div v-if="v.register_entries" class="mt-4 flex flex-wrap items-end gap-2 border-t border-outline-gray-1 pt-4 text-sm">
-        <p class="w-full text-ink-gray-7">The supplier approval register (Quality system) has {{ v.register_entries }} entries. Bring the latest one per supplier in as entries for all its items, signed once.</p>
-        <label class="wq-field">Your password<input v-model="pw" type="password" class="wq-input w-48" autocomplete="current-password"></label>
-        <Button label="Bring in from the register (sign)" :disabled="!pw" :loading="busy === 'bring'" @click="bring" />
+        <p class="w-full text-ink-gray-7">The supplier approval register (Quality system) has {{ v.register_entries }} entries. Bring the latest one per supplier in
+          as a draft for all its items, with its basis and next review, for someone else to approve (a removed supplier comes in disqualified).</p>
+        <Button label="Bring in from the register" :loading="busy === 'bring'" @click="bring" />
       </div>
     </section>
 
@@ -97,13 +97,14 @@ const approvable = (e) => ['draft', 'suspended', 'approved', 'conditional'].incl
               <div v-if="approvable(e)" class="mb-2 grid gap-2 md:grid-cols-4">
                 <label class="wq-field md:col-span-2">Basis<textarea v-model="act.basis" rows="2" class="wq-input" /></label>
                 <label class="wq-field">Conditions (makes it conditional)<textarea v-model="act.condition" rows="2" class="wq-input" /></label>
-                <label class="wq-field">Re-evaluate by<input v-model="act.review_due" type="date" class="wq-input"></label>
+                <label class="wq-field">Re-evaluate by *<input v-model="act.review_due" type="date" class="wq-input"></label>
+                <label class="wq-field">Risk<select v-model="act.risk" class="wq-select"><option>low</option><option>medium</option><option>high</option></select></label>
               </div>
               <div class="flex flex-wrap items-end gap-2">
                 <label class="wq-field">Reason<input v-model="act.reason" class="wq-input w-72"></label>
                 <template v-if="approvable(e)">
                   <label class="wq-field">Your password<input v-model="pw" type="password" class="wq-input w-40" autocomplete="current-password"></label>
-                  <Button variant="solid" :label="['approved', 'conditional'].includes(e.status) ? 'Re-evaluate (sign)' : 'Approve (sign)'" :disabled="!pw || !act.reason.trim()" :loading="busy === `a${e.id}`" @click="approve(e)" />
+                  <Button variant="solid" :label="['approved', 'conditional'].includes(e.status) ? 'Re-evaluate (sign)' : 'Approve (sign)'" :disabled="!pw || !act.reason.trim() || !act.review_due" :loading="busy === `a${e.id}`" @click="approve(e)" />
                 </template>
                 <Button v-if="editable(e)" label="Save changes" :loading="busy === `s${e.id}`" @click="save(e)" />
                 <Button v-if="['approved', 'conditional'].includes(e.status)" label="Suspend" :disabled="!act.reason.trim()" @click="move(e, 'suspend')" />

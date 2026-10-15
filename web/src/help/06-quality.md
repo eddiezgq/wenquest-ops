@@ -62,12 +62,16 @@ someone else approves it with a password. With conditions written in, the approv
 entry changes only by a signed re-evaluation (with a later re-evaluation date), or after it is suspended. Suspending,
 disqualifying and qualifying again (back to a draft) need a reason. Nothing is deleted.
 
-Incoming inspection reads the list: a lot from a supplier with no approved entry for the item cannot be inspected; a
+Incoming inspection reads the list: a lot from a supplier with no approved entry for the item cannot be inspected (a
+supplier suspended or disqualified for all items is blocked for every item); a
 conditional supplier or an overdue re-evaluation is flagged on the inspection. Purchase order drafts list any item
 the supplier is not approved for. The list also shows each entry's inspected lots, rejection rate and open
-nonconformances. If the ISO 9001 supplier approval register was used, *Bring in from the register* makes an entry
-for each supplier ERPNext knows, signed once; from then on the ISO supplier check reads the list. Both rules (the list
-is enforced; approval by someone else) can be switched off at the bottom of the page.
+nonconformances. If the ISO 9001 supplier approval register was used, *Bring in from the register* makes a draft
+entry for each supplier ERPNext knows, with the register's basis and next review, for someone else to approve (a
+removed supplier comes in disqualified); from then on the ISO supplier check reads the list, item by item. The list is
+in use once it has an entry: before that, incoming inspection does not consult it. Both rules (the list is enforced;
+approval by someone other than whoever entered or last changed the entry) can be switched off at the bottom of the
+page.
 
 ## Supplier quality
 
