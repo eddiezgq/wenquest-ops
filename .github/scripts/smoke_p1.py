@@ -107,7 +107,8 @@ def roles(b: Browser, people: list[dict]) -> None:
         check(("Quality" in nav) == ("quality:view" in perms), f"{u['email']}: Quality in the menu only if allowed")
         for path in ["/", "/assistant", "/anomalies", "/objects", "/drafts", "/help", "/documents"] + \
                 (["/quality", "/quality?tab=incoming", "/quality?tab=suppliers", "/quality?tab=spc",
-                  "/quality?tab=workflows", "/system", "/system/registers/training"]
+                  "/quality?tab=workflows", "/system", "/system/registers/training", "/system/gaps",
+                  "/system/audit"]
                  if "quality:view" in perms else []):
             try:
                 s.go(path, "h1, main .help-nav")
@@ -397,6 +398,12 @@ def quality_system(b: Browser) -> None:
                   if c["id"] == "review")
     check(r.ok and s2.ok and status == "met", f"quality system: an approved management review is recorded ({status})")
     q.go("/system/registers/management_reviews", "text=Management review approved")
+    g = q.page.request.post(f"{BASE}/api/qms/iso9001/todos/all", data={})
+    gaps = g.json() if g.ok else {}
+    check(g.ok and gaps["counts"]["with_todo"] == gaps["counts"]["not_met"] + gaps["counts"]["unknown"] > 0,
+          f"quality system: a to-do for every gap ({gaps.get('counts')})")
+    q.go("/system/gaps", "article.gap")
+    q.go("/system/audit", "section.checklist")
     check(not q.errors, f"quality system: no script errors ({q.errors[:2]})")
     q.close()
     s = Session(b, "sam@demo.example", PW)

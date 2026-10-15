@@ -251,9 +251,17 @@ def evaluate(conn, standard: str, today: dt.date, trigger: str, email: str | Non
     pack = row["content"]
     values = settings(conn, standard, pack)
     results = R.evaluate(pack, row["edition"], facts(conn, pack, standard, today, tz, values["window_days"]), values)
-    return conn.execute("insert into qms_evaluations (pack_id, day, trigger, email, results, counts) values "
-                        "(%s, %s, %s, %s, %s, %s) returning *",
-                        (row["id"], today, trigger, email, Jsonb(results), Jsonb(R.counts(results)))).fetchone()
+    ev = conn.execute("insert into qms_evaluations (pack_id, day, trigger, email, results, counts) values "
+                      "(%s, %s, %s, %s, %s, %s) returning *",
+                      (row["id"], today, trigger, email, Jsonb(results), Jsonb(R.counts(results)))).fetchone()
+    # a to-do whose control point is now met (or declared not to apply) is done by the check itself
+    ok = [c for c, r in results.items() if r["status"] in (R.MET, R.NA)]
+    for t in conn.execute("update qms_todos set status = 'done', closed_by = 'WenQuest Ops', closed_at = now() "
+                          "where standard = %s and status = 'open' and control = any(%s) returning id",
+                          (standard, ok)).fetchall():
+        conn.execute("insert into qms_todo_log (todo_id, email, action, note) values (%s, 'WenQuest Ops', 'done', "
+                     "%s)", (t["id"], f"met in the check of {today}"))
+    return ev
 
 
 def evaluate_changed(conn, today: dt.date, email: str, tz: str = "UTC") -> None:
