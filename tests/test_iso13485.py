@@ -8,6 +8,7 @@ import datetime as dt
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+from psycopg.types.json import Json
 
 from tests.test_documents import AS_OF, DEMO, PW
 from tests.test_metrics import build
@@ -87,9 +88,11 @@ def test_complaints_investigated_and_decided_on_reporting():
     def check(*rows):
         return R.complaints_assessed(facts(list(rows)), SET)
     assert check()["status"] == "unknown"
-    # received recently, not decided yet: still within the days
+    # received recently, not decided yet: still within the days, and nothing decided is nothing to judge
     r = check(complaint(1, 3))
-    assert r["status"] == "met" and "1 still within the 30 days" in r["detail"]
+    assert r["status"] == "unknown" and "1 complaint still within the 30 days" in r["detail"]
+    r = check({**complaint(1, 3), "values": {**complaint(1, 3)["values"], "received_on": "last week"}})
+    assert r["status"] == "not_met" and r["problems"][0]["why"].startswith("no date received")
     r = check(complaint(1, 40))
     assert r["status"] == "not_met" and r["problems"][0]["why"] == "whether to report it is not decided after 40 days"
     r = check(complaint(1, 10, reportable=False))
@@ -105,8 +108,10 @@ def test_complaints_investigated_and_decided_on_reporting():
     old = complaint(3, 400)
     r = check(done, feedback, old)
     assert r["status"] == "met" and [x["id"] for x in r["evidence"]] == [1]
-    # the company sets its own days
-    assert R.complaints_assessed(facts([complaint(1, 40)]), {**SET, "reportability_days": 60})["status"] == "met"
+    r = check(done, complaint(4, 2))
+    assert r["status"] == "met" and [x["id"] for x in r["evidence"]] == [1] and "1 more still within" in r["detail"]
+    # the company sets its own days: 40 days undecided is late at 30, still waiting at 60
+    assert R.complaints_assessed(facts([complaint(1, 40)]), {**SET, "reportability_days": 60})["status"] == "unknown"
 
 
 def test_both_standards_on_the_same_records(world):
@@ -126,7 +131,8 @@ def test_both_standards_on_the_same_records(world):
                                           "kind": "complaint", "description": "Display flickers"})
     QMS.evaluate_changed(world, T, DANA)
     assert QMS.latest(world, "iso9001")["results"]["customer_feedback"]["status"] == "met"
-    assert QMS.latest(world, "iso13485")["results"]["complaints_assessed"]["status"] == "met"
+    # read by ISO 13485 too: received today and not decided yet, so nothing to judge
+    assert QMS.latest(world, "iso13485")["results"]["complaints_assessed"]["detail"].startswith("1 complaint still")
     # settings, declarations and the view are kept per standard
     QMS.set_setting(world, JORDAN, "iso13485", "reportability_days", 10, T)
     assert QMS.settings(world, "iso9001", QMS.load("iso9001")).get("reportability_days") is None
@@ -137,6 +143,7 @@ def test_both_standards_on_the_same_records(world):
 
 def test_questionnaire_per_standard(world):
     QMS.enable(world, Acc.get(world, JORDAN), "iso13485", "2016", PW, T)
+    QMS.enable(world, Acc.get(world, JORDAN), "iso9001", "2015", PW, T)
     assert "sterile" in SU.questions(world, "iso13485") and "sterile" not in SU.questions(world, "iso9001")
     with pytest.raises(SU.SetupError, match="no question"):
         SU.save_answers(world, JORDAN, "iso9001", {"sterile": False})
@@ -148,6 +155,14 @@ def test_questionnaire_per_standard(world):
     res = QMS.latest(world, "iso13485")["results"]
     assert res["sterilization_validation"]["status"] == "not_applicable"
     assert QMS.applicability(world, "iso9001") == {}
+    # a pack adopted before questionnaires were in packs still gets the questionnaire from the pack file
+    world.execute("update qms_packs set status = 'retired', retired_at = now() where standard = 'iso9001'")
+    old = {k: v for k, v in QMS.load("iso9001").items() if k not in ("questions", "name")} | {"version": 2}
+    world.execute("insert into qms_packs (standard, edition, version, content, fingerprint, enabled_by) values "
+                  "('iso9001', '2015', 2, %s, 'v2', %s)", (Json(old), JORDAN))
+    assert "designs" in SU.questions(world, "iso9001")
+    SU.save_answers(world, JORDAN, "iso9001", {"designs": False})
+    assert [p["control"] for p in SU.proposed_applicability(world, "iso9001")] == ["design"]
 
 
 def test_standards_api(db_url):

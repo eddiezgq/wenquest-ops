@@ -24,9 +24,10 @@ from wqops.hub.system import rules as R
 # ---------------------------------------------------------------- the questionnaire
 
 def questions(conn, standard: str) -> dict:
-    """The questionnaire of the standard's pack: the one adopted, or the pack file before it is adopted."""
+    """The questionnaire of the standard's pack: the one adopted, or the pack file before it is adopted (or when the
+    adopted pack is older than questionnaires in packs)."""
     row = QMS.enabled(conn, standard)
-    return ((row["content"] if row else QMS.load(standard)).get("questions")) or {}
+    return (row and row["content"].get("questions")) or QMS.load(standard).get("questions") or {}
 
 
 class SetupError(ValueError):

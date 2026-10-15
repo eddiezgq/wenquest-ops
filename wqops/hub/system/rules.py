@@ -438,6 +438,22 @@ def complaints_answered(facts: dict, settings: dict) -> dict:
                             for e in rows])
 
 
+def _reporting(v: dict, late: bool, age: int) -> tuple[list[str], str]:
+    """What is wrong with one complaint's investigation and reporting decision, and its state: decided, or waiting
+    while still within the days."""
+    why = []
+    if _d(v.get("answered_on")) and not str(v.get("investigation") or "").strip():
+        why.append("closed without an investigation or the reason none was needed")
+    rep = v.get("reportable")
+    if type(rep) is not bool:
+        return why + ([f"whether to report it is not decided after {age} days"] if late else []), "waiting"
+    if not str(v.get("reportable_reason") or "").strip():
+        return [*why, "the reporting decision has no reason"], "decided"
+    if rep and not _d(v.get("reported_on")):
+        return why + (["to be reported, but no report date recorded"] if late else []), "waiting"
+    return why, "decided"
+
+
 def complaints_assessed(facts: dict, settings: dict) -> dict:
     """ISO 13485: each complaint investigated (or why not recorded) before it is closed, and whether it must be
     reported to a regulator decided with a reason, and the report made, within the company's set days. The decision
@@ -447,36 +463,31 @@ def complaints_assessed(facts: dict, settings: dict) -> dict:
     if not rows:
         return result(UNKNOWN, f"No complaints recorded in the last {settings['window_days']} days.")
     days = int(settings["reportability_days"])
-    bad, waiting = [], 0
+    bad, waiting, decided = [], 0, []
     for e in rows:
         v = e["values"]
         got = _d(v.get("received_on"))
-        label = f"{v.get('customer')}, {got}"
-        late = got is not None and (facts["today"] - got).days > days
-        rep = v.get("reportable")
-        if _d(v.get("answered_on")) and not str(v.get("investigation") or "").strip():
-            bad.append(_entry(e, label, "closed without an investigation or the reason none was needed"))
-        if type(rep) is not bool:
-            if late:
-                bad.append(_entry(e, label, f"whether to report it is not decided after {(facts['today'] - got).days}"
-                                            " days"))
-            else:
-                waiting += 1
-        elif not str(v.get("reportable_reason") or "").strip():
-            bad.append(_entry(e, label, "the reporting decision has no reason"))
-        elif rep and not _d(v.get("reported_on")):
-            if late:
-                bad.append(_entry(e, label, "to be reported, but no report date recorded"))
-            else:
-                waiting += 1
+        if got is None:
+            bad.append(_entry(e, f"{v.get('customer')}", "no date received, so the days cannot be counted"))
+            continue
+        age = (facts["today"] - got).days
+        why, state = _reporting(v, age > days, age)
+        bad += [_entry(e, f"{v.get('customer')}, {got}", w) for w in why]
+        if not why and state == "waiting":
+            waiting += 1
+        elif not why:
+            decided.append(e)
     if bad:
         return result(NOT_MET, f"{_plural(len(bad), 'problem')} with investigating or deciding on reporting "
                                "complaints.", bad)
-    more = f" {waiting} still within the {days} days to decide or report." if waiting else ""
-    return result(MET, f"{_plural(len(rows), 'complaint')}, each investigated and decided on reporting, with "
-                       "reasons." + more,
+    more = f" {waiting} more still within the {days} days to decide or report." if waiting else ""
+    if not decided:              # nothing decided yet: nothing to judge, so not met either
+        return result(UNKNOWN, f"{_plural(waiting, 'complaint')} still within the {days} days to decide on "
+                               "reporting; none decided yet.")
+    return result(MET, f"{_plural(len(decided), 'complaint')} decided on reporting with reasons, and reported where "
+                       "needed." + more,
                   evidence=[_entry(e, f"{e['values'].get('customer')}, {e['values'].get('received_on')}")
-                            for e in rows])
+                            for e in decided])
 
 
 def feedback_collected(facts: dict, settings: dict) -> dict:

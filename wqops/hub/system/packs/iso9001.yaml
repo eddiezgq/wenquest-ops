@@ -45,15 +45,15 @@ questions:
   customer_property:
     label: Does it hold property of customers or suppliers (materials, tools, data)?
     type: yesno
-    if_no: {customer_property: We hold no property of customers or external providers.}
+    if_no: {customer_property: "We hold no property of customers or external providers."}
   after_delivery:
     label: Does it do anything after delivery (warranty, service, returns)?
     type: yesno
-    if_no: {post_delivery: We do no activities after delivery beyond what the order states.}
+    if_no: {post_delivery: "We do no activities after delivery beyond what the order states."}
   measures:
     label: Does it use measuring equipment to show products conform?
     type: yesno
-    if_no: {measuring: No measuring equipment is used to show that products conform.}
+    if_no: {measuring: "No measuring equipment is used to show that products conform."}
   outsourced: {label: Processes done by others for the company, type: text}
 processes:
   context:

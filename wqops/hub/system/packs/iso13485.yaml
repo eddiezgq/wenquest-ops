@@ -49,37 +49,39 @@ questions:
   implantable:
     label: Does it make or handle implantable devices?
     type: yesno
-    if_no: {implantable: We make or handle no implantable medical devices.}
+    if_no: {implantable: "We make or handle no implantable medical devices."}
   cleanliness:
-    label: Does it clean devices, or does cleanliness or contamination matter for them?
+    label: Does it clean devices, or is their cleanliness a requirement?
     type: yesno
-    if_no:
-      cleanliness: No device is cleaned by us, and cleanliness is not a requirement of our devices.
-      contamination: There is no contamination to control for our devices, work environment or products.
+    if_no: {cleanliness: "No device is cleaned by us, and cleanliness is not a requirement of our devices."}
+  contamination:
+    label: Can contamination of the work environment, people or product affect the devices (always yes for sterile devices)?
+    type: yesno
+    if_no: {contamination: "There is no contamination to control for our devices, work environment or products."}
   installs:
     label: Does it install devices at the customer?
     type: yesno
-    if_no: {installation: We do not install devices; installation is not a requirement of our devices.}
+    if_no: {installation: "We do not install devices; installation is not a requirement of our devices."}
   services:
     label: Does it service devices?
     type: yesno
-    if_no: {servicing: We do not service devices; servicing is not a requirement of our devices.}
+    if_no: {servicing: "We do not service devices; servicing is not a requirement of our devices."}
   special_processes:
     label: Does it use processes whose results cannot be checked afterwards (sealing, welding, coating, software in production)?
     type: yesno
-    if_no: {process_validation: Every production output is verified by inspection or test afterwards.}
+    if_no: {process_validation: "Every production output is verified by inspection or test afterwards."}
   customer_property:
     label: Does it hold property of customers or suppliers (materials, tools, data)?
     type: yesno
-    if_no: {customer_property: We hold no property of customers or external providers.}
+    if_no: {customer_property: "We hold no property of customers or external providers."}
   measures:
     label: Does it use measuring equipment to show devices conform?
     type: yesno
-    if_no: {measuring: No measuring equipment is used to show that devices conform.}
+    if_no: {measuring: "No measuring equipment is used to show that devices conform."}
   rework:
     label: Does it ever rework nonconforming product?
     type: yesno
-    if_no: {rework: We do not rework nonconforming product; it is scrapped or returned.}
+    if_no: {rework: "We do not rework nonconforming product; it is scrapped or returned."}
   outsourced: {label: Processes done by others for the company, type: text}
 processes:
   context:

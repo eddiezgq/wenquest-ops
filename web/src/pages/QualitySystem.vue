@@ -35,24 +35,30 @@ const LINKED = ['linked_document', 'scope_declared']
 const counts = computed(() => v.value?.evaluation?.counts || {})
 const stds = ref([])
 
+let asked = 0                     // only the latest load is shown, so a slow answer for another standard is dropped
 async function load() {
+  const mine = ++asked
   error.value = ''
   try {
     const q = route.query.evaluation ? `?evaluation=${route.query.evaluation}` : route.query.day ? `?day=${route.query.day}` : ''
-    stds.value = await api('/api/qms')
-    if (!stds.value.some((s) => s.standard === standard.value)) setStandard(stds.value[0].standard)
-    v.value = await api(`/api/qms/${standard.value}${q}`)
-    const ready = Object.entries(v.value.editions).filter(([, e]) => e.ready).map(([k]) => k)
+    const list = await api('/api/qms')
+    if (mine !== asked) return
+    stds.value = list
+    if (!list.some((s) => s.standard === standard.value)) { setStandard(list[0].standard); return }
+    const page = await api(`/api/qms/${standard.value}${q}`)
+    const rs = await api('/api/registers')
+    if (mine !== asked) return
+    v.value = page; regs.value = rs
+    const ready = Object.entries(page.editions).filter(([, e]) => e.ready).map(([k]) => k)
     if (!ready.includes(edition.value)) edition.value = ready[ready.length - 1] || ''
-    regs.value = await api('/api/registers')
-  } catch (e) { error.value = e.message }
+  } catch (e) { if (mine === asked) error.value = e.message }
 }
 watch(() => [route.query.evaluation, route.query.day, standard.value], load, { immediate: true })
-function choose(s) {
+async function choose(s) {
   if (s === standard.value) return
-  open.value = null; done.value = ''
+  open.value = null; done.value = ''; error.value = ''; v.value = null
+  if (!latest.value) await router.replace({ path: '/system' })      // an earlier check belongs to the old standard
   setStandard(s)
-  if (!latest.value) router.replace({ path: '/system' })
 }
 async function toggle(c) {
   open.value = open.value === c.id ? null : c.id

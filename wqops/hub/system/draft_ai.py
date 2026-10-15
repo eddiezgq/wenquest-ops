@@ -24,7 +24,19 @@ PROCESS = {"production": "production", "traceability": "production", "customer_p
            "design": "production", "post_delivery": "complaints", "changes": "management_review",
            "scope": "management_review", "processes": "management_review", "policy": "management_review",
            "roles": "management_review", "ncr_concession": "nonconformance", "capa_for_major": "capa",
-           "capa_on_time": "capa"}
+           "capa_on_time": "capa",
+           # ISO 13485 (17a)
+           "regulatory_role": "management_review", "outsourced": "purchasing", "qms_software": "document_control",
+           "device_file": "document_control", "records": "document_control", "management_rep": "management_review",
+           "communication": "management_review", "infrastructure": "production", "work_environment": "production",
+           "contamination": "production", "planning": "production", "risk_management": "other",
+           "customer_requirements": "other", "customer_communication": "complaints", "purchasing_info": "purchasing",
+           "cleanliness": "production", "installation": "production", "servicing": "production",
+           "sterile_records": "production", "process_validation": "production", "sterilization_validation":
+           "production", "identification": "production", "implantable": "production", "preservation": "production",
+           "process_monitoring": "management_review", "product_release": "production",
+           "after_delivery": "nonconformance", "rework": "nonconformance", "data_analysis": "management_review",
+           "preventive": "capa"}
 
 
 class NoModel(RuntimeError):
