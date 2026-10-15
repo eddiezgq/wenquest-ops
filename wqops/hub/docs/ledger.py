@@ -101,7 +101,8 @@ def add_registers(regs: dict[str, dict]) -> None:
     training, calibration, audits and so on comes in the same way as a nonconformance log."""
     for name, r in regs.items():
         TARGETS[f"reg_{name}"] = {"label": f"Register: {r['label']}", "perm": "quality:edit", "fields": {
-            f: Field(x["label"], REGISTER_KINDS[x["type"]], bool(x.get("required")), tuple(x.get("choices") or ()),
+            f: Field(x["label"], REGISTER_KINDS.get(x.get("type"), "text"), bool(x.get("required")),
+                     tuple(x.get("choices") or ()),
                      tuple(x.get("synonyms") or ())) for f, x in r["fields"].items()}}
 
 

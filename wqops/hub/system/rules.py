@@ -271,10 +271,25 @@ def _d(v) -> dt.date | None:
         return None
 
 
+WHEN = {"training": "trained_on", "calibration": "calibrated_on", "audits": "audit_date",
+        "management_reviews": "review_date", "objectives": "reviewed_on", "risks": "reviewed_on",
+        "complaints": "received_on", "suppliers": "approved_on"}
+
+
+def _num(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _entries(facts: dict, name: str, signed_only: bool = False) -> list[dict]:
-    """Entries of a register; for a signed register, the approved ones and those brought in from old records."""
+    """Entries of a register (approved ones only, if asked). An entry dated after today is a plan, not a record:
+    it is left out."""
     rows = (facts.get("registers") or {}).get(name, [])
-    return [e for e in rows if not signed_only or e["signed"] or e["imported"]]
+    when = WHEN.get(name)
+    return [e for e in rows if (not signed_only or e["signed"])
+            and not (when and (_d(e["values"].get(when)) or dt.date.min) > facts["today"])]
 
 
 def _latest(rows: list[dict], key: list[str], when: str) -> list[dict]:
@@ -357,7 +372,7 @@ def audits_done(facts: dict, settings: dict) -> dict:
         return out
     open_ = [_entry(e, f"audit of {e['values'].get('area')} on {e['values'].get('audit_date')}",
                     "findings not followed up") for e in ok
-             if (e["values"].get("nonconformities") or 0) > 0 and e["values"].get("followed_up") is not True]
+             if _num(e["values"].get("nonconformities")) > 0 and e["values"].get("followed_up") is not True]
     if open_:
         return result(NOT_MET, f"{_plural(len(open_), 'audit')} with findings not followed up.", open_)
     return result(MET, f"Internal audits within every {days} days; findings followed up.",
@@ -457,6 +472,9 @@ def suppliers_approved(facts: dict, settings: dict) -> dict:
             bad.append(_entry(e, e["values"].get("supplier"), f"re-evaluation was due on {nxt}"))
     if bad:
         return result(NOT_MET, f"{_plural(len(bad), 'supplier')} not approved or not re-evaluated in time.", bad)
+    if not used:
+        return result(UNKNOWN, f"No purchases in the last {settings['window_days']} days to check the list against.",
+                      evidence=[_entry(e, e["values"].get("supplier")) for e in latest.values()])
     return result(MET, f"{_plural(len(latest), 'supplier')} on the list; every supplier bought from in the last "
                        f"{settings['window_days']} days is approved.",
                   evidence=[_entry(e, e["values"].get("supplier")) for e in latest.values()])
@@ -534,7 +552,10 @@ def evaluate(pack: dict, edition: str, facts: dict, settings: dict | None = None
             elif rule.startswith("register:"):
                 r = register(facts, settings, rule.split(":", 1)[1])
             else:
-                r = CHECKS[rule](facts, settings)
+                try:
+                    r = CHECKS[rule](facts, settings)
+                except (TypeError, ValueError, KeyError, AttributeError) as exc:     # odd data: say so, go on
+                    r = result(UNKNOWN, f"Could not be checked: a value is not as expected ({type(exc).__name__}).")
             out[c["id"]] = {**r, "process": pname, "summary": c["summary"], "clauses": (c.get("clauses") or {}).get(
                 edition, []), "rule": rule}
     return out
@@ -547,9 +568,31 @@ def counts(results: dict) -> dict:
     return out
 
 
+REGISTER_TYPES = ("text", "longtext", "number", "date", "choice", "yesno")
+
+
+def check_registers(regs: dict) -> list[str]:
+    errs = []
+    for name, r in regs.items():
+        if not re.fullmatch(r"[a-z][a-z0-9_]{1,40}", str(name)) or not str((r or {}).get("label") or "").strip():
+            errs.append(f"register {name}: a name of lower-case letters and a label")
+        fields = (r or {}).get("fields") or {}
+        if not fields:
+            errs.append(f"register {name}: at least one field")
+        for f, x in fields.items():
+            if (x or {}).get("type") not in REGISTER_TYPES or not str((x or {}).get("label") or "").strip():
+                errs.append(f"register {name}, field {f}: a label and a type ({', '.join(REGISTER_TYPES)})")
+            elif x["type"] == "choice" and len(x.get("choices") or []) < 2:
+                errs.append(f"register {name}, field {f}: at least two choices")
+        for k in (r or {}).get("key") or []:
+            if k not in fields:
+                errs.append(f"register {name}: key {k} is not a field")
+    return errs
+
+
 def check_pack(pack: dict) -> list[str]:  # noqa: PLR0912 - one line per kind of mistake
     """What is wrong with a pack file: unknown rules, duplicate control points, settings the checks need."""
-    errs, seen = [], set()
+    errs, seen = check_registers(pack.get("registers") or {}), set()
     sets = pack.get("settings") or {}
     for need in ("window_days", "ncr_contain_days", "capa_within_days", "capa_overdue_days"):
         if not isinstance(sets.get(need), dict) or type(sets[need].get("value")) is not int:

@@ -49,7 +49,7 @@ function edit(e) {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 const sign = (e) => call(`/api/register-entries/${e.id}/sign`, 'POST', { password: password.value }, 'Approved and locked.')
-const doVoid = (e) => call(`/api/register-entries/${e.id}/void`, 'POST', { reason: reason.value }, 'Entry void.')
+const doVoid = (e) => call(`/api/register-entries/${e.id}/void`, 'POST', { reason: reason.value, password: password.value }, 'Entry void.')
 const show = (f, v) => (v === undefined || v === null ? '' : f.type === 'yesno' ? (v ? 'yes' : 'no') : String(v))
 </script>
 
@@ -121,7 +121,8 @@ const show = (f, v) => (v === undefined || v === null ? '' : f.type === 'yesno' 
                   </div>
                   <div v-else class="flex flex-wrap items-end gap-2">
                     <label class="wq-field">Why is it void?<input v-model="reason" class="wq-input w-96"></label>
-                    <Button label="Void the entry" :disabled="!reason.trim()" @click="doVoid(e)" />
+                    <label v-if="e.status === 'signed'" class="wq-field">Your password (it was approved)<input v-model="password" type="password" class="wq-input w-48" autocomplete="current-password"></label>
+                    <Button label="Void the entry" :disabled="!reason.trim() || (e.status === 'signed' && !password)" @click="doVoid(e)" />
                   </div>
                 </td>
               </tr>

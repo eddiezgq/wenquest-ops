@@ -168,6 +168,6 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         need(u, "quality:edit")
         e = entry_of(c, eid)
         d = await body(request)
-        run(lambda: RG.void(c, u["email"], eid, str(d.get("reason") or "")))
+        run(lambda: RG.void(c, u, eid, str(d.get("reason") or ""), str(d.get("password") or "")))
         QMS.evaluate_changed(c, today(), u["email"], tz())
         return register_page(c, u, e["register"])

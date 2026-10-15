@@ -29,6 +29,7 @@ begin
     if new.register is distinct from old.register or new.created_by is distinct from old.created_by
             or new.created_at is distinct from old.created_at or new.source_doc is distinct from old.source_doc
             or (old.status = 'signed' and (new.signed_by, new.signed_at) is distinct from (old.signed_by, old.signed_at))
+            or (old.status = 'void' and new.void_reason is distinct from old.void_reason)
             or not (old.status = new.status or (old.status = 'open' and new.status in ('signed', 'void'))
                     or (old.status = 'signed' and new.status = 'void')) then
         raise exception 'register entry % cannot be changed that way', old.id;

@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-import re
 
 from psycopg.types.json import Jsonb
 
 from wqops.hub.quality import records as Q
 from wqops.hub.system import qms as QMS
+from wqops.hub.system import rules as R
 
-TYPES = ("text", "longtext", "number", "date", "choice", "yesno")
+TYPES = R.REGISTER_TYPES
 YES = {"yes", "y", "true", "1", "done", "closed", "x"}
 NO = {"no", "n", "false", "0", "open", "not done"}
 
@@ -38,22 +38,7 @@ def spec(name: str, standard: str = "iso9001") -> dict:
 
 
 def check_specs(regs: dict) -> list[str]:
-    errs = []
-    for name, r in regs.items():
-        if not re.fullmatch(r"[a-z][a-z0-9_]{1,40}", name) or not str(r.get("label") or "").strip():
-            errs.append(f"register {name}: a name of lower-case letters and a label")
-        fields = r.get("fields") or {}
-        if not fields:
-            errs.append(f"register {name}: at least one field")
-        for f, x in fields.items():
-            if x.get("type") not in TYPES or not str(x.get("label") or "").strip():
-                errs.append(f"register {name}, field {f}: a label and a type ({', '.join(TYPES)})")
-            if x.get("type") == "choice" and len(x.get("choices") or []) < 2:
-                errs.append(f"register {name}, field {f}: at least two choices")
-        for k in r.get("key") or []:
-            if k not in fields:
-                errs.append(f"register {name}: key {k} is not a field")
-    return errs
+    return R.check_registers(regs)
 
 
 def _date(v) -> str:
@@ -125,13 +110,20 @@ def get(conn, entry_id: int) -> dict:
 
 def create(conn, email: str, name: str, values: dict, *, source_doc: int | None = None,
            source_row: int | None = None, note: str = "") -> dict:
+    """A new entry. One brought in by a signed ledger import (source_doc) of a signed register is approved by that
+    import and locked like any approved entry."""
     s = spec(name)
     vals = clean(s, values)
+    approved = bool(source_doc and s.get("sign"))
     with conn.transaction():
         row = conn.execute("insert into qms_register_entries (register, \"values\", created_by, source_doc, "
-                           "source_row) values (%s, %s, %s, %s, %s) returning *",
-                           (name, Jsonb(vals), email, source_doc, source_row)).fetchone()
+                           "source_row, status, signed_by, signed_at) values (%s, %s, %s, %s, %s, %s, %s, "
+                           "case when %s then now() end) returning *",
+                           (name, Jsonb(vals), email, source_doc, source_row, "signed" if approved else "open",
+                            email if approved else None, approved)).fetchone()
         log(conn, row["id"], email, "recorded", note)
+        if approved:
+            log(conn, row["id"], email, "approved", "by the signed import of the old records")
     return row
 
 
@@ -172,9 +164,13 @@ def sign(conn, user: dict, entry_id: int, password: str) -> dict:
     return out
 
 
-def void(conn, email: str, entry_id: int, reason: str) -> dict:
+def void(conn, user: dict, entry_id: int, reason: str, password: str = "") -> dict:
+    """Void an entry with a reason; an approved one also needs the person's password."""
+    email = user["email"]
     if not reason.strip():
         raise RegisterError("say why the entry is void")
+    if get(conn, entry_id)["status"] == "signed":
+        Q.check_signer(conn, user, password)
     with conn.transaction():
         row = conn.execute("select * from qms_register_entries where id = %s for update", (entry_id,)).fetchone()
         if row is None:

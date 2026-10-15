@@ -114,8 +114,15 @@ def test_register_checks():
     assert R.audits_done(facts({"audits": au}), SET)["status"] == "met"
     assert R.audits_done(facts({"audits": au}), dict(SET, audit_interval_days=30))["detail"] == \
         "The last internal audit was on 2026-09-01; one is due every 30 days."
-    # an old review brought in from a spreadsheet counts as having happened
-    rv = [e(1, imported=True, review_date="2026-02-01", attendees="Dana", decisions="x")]
+    # a planned audit (dated after today) is not a record of one; an odd number does not break the check
+    old = [e(1, signed=True, audit_date="2024-03-01", area="x", nonconformities="n/a"),
+           e(2, signed=True, audit_date="2027-06-01", area="y")]
+    assert R.audits_done(facts({"audits": old}), SET)["detail"] == \
+        "The last internal audit was on 2024-03-01; one is due every 365 days."
+    assert R.calibration_current(facts({"calibration": [e(1, equipment="G", calibrated_on="2027-01-01")]}),
+                                 SET)["status"] == "unknown"
+    # a review brought in by a signed import is approved by it
+    rv = [e(1, signed=True, imported=True, review_date="2026-02-01", attendees="Dana", decisions="x")]
     assert R.reviews_done(facts({"management_reviews": rv}), SET)["status"] == "met"
     assert R.reviews_done(facts({"management_reviews": rv}), dict(SET, review_interval_days=90))["status"] == "not_met"
     ob = [e(1, objective="On-time delivery", target="95%", reviewed_on="2026-01-01"),
@@ -149,6 +156,16 @@ def test_register_checks():
         "Old Metal": "re-evaluation was due on 2025-01-01"}
     assert R.suppliers_approved(facts({"suppliers": sp[:1]}, suppliers_used={"Gulf Fasteners": "Gulf Fasteners"}),
                                 SET)["status"] == "met"
+    # no purchases to check the list against: unknown, not met
+    assert R.suppliers_approved(facts({"suppliers": sp[:1]}), SET)["status"] == "unknown"
+    # a check that meets odd data says it could not check, and the others go on
+    pack = QMS.load("iso9001")
+    res = R.evaluate(pack, "2015", {**facts({"training": [e(1, person="Lee", topic="x", trained_on=5)]}),
+                                    "documents": [], "document_issues": [], "document_approvals": set(), "ncrs": [],
+                                    "capas": [], "ncr_capas": set(), "capa_actions": [], "signatures": {},
+                                    "approval_dispositions": set(), "incoming_inspections": [],
+                                    "ncr_inspections": set(), "applicability": {}, "excludable": {}, "evidence": {}})
+    assert res["competence"]["status"] in ("met", "unknown") and len(res) == len(QMS.controls(pack))
 
 
 # ---------------------------------------------------------------- in the database
@@ -186,8 +203,12 @@ def test_entries_are_signed_locked_voided_and_judged(world):
     assert out["audit"]["status"] == "met" and out["competence"]["status"] == "met"
     assert out["supplier_approval"]["status"] == "met"
     with pytest.raises(RG.RegisterError, match="say why"):
-        RG.void(world, JORDAN, a["id"], " ")
-    RG.void(world, JORDAN, a["id"], "entered for the wrong year")
+        RG.void(world, Acc.get(world, JORDAN), a["id"], " ")
+    with pytest.raises(Q.SignatureError):                      # an approved entry is voided with a password
+        RG.void(world, Acc.get(world, JORDAN), a["id"], "entered for the wrong year")
+    RG.void(world, Acc.get(world, JORDAN), a["id"], "entered for the wrong year", PW)
+    with pytest.raises(psycopg.errors.RaiseException):
+        world.execute("update qms_register_entries set void_reason = 'other' where id = %s", (a["id"],))
     assert QMS.evaluate(world, "iso9001", T, "manual")["results"]["audit"]["status"] == "unknown"
     assert [h["action"] for h in RG.history(world, a["id"])] == ["recorded", "changed", "approved", "void"]
     assert RG.counts(world)["audits"] == {"void": 1}
@@ -213,6 +234,19 @@ def test_old_spreadsheets_come_into_registers(world):
     rows = RG.entries(world, "training")
     assert {r["values"]["person"] for r in rows} == {"Lee Warehouse", "Pat Buyer"}
     assert all(r["source_doc"] == doc["id"] for r in rows) and rows[0]["values"]["result"] == "competent"
+    assert all(r["status"] == "open" for r in rows)            # training entries are not approved with a signature
+    # old management reviews come in approved by the signed import, and locked
+    data = DD.xlsx({"MR": [["Date", "Participants", "Minutes"], ["2026-03-02", "Dana, Jordan", "Add a supplier"]]})
+    doc2 = LIB.add_file(world, imp["id"], "Management reviews.xlsx", data)
+    LIB.extract_one(world, LIB.get(world, doc2["id"]))
+    t2 = LS.table_of(world, LIB.get(world, doc2["id"]))
+    prop2 = LG.rules_mapping("reg_management_reviews", t2, LS.flds(world, "reg_management_reviews"))
+    li2 = LS.create(world, JORDAN, LIB.get(world, doc2["id"]), "reg_management_reviews", t2, prop2, "rules")
+    LS.run_import(world, Acc.get(world, JORDAN), li2["id"], PW)
+    mr = RG.entries(world, "management_reviews")[0]
+    assert mr["status"] == "signed" and mr["signed_by"] == JORDAN
+    with pytest.raises(RG.RegisterError, match="approved"):
+        RG.update(world, JORDAN, mr["id"], {"decisions": "changed"})
 
 
 def test_registers_api(db_url):
@@ -244,5 +278,6 @@ def test_registers_api(db_url):
     assert one["signatures"][0]["email"] == JORDAN and [h["action"] for h in one["history"]] == [
         "recorded", "changed", "approved"]
     assert c.post(f"/api/register-entries/{eid}/void", json={"reason": ""}).status_code == 409
+    assert c.post(f"/api/register-entries/{eid}/void", json={"reason": "wrong", "password": "x"}).status_code == 403
     assert c.get(f"/api/register-entries/{2**70}").status_code == 404
     c.__exit__(None, None, None)
