@@ -32,6 +32,9 @@ import RiskFilePage from './pages/RiskFilePage.vue'
 import Production from './pages/Production.vue'
 import ProductionTemplate from './pages/ProductionTemplate.vue'
 import ProductionRecord from './pages/ProductionRecord.vue'
+import Trace from './pages/Trace.vue'
+import Recalls from './pages/Recalls.vue'
+import RecallPage from './pages/RecallPage.vue'
 import ChangePage from './pages/ChangePage.vue'
 import Gauges from './pages/Gauges.vue'
 import GaugePage from './pages/GaugePage.vue'
@@ -64,6 +67,9 @@ const router = createRouter({
     { path: '/quality/production', component: Production, meta: { title: 'Production records' } },
     { path: '/quality/production/templates/:id', component: ProductionTemplate, meta: { title: 'Production template' } },
     { path: '/quality/production/:id', component: ProductionRecord, meta: { title: 'Production record' } },
+    { path: '/quality/trace', component: Trace, meta: { title: 'Trace' } },
+    { path: '/quality/recalls', component: Recalls, meta: { title: 'Recalls' } },
+    { path: '/quality/recalls/:id', component: RecallPage, meta: { title: 'Recall' } },
     { path: '/quality/suppliers', component: AslPage, meta: { title: 'Approved suppliers' } },
     { path: '/quality/iqc', component: IqcHome, meta: { title: 'Incoming inspection' } },
     { path: '/quality/iqc/plans/:id', component: IqcPlan, meta: { title: 'Inspection plan' } },

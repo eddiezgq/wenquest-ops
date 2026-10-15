@@ -36,7 +36,10 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
 
     async def body(request: Request) -> dict:
         raw = await request.body()
-        d = (await request.json()) if raw else {}
+        try:
+            d = (await request.json()) if raw else {}
+        except ValueError as exc:
+            raise HTTPException(400, "the request is not JSON") from exc
         return d if isinstance(d, dict) else {}
 
     def today():

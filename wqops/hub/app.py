@@ -414,6 +414,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import production_api as PRDA  # noqa: PLC0415
 
     PRDA.mount(app, conn, current_user, company)
+    from wqops.hub.quality import recall_api as RCA  # noqa: PLC0415
+
+    RCA.mount(app, conn, current_user, company)
     from wqops.hub.docs import api as DA  # noqa: PLC0415
 
     DA.mount(app, conn, current_user, company, ai_model, db_url)

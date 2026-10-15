@@ -46,6 +46,7 @@ const act = async (a, body, msg) => { if (await call(`/api/production/records/${
 <template>
   <PageTop :crumbs="[{ label: 'Production records', to: '/quality/production' }]">
     <template #title>{{ r ? `${r.name} · ${r.item_code} lot ${r.lot_no}` : 'Production record' }}</template>
+    <RouterLink v-if="r" :to="`/quality/trace?record=${r.id}`"><Button icon-left="lucide-route" label="Trace" /></RouterLink>
     <Badge v-if="r" :theme="ST[r.status]" size="lg" :label="r.status.replace('_', ' ')" />
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
@@ -53,6 +54,7 @@ const act = async (a, body, msg) => { if (await call(`/api/production/records/${
   <template v-if="r">
     <p v-if="r.on_hold.length" class="wq-error mb-4">Held: equipment it used was found out of tolerance ({{ r.on_hold.join(', ') }}); the assessment must be signed first.</p>
     <p v-if="r.intact === false" class="wq-error mb-4">This record no longer matches what was signed.</p>
+    <p v-if="r.recalls?.length" class="wq-error mb-4">In a recall: <RouterLink v-for="rc in r.recalls" :key="rc.id" :to="`/quality/recalls/${rc.id}`" class="wq-link me-2">{{ rc.name }} ({{ rc.status }})</RouterLink></p>
     <p class="mb-4 text-sm text-ink-gray-6">Template <RouterLink :to="`/quality/production/templates/${r.template.id}`" class="wq-link">{{ r.template.code }} v{{ r.template.version }}</RouterLink>
       <span v-if="r.template.documents.length"> · follows {{ r.template.documents.join(', ') }}</span></p>
 
