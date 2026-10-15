@@ -211,8 +211,21 @@ def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # n
         d = M._d(p.get("report_date"))
         if M._submitted(p) and p.get("inspection_type") == "Incoming" and d and since <= d <= today:
             lots.append({"key": q["key"], "item_code": p.get("item_code"), "rejected": p.get("status") == "Rejected"})
+    sup_of = {r["src_key"]: r["dst_key"] for r in conn.execute(
+        "select src_key, dst_key from ont_links where src_type = 'PurchaseReceipt' and type = 'supplier'")}
+    names = {o["key"]: o["props"].get("supplier_name") or o["key"] for o in M._objs(conn, "Supplier")}
+    used = {}
+    for r in M._objs(conn, "PurchaseReceipt"):
+        d = M._d(r["props"].get("posting_date"))
+        if M._submitted(r["props"]) and d and since <= d <= today and r["key"] in sup_of:
+            used[sup_of[r["key"]]] = names.get(sup_of[r["key"]], sup_of[r["key"]])
+    regs: dict[str, list[dict]] = {}
+    for r in conn.execute("select id, register, \"values\", status, source_doc from qms_register_entries "
+                          "where status <> 'void' order by id"):
+        regs.setdefault(r["register"], []).append({"id": r["id"], "values": r["values"], "signed": r["status"] ==
+                                                   "signed", "imported": r["source_doc"] is not None})
     return {
-        "today": today, "since": since,
+        "today": today, "since": since, "registers": regs, "suppliers_used": used,
         "documents": [dict(d, name=LIB.name_of(d)) for d in state["docs"]], "document_issues": state["issues"],
         "document_approvals": {k[1] for k in sig if k[0] == "document"},
         "ncrs": ncrs, "capas": capas, "ncr_capas": linked,
@@ -241,6 +254,12 @@ def evaluate(conn, standard: str, today: dt.date, trigger: str, email: str | Non
     return conn.execute("insert into qms_evaluations (pack_id, day, trigger, email, results, counts) values "
                         "(%s, %s, %s, %s, %s, %s) returning *",
                         (row["id"], today, trigger, email, Jsonb(results), Jsonb(R.counts(results)))).fetchone()
+
+
+def evaluate_changed(conn, today: dt.date, email: str, tz: str = "UTC") -> None:
+    """A register changed: check again every standard in use, so the page shows it at once."""
+    for s in STANDARDS:
+        evaluate(conn, s, today, "changed", email, tz=tz)
 
 
 def evaluate_if_due(conn, today: dt.date, tz: str = "UTC") -> list[str]:

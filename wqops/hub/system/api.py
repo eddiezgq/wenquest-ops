@@ -12,6 +12,7 @@ from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import records as Q
 from wqops.hub.system import qms as QMS
+from wqops.hub.system import registers as RG
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per action
@@ -22,7 +23,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     def run(fn):
         try:
             return fn()
-        except (QMS.QmsError, Q.QualityError) as exc:
+        except (QMS.QmsError, Q.QualityError, RG.RegisterError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(404, "not found") from exc
@@ -101,3 +102,72 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         run(lambda: QMS.link(c, u["email"], standard, control, doc, d.get("linked", True), today(),
                              str(d.get("note") or ""), tz()))
         return page(c, u, standard)
+
+    # ---------------------------------------------------------------- registers (16b)
+
+    def entry_view(c, e: dict) -> dict:
+        return {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in e.items()}
+
+    def register_page(c, u, name: str) -> dict:
+        s = run(lambda: RG.spec(name))
+        return {"name": name, "spec": s, "can_edit": P.allows(u["roles"], "quality:edit"),
+                "entries": [entry_view(c, e) for e in RG.entries(c, name)]}
+
+    @app.get("/api/registers")
+    def registers(u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        counts = RG.counts(c)
+        return [{"name": k, "label": s["label"], "signed": bool(s.get("sign")), "counts": counts.get(k, {})}
+                for k, s in RG.specs().items()]
+
+    @app.get("/api/registers/{name}")
+    def register(name: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        return register_page(c, u, name)
+
+    @app.post("/api/registers/{name}", status_code=201)
+    async def add_entry(name: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:edit")
+        d = await body(request)
+        run(lambda: RG.create(c, u["email"], name, d.get("values") or {}))
+        QMS.evaluate_changed(c, today(), u["email"], tz())
+        return register_page(c, u, name)
+
+    def entry_of(c, eid: int) -> dict:
+        if not 0 < eid < 2**63:
+            raise HTTPException(404, "not found")
+        return run(lambda: RG.get(c, eid))
+
+    @app.get("/api/register-entries/{eid}")
+    def entry(eid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        e = entry_of(c, eid)
+        return {**entry_view(c, e), "history": RG.history(c, eid), "spec": RG.spec(e["register"]),
+                "signatures": Q.signatures(c, "register", eid)}
+
+    @app.put("/api/register-entries/{eid}")
+    async def change_entry(eid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:edit")
+        e = entry_of(c, eid)
+        d = await body(request)
+        run(lambda: RG.update(c, u["email"], eid, d.get("values") or {}))
+        QMS.evaluate_changed(c, today(), u["email"], tz())
+        return register_page(c, u, e["register"])
+
+    @app.post("/api/register-entries/{eid}/sign")
+    async def sign_entry(eid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:edit")
+        e = entry_of(c, eid)
+        d = await body(request)
+        run(lambda: RG.sign(c, u, eid, str(d.get("password") or "")))
+        QMS.evaluate_changed(c, today(), u["email"], tz())
+        return register_page(c, u, e["register"])
+
+    @app.post("/api/register-entries/{eid}/void")
+    async def void_entry(eid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:edit")
+        e = entry_of(c, eid)
+        d = await body(request)
+        run(lambda: RG.void(c, u, eid, str(d.get("reason") or ""), str(d.get("password") or "")))
+        QMS.evaluate_changed(c, today(), u["email"], tz())
+        return register_page(c, u, e["register"])

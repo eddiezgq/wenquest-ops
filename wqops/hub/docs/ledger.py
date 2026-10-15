@@ -92,6 +92,20 @@ TARGETS: dict[str, dict] = {
 }
 
 
+REGISTER_KINDS = {"text": "text", "longtext": "text", "number": "number", "date": "date", "choice": "choice",
+                  "yesno": "text"}
+
+
+def add_registers(regs: dict[str, dict]) -> None:
+    """The quality registers of a process pack as ledger kinds "reg_<name>" (ADR-0016, 16b): an old spreadsheet of
+    training, calibration, audits and so on comes in the same way as a nonconformance log."""
+    for name, r in regs.items():
+        TARGETS[f"reg_{name}"] = {"label": f"Register: {r['label']}", "perm": "quality:edit", "fields": {
+            f: Field(x["label"], REGISTER_KINDS.get(x.get("type"), "text"), bool(x.get("required")),
+                     tuple(x.get("choices") or ()),
+                     tuple(x.get("synonyms") or ())) for f, x in r["fields"].items()}}
+
+
 def fields(target: str, dispositions: dict[str, str] | None = None) -> dict[str, Field]:
     out = dict(TARGETS[target]["fields"])
     if target == "ncr" and dispositions:

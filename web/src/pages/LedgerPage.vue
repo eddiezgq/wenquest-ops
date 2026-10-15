@@ -26,8 +26,12 @@ const KEYS = { ncr: ['external_no', 'reported_on', 'title', 'description', 'seve
   capa: ['external_no', 'reported_on', 'kind', 'title', 'ncr', 'owner', 'status'],
   supplier: ['supplier_name', 'supplies', 'approved_on', 'certificate', 'approval'] }
 const PERM = { ncr: 'quality:edit', capa: 'quality:edit', supplier: 'purchasing:draft' }
-const canImport = computed(() => L.value && ws.value?.user.permissions.includes(PERM[L.value.target]) && L.value.status === 'proposed')
-const REF = (r) => (r?.startsWith('NCR-') ? '/quality?tab=ncrs' : r?.startsWith('CAPA-') ? '/quality?tab=capas' : r?.startsWith('draft') ? '/drafts' : null)
+// a quality register (ADR-0016, 16b) is kept by those who edit quality records; its columns are its first fields
+const permOf = (t) => PERM[t] || (t?.startsWith('reg_') ? 'quality:edit' : null)
+const keysOf = (t) => KEYS[t] || Object.keys(pv.value?.fields || {}).slice(0, 6)
+const canImport = computed(() => L.value && ws.value?.user.permissions.includes(permOf(L.value.target)) && L.value.status === 'proposed')
+const REF = (r) => (r?.startsWith('NCR-') ? '/quality?tab=ncrs' : r?.startsWith('CAPA-') ? '/quality?tab=capas' : r?.startsWith('draft') ? '/drafts'
+  : r?.startsWith('entry ') && L.value?.target?.startsWith('reg_') ? `/system/registers/${L.value.target.slice(4)}#e${r.slice(6)}` : null)
 
 function set(x) {
   L.value = x
@@ -138,10 +142,10 @@ const show = (r, f) => r.values[f] ?? ''
       <p class="wq-muted mb-2">{{ pv.ready }} ready to import · {{ pv.with_problems }} with notes · {{ pv.already }} already imported<span v-if="pv.total > pv.rows.length"> · first {{ pv.rows.length }} shown</span></p>
       <div class="wq-panel overflow-x-auto">
         <table class="wq-table text-sm">
-          <thead><tr><th>Row</th><th v-for="k in KEYS[L.target]" :key="k">{{ pv.fields[k]?.label }}</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Row</th><th v-for="k in keysOf(L.target)" :key="k">{{ pv.fields[k]?.label }}</th><th>Notes</th></tr></thead>
           <tbody><tr v-for="r in pv.rows" :key="r.row" :class="{ 'opacity-60': r.done || !r.ok }">
             <td>{{ r.row }}</td>
-            <td v-for="k in KEYS[L.target]" :key="k" class="max-w-64">{{ show(r, k) }}</td>
+            <td v-for="k in keysOf(L.target)" :key="k" class="max-w-64">{{ show(r, k) }}</td>
             <td class="max-w-80"><span v-if="r.done" class="text-ink-gray-6">imported as {{ r.done }}</span>
               <span v-for="(p, i) in r.problems" :key="i" class="block" :class="r.ok ? 'text-ink-amber-7' : 'text-ink-red-7'">{{ p }}</span></td>
           </tr></tbody>

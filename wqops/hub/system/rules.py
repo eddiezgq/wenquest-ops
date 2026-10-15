@@ -15,6 +15,9 @@ system/qms.py (``opened``, ``closed_on``, ``contained_on``, ``when``). Plain cod
 
 from __future__ import annotations
 
+import datetime as dt
+import re
+
 MET, NOT_MET, UNKNOWN, NA = "met", "not_met", "unknown", "not_applicable"
 SHOW = 25                                       # records listed per answer; the count says how many there are
 
@@ -259,6 +262,224 @@ def capa_effective(facts: dict, settings: dict) -> dict:
                   evidence=[ref("capa", c) for c in closed])
 
 
+# ---------------------------------------------------------------- registers (16b)
+
+def _d(v) -> dt.date | None:
+    try:
+        return dt.date.fromisoformat(str(v)[:10]) if v else None
+    except ValueError:
+        return None
+
+
+WHEN = {"training": "trained_on", "calibration": "calibrated_on", "audits": "audit_date",
+        "management_reviews": "review_date", "objectives": "reviewed_on", "risks": "reviewed_on",
+        "complaints": "received_on", "suppliers": "approved_on"}
+
+
+def _num(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _entries(facts: dict, name: str, signed_only: bool = False) -> list[dict]:
+    """Entries of a register (approved ones only, if asked). An entry dated after today is a plan, not a record:
+    it is left out."""
+    rows = (facts.get("registers") or {}).get(name, [])
+    when = WHEN.get(name)
+    return [e for e in rows if (not signed_only or e["signed"])
+            and not (when and (_d(e["values"].get(when)) or dt.date.min) > facts["today"])]
+
+
+def _latest(rows: list[dict], key: list[str], when: str) -> list[dict]:
+    """The latest entry about each thing (by the register's key and its date field)."""
+    best: dict[tuple, dict] = {}
+    for e in rows:
+        k = tuple(str(e["values"].get(f, "")).strip().lower() for f in key)
+        d = _d(e["values"].get(when)) or dt.date.min
+        if k not in best or (d, e["id"]) >= (_d(best[k]["values"].get(when)) or dt.date.min, best[k]["id"]):
+            best[k] = e
+    return list(best.values())
+
+
+def _entry(e: dict, label: str, why: str = "") -> dict:
+    return {"kind": "entry", "id": e["id"], "label": label, "why": why}
+
+
+def _empty(name: str) -> dict:
+    return result(UNKNOWN, f"Nothing in the {name.replace('_', ' ')} register yet.")
+
+
+def training_current(facts: dict, settings: dict) -> dict:
+    rows = _entries(facts, "training")
+    if not rows:
+        return _empty("training")
+    follow = int(settings["training_followup_days"])
+    bad, latest = [], _latest(rows, ["person", "topic"], "trained_on")
+    for e in latest:
+        v, label = e["values"], f"{e['values'].get('person')}: {e['values'].get('topic')}"
+        until, on = _d(v.get("valid_until")), _d(v.get("trained_on"))
+        if until and until < facts["today"]:
+            bad.append(_entry(e, label, f"expired on {until}"))
+        elif v.get("result") == "needs follow-up" and on and (facts["today"] - on).days > follow:
+            bad.append(_entry(e, label, f"needs follow-up since {on}"))
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'training record')} out of date.", bad)
+    return result(MET, f"{_plural(len(latest), 'person and skill')} with current training records.",
+                  evidence=[_entry(e, f"{e['values'].get('person')}: {e['values'].get('topic')}") for e in latest])
+
+
+def calibration_current(facts: dict, settings: dict) -> dict:
+    rows = _entries(facts, "calibration")
+    if not rows:
+        return _empty("calibration")
+    every = int(settings["calibration_interval_days"])
+    bad, latest = [], _latest(rows, ["equipment"], "calibrated_on")
+    for e in latest:
+        v = e["values"]
+        due = _d(v.get("next_due")) or ((_d(v.get("calibrated_on")) or facts["today"]) + dt.timedelta(days=every))
+        if v.get("result") == "fail":
+            bad.append(_entry(e, v.get("equipment"), "failed its last calibration"))
+        elif due < facts["today"]:
+            bad.append(_entry(e, v.get("equipment"), f"calibration was due on {due}"))
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'piece')} of equipment not fit for use.", bad)
+    return result(MET, f"{_plural(len(latest), 'piece')} of equipment, each calibrated and not due.",
+                  evidence=[_entry(e, e["values"].get("equipment")) for e in latest])
+
+
+def _done_within(facts: dict, name: str, when: str, days: int, what: str) -> tuple[dict | None, list[dict]]:
+    rows = _entries(facts, name)
+    if not rows:
+        return _empty(name), []
+    ok = _entries(facts, name, signed_only=True)
+    if not ok:
+        return result(NOT_MET, f"The {what} recorded are not approved yet.",
+                      [_entry(e, f"{what} #{e['id']}", "not approved") for e in rows]), []
+    last = max(ok, key=lambda e: _d(e["values"].get(when)) or dt.date.min)
+    d = _d(last["values"].get(when))
+    if d is None or (facts["today"] - d).days > days:
+        return result(NOT_MET, f"The last {what} was on {d}; one is due every {days} days.",
+                      [_entry(last, f"{what} of {d}", "overdue")]), ok
+    return None, ok
+
+
+def audits_done(facts: dict, settings: dict) -> dict:
+    days = int(settings["audit_interval_days"])
+    out, ok = _done_within(facts, "audits", "audit_date", days, "internal audit")
+    if out:
+        return out
+    open_ = [_entry(e, f"audit of {e['values'].get('area')} on {e['values'].get('audit_date')}",
+                    "findings not followed up") for e in ok
+             if _num(e["values"].get("nonconformities")) > 0 and e["values"].get("followed_up") is not True]
+    if open_:
+        return result(NOT_MET, f"{_plural(len(open_), 'audit')} with findings not followed up.", open_)
+    return result(MET, f"Internal audits within every {days} days; findings followed up.",
+                  evidence=[_entry(e, f"audit of {e['values'].get('area')} on {e['values'].get('audit_date')}")
+                            for e in ok])
+
+
+def reviews_done(facts: dict, settings: dict) -> dict:
+    days = int(settings["review_interval_days"])
+    out, ok = _done_within(facts, "management_reviews", "review_date", days, "management review")
+    return out or result(MET, f"Management reviews within every {days} days, approved.",
+                         evidence=[_entry(e, f"review of {e['values'].get('review_date')}") for e in ok])
+
+
+def _reviewed(facts: dict, name: str, key: str, days: int, extra=None) -> dict:
+    rows = _entries(facts, name)
+    if not rows:
+        return _empty(name)
+    bad, latest = [], _latest(rows, [key], "reviewed_on")
+    for e in latest:
+        d = _d(e["values"].get("reviewed_on"))
+        if d is None or (facts["today"] - d).days > days:
+            bad.append(_entry(e, e["values"].get(key), f"last reviewed {d}; due every {days} days"))
+        elif extra and extra(e):
+            bad.append(_entry(e, e["values"].get(key), extra(e)))
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'entry')} not reviewed in time or incomplete.".replace(
+            "entrys", "entries"), bad)
+    return result(MET, f"{_plural(len(latest), 'entry').replace('entrys', 'entries')}, each reviewed within "
+                       f"{days} days.", evidence=[_entry(e, e["values"].get(key)) for e in latest])
+
+
+def objectives_reviewed(facts: dict, settings: dict) -> dict:
+    return _reviewed(facts, "objectives", "objective", int(settings["objectives_review_days"]))
+
+
+def risks_reviewed(facts: dict, settings: dict) -> dict:
+    def no_action(e):
+        return "no action planned" if e["values"].get("kind") == "risk" and not e["values"].get("action") else None
+    return _reviewed(facts, "risks", "title", int(settings["risks_review_days"]), no_action)
+
+
+def complaints_answered(facts: dict, settings: dict) -> dict:
+    rows = [e for e in _entries(facts, "complaints") if e["values"].get("kind") == "complaint"
+            and (_d(e["values"].get("received_on")) or facts["today"]) >= facts["since"]]
+    if not rows:
+        return result(UNKNOWN, f"No complaints recorded in the last {settings['window_days']} days.")
+    days = int(settings["complaint_days"])
+    bad = []
+    for e in rows:
+        v = e["values"]
+        got, ans = _d(v.get("received_on")), _d(v.get("answered_on"))
+        label = f"{v.get('customer')}, {got}"
+        if ans and v.get("response"):
+            if got and (ans - got).days > days:
+                bad.append(_entry(e, label, f"answered after {(ans - got).days} days"))
+        elif got and (facts["today"] - got).days > days:
+            bad.append(_entry(e, label, f"not answered after {(facts['today'] - got).days} days"))
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'complaint')} not answered within {days} days.", bad)
+    return result(MET, f"{_plural(len(rows), 'complaint')}, each answered within {days} days (or still within them).",
+                  evidence=[_entry(e, f"{e['values'].get('customer')}, {e['values'].get('received_on')}")
+                            for e in rows])
+
+
+def feedback_collected(facts: dict, settings: dict) -> dict:
+    rows = [e for e in _entries(facts, "complaints") if e["values"].get("kind") in ("feedback", "survey")
+            and (_d(e["values"].get("received_on")) or dt.date.min) >= facts["since"]]
+    if not rows:
+        return result(UNKNOWN, f"No customer feedback or surveys recorded in the last {settings['window_days']} "
+                               "days.")
+    return result(MET, f"{_plural(len(rows), 'piece')} of customer feedback in the last {settings['window_days']} "
+                       "days.", evidence=[_entry(e, f"{e['values'].get('customer')}, {e['values'].get('received_on')}")
+                                          for e in rows])
+
+
+def _name(s) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
+
+
+def suppliers_approved(facts: dict, settings: dict) -> dict:
+    rows = _entries(facts, "suppliers")
+    used = facts.get("suppliers_used") or {}
+    if not rows and not used:
+        return _empty("suppliers")
+    latest = {_name(e["values"].get("supplier")): e for e in _latest(rows, ["supplier"], "approved_on")}
+    bad = []
+    for key, name in sorted(used.items()):
+        e = latest.get(_name(key)) or latest.get(_name(name))
+        if e is None:
+            bad.append({"kind": "supplier", "id": key, "label": name, "why": "bought from without an approval"})
+        elif e["values"].get("status") == "removed":
+            bad.append(_entry(e, name, "bought from but removed from the approved list"))
+    for e in latest.values():
+        nxt = _d(e["values"].get("next_review"))
+        if e["values"].get("status") != "removed" and nxt and nxt < facts["today"]:
+            bad.append(_entry(e, e["values"].get("supplier"), f"re-evaluation was due on {nxt}"))
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'supplier')} not approved or not re-evaluated in time.", bad)
+    if not used:
+        return result(UNKNOWN, f"No purchases in the last {settings['window_days']} days to check the list against.",
+                      evidence=[_entry(e, e["values"].get("supplier")) for e in latest.values()])
+    return result(MET, f"{_plural(len(latest), 'supplier')} on the list; every supplier bought from in the last "
+                       f"{settings['window_days']} days is approved.",
+                  evidence=[_entry(e, e["values"].get("supplier")) for e in latest.values()])
+
+
 # ---------------------------------------------------------------- what people declare and link
 
 def _usable(d: dict) -> bool:
@@ -303,7 +524,9 @@ def register(facts: dict, settings: dict, name: str) -> dict:
 
 CHECKS = {f.__name__: f for f in (documents_approved, documents_current, documents_referenced, ncr_contained,
                                   ncr_concession_approved, ncr_recorded, rejected_lots_have_ncr, capa_for_major,
-                                  capa_on_time, capa_effective, scope_declared)}
+                                  capa_on_time, capa_effective, scope_declared, training_current, calibration_current,
+                                  audits_done, reviews_done, objectives_reviewed, risks_reviewed, complaints_answered,
+                                  feedback_collected, suppliers_approved)}
 LINKED = ("linked_document", "scope_declared")          # rules that take documents linked as evidence
 
 
@@ -329,7 +552,10 @@ def evaluate(pack: dict, edition: str, facts: dict, settings: dict | None = None
             elif rule.startswith("register:"):
                 r = register(facts, settings, rule.split(":", 1)[1])
             else:
-                r = CHECKS[rule](facts, settings)
+                try:
+                    r = CHECKS[rule](facts, settings)
+                except (TypeError, ValueError, KeyError, AttributeError) as exc:     # odd data: say so, go on
+                    r = result(UNKNOWN, f"Could not be checked: a value is not as expected ({type(exc).__name__}).")
             out[c["id"]] = {**r, "process": pname, "summary": c["summary"], "clauses": (c.get("clauses") or {}).get(
                 edition, []), "rule": rule}
     return out
@@ -342,9 +568,31 @@ def counts(results: dict) -> dict:
     return out
 
 
+REGISTER_TYPES = ("text", "longtext", "number", "date", "choice", "yesno")
+
+
+def check_registers(regs: dict) -> list[str]:
+    errs = []
+    for name, r in regs.items():
+        if not re.fullmatch(r"[a-z][a-z0-9_]{1,40}", str(name)) or not str((r or {}).get("label") or "").strip():
+            errs.append(f"register {name}: a name of lower-case letters and a label")
+        fields = (r or {}).get("fields") or {}
+        if not fields:
+            errs.append(f"register {name}: at least one field")
+        for f, x in fields.items():
+            if (x or {}).get("type") not in REGISTER_TYPES or not str((x or {}).get("label") or "").strip():
+                errs.append(f"register {name}, field {f}: a label and a type ({', '.join(REGISTER_TYPES)})")
+            elif x["type"] == "choice" and len(x.get("choices") or []) < 2:
+                errs.append(f"register {name}, field {f}: at least two choices")
+        for k in (r or {}).get("key") or []:
+            if k not in fields:
+                errs.append(f"register {name}: key {k} is not a field")
+    return errs
+
+
 def check_pack(pack: dict) -> list[str]:  # noqa: PLR0912 - one line per kind of mistake
     """What is wrong with a pack file: unknown rules, duplicate control points, settings the checks need."""
-    errs, seen = [], set()
+    errs, seen = check_registers(pack.get("registers") or {}), set()
     sets = pack.get("settings") or {}
     for need in ("window_days", "ncr_contain_days", "capa_within_days", "capa_overdue_days"):
         if not isinstance(sets.get(need), dict) or type(sets[need].get("value")) is not int:
@@ -365,6 +613,8 @@ def check_pack(pack: dict) -> list[str]:  # noqa: PLR0912 - one line per kind of
                     errs.append(f"{c.get('id')}: clauses for edition {ed!r} are a list")
             if c.get("may_exclude") and not str(c.get("short") or "").strip():
                 errs.append(f"{c.get('id')}: a short name, to say it does not apply")
+            if c.get("register") and c["register"] not in (pack.get("registers") or {}):
+                errs.append(f"{c.get('id')}: register {c['register']!r} is not defined")
             if c.get("switch") and type((sets.get(c["switch"]) or {}).get("value")) is not bool:
                 errs.append(f"{c.get('id')}: its switch {c['switch']!r} is a yes/no setting")
             if (c.get("rule") in LINKED or c.get("switch")) and not str(c.get("hint") or "").strip():

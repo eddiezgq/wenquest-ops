@@ -6,13 +6,13 @@
 # rule kinds:
 #   <name>             a check on records (rules.py)
 #   linked_document    met when a person linked a document in effect in the library as its evidence
-#   register:<name>    evidence from a quality register (step 16b); unknown until then
+#   register: <name>   the quality register whose entries the check reads (registers, below)
 # may_exclude: the company may declare the control point does not apply, with a reason (signed)
 # settings: defaults the company can change on the Quality system page. A control point checked by a rule of our own
 # names its switch; switched off, the company shows how it meets the requirement with a linked document instead.
 standard: iso9001
 label: ISO 9001 quality management system
-version: 1
+version: 2
 editions:
   "2015": {label: "ISO 9001:2015 (with Amendment 1:2024)", ready: true}
   "2026": {label: "ISO 9001:2026", ready: false, note: "clause mapping after review of the published text"}
@@ -24,6 +24,13 @@ settings:
   capa_within_days: {value: 14, min: 0, max: 365, label: Days to open the corrective action for a major nonconformance}
   actions_on_time: {value: true, label: Planned actions are checked against their due dates}
   capa_overdue_days: {value: 0, min: 0, max: 365, label: Days an action may be late before it counts}
+  calibration_interval_days: {value: 365, min: 1, max: 3650, label: Days between calibrations when no due date is given}
+  training_followup_days: {value: 90, min: 0, max: 3650, label: Days to follow up training marked as needing follow-up}
+  audit_interval_days: {value: 365, min: 30, max: 1095, label: Days between internal audits}
+  review_interval_days: {value: 365, min: 30, max: 1095, label: Days between management reviews}
+  objectives_review_days: {value: 180, min: 30, max: 730, label: Days between reviews of each quality objective}
+  risks_review_days: {value: 365, min: 30, max: 1095, label: Days between reviews of each risk or opportunity}
+  complaint_days: {value: 30, min: 1, max: 365, label: Days to answer a customer complaint}
 processes:
   context:
     label: Context, scope and processes
@@ -55,11 +62,13 @@ processes:
       - id: risks
         summary: Risks and opportunities are determined and actions are planned and reviewed.
         clauses: {"2015": ["6.1"]}
-        rule: register:risks
+        rule: risks_reviewed
+        register: risks
       - id: objectives
         summary: Quality objectives are set, measured and reviewed.
         clauses: {"2015": ["6.2"]}
-        rule: register:objectives
+        rule: objectives_reviewed
+        register: objectives
       - id: changes
         summary: Changes to the system are planned and carried out in a controlled way.
         clauses: {"2015": ["6.3"]}
@@ -72,12 +81,14 @@ processes:
         short: measuring equipment
         summary: Measuring equipment is fit for use, identified, and calibrated or verified at set intervals.
         clauses: {"2015": ["7.1.5"]}
-        rule: register:calibration
+        rule: calibration_current
+        register: calibration
         may_exclude: true
       - id: competence
         summary: People doing work that affects quality are competent, and their training is recorded.
         clauses: {"2015": ["7.2"]}
-        rule: register:training
+        rule: training_current
+        register: training
   documents:
     label: Control of documented information
     controls:
@@ -99,7 +110,8 @@ processes:
       - id: customer_feedback
         summary: Customer enquiries, feedback and complaints are received, recorded and answered.
         clauses: {"2015": ["8.2.1"]}
-        rule: register:complaints
+        rule: complaints_answered
+        register: complaints
       - id: design
         short: design and development
         summary: Design and development is planned, reviewed, verified, validated and its changes controlled.
@@ -137,7 +149,8 @@ processes:
       - id: supplier_approval
         summary: Suppliers are evaluated and approved before use and re-evaluated at set intervals.
         clauses: {"2015": ["8.4.1"]}
-        rule: register:suppliers
+        rule: suppliers_approved
+        register: suppliers
       - id: rejected_lots
         summary: Incoming lots that fail inspection are recorded as nonconforming and kept from use.
         clauses: {"2015": ["8.4.2", "8.6", "8.7.1"]}
@@ -166,15 +179,18 @@ processes:
       - id: satisfaction
         summary: The company finds out how satisfied its customers are, and uses what it learns.
         clauses: {"2015": ["9.1.2"]}
-        rule: register:complaints
+        rule: feedback_collected
+        register: complaints
       - id: audit
         summary: Internal audits are planned and carried out at set intervals, and their findings followed up.
         clauses: {"2015": ["9.2"]}
-        rule: register:audits
+        rule: audits_done
+        register: audits
       - id: review
         summary: Top management reviews the system at set intervals and records its decisions.
         clauses: {"2015": ["9.3"]}
-        rule: register:management_reviews
+        rule: reviews_done
+        register: management_reviews
   improvement:
     label: Corrective action and improvement
     controls:
@@ -196,3 +212,85 @@ processes:
         summary: The effectiveness of each corrective action is reviewed and recorded before it is closed.
         clauses: {"2015": ["10.2.1", "10.2.2"]}
         rule: capa_effective
+
+# Quality registers (ADR-0016, 16b): simple records the company keeps, defined here so the company can change them
+# without code. key: the fields that name the same thing (the latest entry about it counts). sign: entries are
+# approved with a password and then locked. synonyms: column names that bring an old spreadsheet in (ledger import).
+# Field types: text, longtext, number, date, choice, yesno.
+registers:
+  training:
+    label: Training and competence
+    key: [person, topic]
+    fields:
+      person: {label: Person, type: text, required: true, synonyms: [person, name, employee, trainee, staff]}
+      topic: {label: Training or skill, type: text, required: true, synonyms: [training, topic, course, skill, procedure, subject]}
+      trained_on: {label: Date, type: date, required: true, synonyms: [date, trained on, completed, training date, completed on]}
+      result: {label: Result, type: choice, choices: [competent, needs follow-up], synonyms: [result, assessment, status, outcome]}
+      trainer: {label: Trainer or assessor, type: text, synonyms: [trainer, assessor, trained by, by]}
+      valid_until: {label: Valid until, type: date, synonyms: [valid until, expires, expiry, retraining due, due]}
+  calibration:
+    label: Measuring equipment and calibration
+    key: [equipment]
+    fields:
+      equipment: {label: Equipment ID, type: text, required: true, synonyms: [equipment, gauge, gauge id, id, asset, instrument]}
+      description: {label: Description, type: text, synonyms: [description, name, type]}
+      calibrated_on: {label: Calibrated on, type: date, required: true, synonyms: [calibrated, calibration date, last calibration, date, calibrated on]}
+      next_due: {label: Next due, type: date, synonyms: [next due, due, due date, next calibration]}
+      result: {label: Result, type: choice, choices: [pass, adjusted, fail], synonyms: [result, status, outcome]}
+      by: {label: Calibrated by, type: text, synonyms: [by, lab, laboratory, calibrated by]}
+      certificate: {label: Certificate, type: text, synonyms: [certificate, cert, report]}
+  audits:
+    label: Internal audits
+    sign: Internal audit report approved
+    fields:
+      audit_date: {label: Audit date, type: date, required: true, synonyms: [date, audit date, audited on]}
+      area: {label: Process or area audited, type: text, required: true, synonyms: [area, process, scope, department]}
+      auditor: {label: Auditor, type: text, required: true, synonyms: [auditor, audited by, lead auditor]}
+      findings: {label: Findings, type: longtext, synonyms: [findings, observations, results]}
+      nonconformities: {label: Nonconformities found, type: number, synonyms: [nonconformities, ncs, nc count, major, minor]}
+      followed_up: {label: Findings followed up, type: yesno, synonyms: [followed up, closed, follow up, status]}
+  management_reviews:
+    label: Management reviews
+    sign: Management review approved
+    fields:
+      review_date: {label: Review date, type: date, required: true, synonyms: [date, review date, meeting date]}
+      attendees: {label: Attendees, type: text, required: true, synonyms: [attendees, participants, present]}
+      inputs: {label: Inputs reviewed, type: longtext, synonyms: [inputs, agenda, topics]}
+      decisions: {label: Decisions and actions, type: longtext, required: true, synonyms: [decisions, outputs, actions, minutes]}
+  objectives:
+    label: Quality objectives
+    key: [objective]
+    fields:
+      objective: {label: Objective, type: text, required: true, synonyms: [objective, goal, kpi, metric]}
+      target: {label: Target, type: text, required: true, synonyms: [target, goal value, aim]}
+      actual: {label: Actual, type: text, synonyms: [actual, result, achieved, current]}
+      status: {label: Status, type: choice, choices: [on track, off track, met, missed], synonyms: [status, rating]}
+      reviewed_on: {label: Reviewed on, type: date, required: true, synonyms: [reviewed, review date, date, as of]}
+  risks:
+    label: Risks and opportunities
+    key: [title]
+    fields:
+      title: {label: Risk or opportunity, type: text, required: true, synonyms: [risk, opportunity, title, description, issue]}
+      kind: {label: Kind, type: choice, choices: [risk, opportunity], required: true, synonyms: [kind, type, category]}
+      action: {label: Action, type: longtext, synonyms: [action, actions, mitigation, treatment, response]}
+      owner: {label: Owner, type: text, synonyms: [owner, responsible]}
+      reviewed_on: {label: Reviewed on, type: date, required: true, synonyms: [reviewed, review date, date]}
+  complaints:
+    label: Customer feedback and complaints
+    fields:
+      received_on: {label: Received on, type: date, required: true, synonyms: [date, received, received on, date received]}
+      customer: {label: Customer, type: text, required: true, synonyms: [customer, client, account]}
+      kind: {label: Kind, type: choice, choices: [complaint, feedback, survey], required: true, synonyms: [kind, type, category]}
+      description: {label: Description, type: longtext, required: true, synonyms: [description, complaint, details, comment, feedback]}
+      response: {label: Response, type: longtext, synonyms: [response, answer, reply, resolution, action]}
+      answered_on: {label: Answered on, type: date, synonyms: [answered, answered on, closed, date closed, response date]}
+  suppliers:
+    label: Supplier approval
+    key: [supplier]
+    fields:
+      supplier: {label: Supplier, type: text, required: true, synonyms: [supplier, vendor, supplier name, name]}
+      supplies: {label: What they supply, type: text, synonyms: [supplies, products, scope, commodity]}
+      status: {label: Status, type: choice, choices: [approved, conditional, removed], required: true, synonyms: [status, approval, approval status]}
+      approved_on: {label: Approved or evaluated on, type: date, required: true, synonyms: [approved on, approved, evaluated, evaluation date, date]}
+      next_review: {label: Next review, type: date, synonyms: [next review, re-evaluation, review due, due]}
+      basis: {label: Basis, type: text, synonyms: [basis, method, certificate, criteria]}
