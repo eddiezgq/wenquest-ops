@@ -1,0 +1,46 @@
+<script setup>
+// Change control (ADR-0017, 17g): changes raised, assessed, approved by someone who did not raise, own, submit or
+// edit them (signed), implemented and closed by someone other than the owner (signed).
+import { ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { Badge, Button } from 'frappe-ui'
+import PageTop from '../ui/PageTop.vue'
+import { api } from '../api'
+
+const router = useRouter()
+const v = ref(null)
+const error = ref('')
+const status = ref('open')
+const show = ref(false)
+const f = ref({ title: '', kind: 'process' })
+const ST = { draft: 'gray', submitted: 'amber', approved: 'blue', implemented: 'violet', closed: 'green', cancelled: 'gray' }
+async function load() { try { v.value = await api(`/api/changes?status=${status.value}`) } catch (e) { error.value = e.message } }
+watch(status, load, { immediate: true })
+async function create() {
+  error.value = ''
+  try { const r = await api('/api/changes', { method: 'POST', body: f.value }); router.push(`/quality/changes/${r.id}`) } catch (e) { error.value = e.message }
+}
+</script>
+
+<template>
+  <PageTop :crumbs="[{ label: 'Quality', to: '/quality' }]">
+    <template #title>Changes</template>
+    <Button v-if="v?.can_edit" variant="solid" icon-left="lucide-plus" label="Raise a change" @click="show = !show" />
+  </PageTop>
+  <p v-if="error" class="wq-error mb-4">{{ error }}</p>
+  <form v-if="show" class="new wq-panel mb-5 flex flex-wrap items-end gap-3 p-5" @submit.prevent="create">
+    <label class="wq-field grow">Title<input v-model="f.title" class="wq-input"></label>
+    <label class="wq-field">Kind<select v-model="f.kind" class="wq-select"><option v-for="k in v?.kinds" :key="k">{{ k }}</option></select></label>
+    <Button type="submit" variant="solid" label="Raise" :disabled="!f.title.trim()" />
+  </form>
+  <section v-if="v" class="wq-panel p-5">
+    <div class="mb-3"><select v-model="status" class="wq-select w-40"><option value="open">Open</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option><option value="all">All</option></select></div>
+    <p v-if="!v.changes.length" class="wq-muted">None.</p>
+    <table v-else class="wq-table text-sm"><thead><tr><th>Number</th><th>Title</th><th>Kind</th><th>Status</th><th>Owner</th><th>Target</th><th>Regulatory</th></tr></thead>
+      <tbody><tr v-for="c in v.changes" :key="c.id">
+        <td><RouterLink :to="`/quality/changes/${c.id}`" class="font-medium text-ink-gray-9 hover:underline">{{ c.name }}</RouterLink></td>
+        <td>{{ c.title }}</td><td>{{ c.kind }}</td><td><Badge :theme="ST[c.status]" :label="c.status" /></td><td>{{ c.owner }}</td>
+        <td :class="c.overdue ? 'text-ink-red-7' : ''">{{ c.target_date || '–' }}{{ c.overdue ? ' (overdue)' : '' }}</td>
+        <td><Badge v-if="c.q_regulatory === 'yes'" theme="amber" label="yes" /></td></tr></tbody></table>
+  </section>
+</template>
