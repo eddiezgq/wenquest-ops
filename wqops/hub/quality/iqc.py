@@ -22,6 +22,8 @@ from psycopg.types.json import Jsonb
 from wqops.hub import drafts as D
 from wqops.hub.ont import metrics as M
 from wqops.hub.quality import approval as AP
+from wqops.hub.quality import cal_rules as CALR
+from wqops.hub.quality import calibration as CAL
 from wqops.hub.quality import incoming as IN
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import sampling as S
@@ -34,6 +36,9 @@ SETTINGS = {
     "asl_enforced": (True, "Once the approved supplier list has entries, lots from a supplier not approved for the "
                            "item cannot be inspected"),
     "asl_approve_by_other": (True, "A supplier is approved by someone other than the person who entered it"),
+    # measuring equipment (17f)
+    "gauge_required": (True, "Once measuring equipment is registered, each measured characteristic names the "
+                             "equipment used, which must be in calibration when the inspector signs"),
 }
 
 
@@ -562,7 +567,60 @@ def enter(conn, email: str, ins_id: int, values: list[dict]) -> int:
     return n
 
 
-def sign(conn, user: dict, ins_id: int, password: str) -> dict:
+def _gauges(conn, ins_id: int) -> dict[str, dict]:
+    return {r["characteristic"]: dict(r) for r in conn.execute("select * from iqc_gauges where inspection_id = %s",
+                                                               (ins_id,))}
+
+
+def set_gauge(conn, email: str, ins_id: int, characteristic: str, gauge_id: int | None, *,
+              today: dt.date) -> dict:
+    """Name the equipment a measured characteristic is measured with; it must be in calibration today."""
+    ins = get(conn, ins_id)
+    if ins["status"] != "in_progress":
+        raise IqcError("the inspection is signed: the equipment it used is fixed")
+    kinds = {c["name"]: c["kind"] for c in plan(conn, ins["plan_id"])["characteristics"]}
+    if kinds.get(characteristic) != "measured":
+        raise IqcError("equipment is named for a measured characteristic")
+    with conn.transaction():
+        if conn.execute("select status from iqc_inspections where id = %s for update",
+                        (ins_id,)).fetchone()["status"] != "in_progress":
+            raise IqcError("the inspection is signed: the equipment it used is fixed")
+        if gauge_id is None:
+            conn.execute("delete from iqc_gauges where inspection_id = %s and characteristic = %s",
+                         (ins_id, characteristic))
+        else:
+            g = CAL.get(conn, gauge_id)
+            ok, why = CALR.usable(g, today)
+            if not ok:
+                raise IqcError(f"{why}: it cannot be used")
+            conn.execute("insert into iqc_gauges (inspection_id, characteristic, gauge_id, gauge_code, next_due) "
+                         "values (%s, %s, %s, %s, %s) on conflict (inspection_id, characteristic) do update set "
+                         "gauge_id = excluded.gauge_id, gauge_code = excluded.gauge_code, next_due = "
+                         "excluded.next_due", (ins_id, characteristic, g["id"], g["code"], g["next_due"]))
+        log(conn, "inspection", ins_id, email, "equipment", f"{characteristic}: "
+            + (CAL.get(conn, gauge_id)["code"] if gauge_id else "none"))
+    return _gauges(conn, ins_id)
+
+
+def _check_gauges(conn, ins: dict, chars: list[dict], today: dt.date) -> None:
+    """At signing: every measured characteristic names equipment that is in calibration today (a setting; only
+    once equipment is registered). What was used, and its due date then, stays with the inspection."""
+    used = _gauges(conn, ins["id"])
+    if settings(conn)["gauge_required"] and CAL.in_use(conn):
+        missing = [c["name"] for c in chars if c["kind"] == "measured" and c["name"] not in used]
+        if missing:
+            raise IqcError("name the equipment used for: " + ", ".join(missing))
+    # equipment that is named is checked whatever the setting
+    for ch, row in used.items():
+        g = CAL.get(conn, row["gauge_id"])
+        ok, why = CALR.usable(g, today)
+        if not ok:
+            raise IqcError(f"{ch}: {why}; measure with equipment in calibration")
+        conn.execute("update iqc_gauges set next_due = %s, gauge_code = %s where inspection_id = %s and "
+                     "characteristic = %s", (g["next_due"], g["code"], ins["id"], ch))
+
+
+def sign(conn, user: dict, ins_id: int, password: str, *, today: dt.date | None = None) -> dict:
     """The inspector signs; the lot is judged by code from the readings."""
     ins = get(conn, ins_id)
     if ins["status"] != "in_progress":
@@ -578,6 +636,7 @@ def sign(conn, user: dict, ins_id: int, password: str) -> dict:
             j = S.judge(chars, readings(conn, ins_id), ins["n"], ins["ac"], ins["re"])
         except S.SamplingError as exc:
             raise IqcError(str(exc)) from exc
+        _check_gauges(conn, ins, chars, today or dt.datetime.now(dt.UTC).date())
         row = conn.execute("update iqc_inspections set status = 'judged', result = %s, defectives = %s, "
                            "signed_by = %s, signed_at = now() where id = %s and status = 'in_progress' returning *",
                            (j["result"], j["defectives"], user["email"], ins_id)).fetchone()
@@ -663,7 +722,7 @@ def listing(conn, status: str = "open") -> list[dict]:
                                           "order by id desc limit 500").fetchall()]
 
 
-def view(conn, ins_id: int) -> dict:
+def view(conn, ins_id: int, today: dt.date | None = None) -> dict:
     ins = get(conn, ins_id)
     p = plan(conn, ins["plan_id"])
     row = conn.execute("select * from iqc_sampling_rows where id = %s", (ins["sampling_row_id"],)).fetchone()
@@ -676,6 +735,9 @@ def view(conn, ins_id: int) -> dict:
     ncr = conn.execute("select id, name, status from ncr_records where id = %s",
                        (ins["ncr_id"],)).fetchone() if ins["ncr_id"] else None
     return {**_iso(ins), "plan": _iso(p), "sampling_row": _iso(row), "readings": rd,
+            "gauges": {k: _iso(v) for k, v in _gauges(conn, ins_id).items()},
+            "gauge_choices": [_iso(g) for g in CAL.usable_gauges(conn, today or dt.datetime.now(dt.UTC).date())]
+            if ins["status"] == "in_progress" else [],
             "entered": sum(r["entered_by"] is not None for r in rd), "draft": draft, "ncr": ncr,
             "history": history(conn, "inspection", ins_id), "signatures": Q.signatures(conn, "iqc", ins_id),
             "level_now": suggestion(conn, ins["supplier"], ins["item_code"]) if ins["supplier"] else None}

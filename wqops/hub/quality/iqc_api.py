@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from wqops.hub import drafts as D
 from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
+from wqops.hub.quality import calibration as CAL
 from wqops.hub.quality import iqc as I
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import sampling as S
@@ -25,7 +26,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     def run(fn):
         try:
             return fn()
-        except (I.IqcError, Q.QualityError, D.DraftError, S.SamplingError) as exc:
+        except (I.IqcError, Q.QualityError, D.DraftError, S.SamplingError, CAL.CalError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(404, "not found") from exc
@@ -68,7 +69,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         return {"id": row["id"], "name": row["name"]}
 
     def page(c, u, iid: int) -> dict:
-        return {**run(lambda: I.view(c, iid)), **can(u)}
+        return {**run(lambda: I.view(c, iid, OA.today(company()[0]))), **can(u)}
 
     @app.get("/api/iqc/inspections/{iid}")
     def inspection(iid: int, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -86,7 +87,19 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     async def sign(iid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "quality:edit")
         d = await body(request)
-        run(lambda: I.sign(c, u, ident(iid), str(d.get("password") or "")))
+        run(lambda: I.sign(c, u, ident(iid), str(d.get("password") or ""), today=OA.today(company()[0])))
+        return page(c, u, iid)
+
+    @app.put("/api/iqc/inspections/{iid}/gauges")
+    async def gauges(iid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        """Name the measuring equipment used for a measured characteristic (17f)."""
+        need(u, "quality:edit")
+        d = await body(request)
+        gid = d.get("gauge_id")
+        if gid is not None and (type(gid) is not int or not 0 < gid < 2**63):
+            raise HTTPException(400, "gauge_id is an equipment number")
+        run(lambda: I.set_gauge(c, u["email"], ident(iid), str(d.get("characteristic") or ""), gid,
+                                today=OA.today(company()[0])))
         return page(c, u, iid)
 
     @app.post("/api/iqc/inspections/{iid}/decide")
