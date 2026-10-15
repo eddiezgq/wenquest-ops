@@ -408,6 +408,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import change_api as CHGA  # noqa: PLC0415
 
     CHGA.mount(app, conn, current_user, company)
+    from wqops.hub.quality import risk_api as RSKA  # noqa: PLC0415
+
+    RSKA.mount(app, conn, current_user, company)
     from wqops.hub.docs import api as DA  # noqa: PLC0415
 
     DA.mount(app, conn, current_user, company, ai_model, db_url)
