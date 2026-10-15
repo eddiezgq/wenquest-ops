@@ -1,15 +1,19 @@
 # Quality system
 
-*Quality system* checks your company against a standard, starting with ISO 9001. WenQuest Ops turns the standard into
-control points, things your records must be able to show, and checks each one against what is in the system:
-nonconformance reports, corrective actions, incoming inspections and the document library.
+*Quality system* checks your company against a standard: ISO 9001, or ISO 13485 for medical devices, or both.
+WenQuest Ops turns the standard into control points, things your records must be able to show, and checks each one
+against what is in the system: nonconformance reports, corrective actions, incoming inspections, the registers and the
+document library. The buttons at the top of the page switch between the standards; both read the same records, so a
+complaint or a calibration is entered once.
 
 ![The quality system checked against ISO 9001](img/quality-system.webp)
 
 ## Adopt the standard
 
 The owner or Quality chooses the edition and adopts the standard with their password. ISO 9001:2015 is available now;
-ISO 9001:2026 follows once its clause references have been checked against the published text. The requirement
+ISO 9001:2026 follows once its clause references have been checked against the published text. For ISO 13485,
+ISO 13485:2016 is available; the extra requirements of the FDA's Quality Management System Regulation (21 CFR 820,
+which takes in ISO 13485:2016) will be added later. The requirement
 summaries are our own words, not the standard's text, and WenQuest Ops does not certify anyone: certification is
 for a certification body.
 
@@ -95,3 +99,22 @@ its findings in the internal audits register.
 3. **Procedures written from the workflow.** WenQuest Ops writes the nonconformance and corrective action procedures
    from the workflows in use, so the procedure says exactly what the system does. They go into *Documents* to review
    and take effect once someone else approves them. When a workflow changes, the page says so: write it again.
+
+## ISO 13485
+
+The ISO 13485 pack adds what the medical device standard asks beyond ISO 9001: the medical device file, validation of
+the software used in the quality system, the management representative, contamination control, sterile devices and
+their validation, implantable devices, product release, advisory notices and preventive action. Most of these are
+shown by a document you link; later steps replace several with their own pages (incoming inspection, approved
+suppliers, training, complaints, calibration, changes, risk management, production records and traceability).
+
+For complaints, the complaints register has fields for the investigation and for whether the complaint must be
+reported to a regulator: the decision, its reason, who decided, and the report date and reference. WenQuest Ops checks
+that each complaint was investigated (or the reason none was needed recorded) before it was closed, and that the
+reporting decision was made and recorded, and the report made, within the days you set. It never makes the decision
+for you: set the number of days to what your regulations require.
+
+The set-up questionnaire for ISO 13485 asks, among other things, whether you supply sterile or implantable devices,
+install or service them, and rework product; a "no" proposes the requirements that do not apply, which you declare
+with your password. The standard only lets requirements of its clauses 6, 7 and 8 be left out.
+

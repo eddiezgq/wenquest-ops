@@ -1,0 +1,90 @@
+# Quality registers shared by every standard's pack (ADR-0016 16b, ADR-0017 17a). A company keeps one set of records;
+# ISO 9001 and ISO 13485 read the same entries. The registers are loaded into each pack (qms.load), so a change here
+# makes a newer version of every pack, which the company adopts again with a signature.
+#
+# Defined here so the company can change them without code. key: the fields that name the same thing (the latest entry about it counts). sign: entries are
+# approved with a password and then locked. synonyms: column names that bring an old spreadsheet in (ledger import).
+# Field types: text, longtext, number, date, choice, yesno.
+registers:
+  training:
+    label: Training and competence
+    key: [person, topic]
+    fields:
+      person: {label: Person, type: text, required: true, synonyms: [person, name, employee, trainee, staff]}
+      topic: {label: Training or skill, type: text, required: true, synonyms: [training, topic, course, skill, procedure, subject]}
+      trained_on: {label: Date, type: date, required: true, synonyms: [date, trained on, completed, training date, completed on]}
+      result: {label: Result, type: choice, choices: [competent, needs follow-up], synonyms: [result, assessment, status, outcome]}
+      trainer: {label: Trainer or assessor, type: text, synonyms: [trainer, assessor, trained by, by]}
+      valid_until: {label: Valid until, type: date, synonyms: [valid until, expires, expiry, retraining due, due]}
+  calibration:
+    label: Measuring equipment and calibration
+    key: [equipment]
+    fields:
+      equipment: {label: Equipment ID, type: text, required: true, synonyms: [equipment, gauge, gauge id, id, asset, instrument]}
+      description: {label: Description, type: text, synonyms: [description, name, type]}
+      calibrated_on: {label: Calibrated on, type: date, required: true, synonyms: [calibrated, calibration date, last calibration, date, calibrated on]}
+      next_due: {label: Next due, type: date, synonyms: [next due, due, due date, next calibration]}
+      result: {label: Result, type: choice, choices: [pass, adjusted, fail], synonyms: [result, status, outcome]}
+      by: {label: Calibrated by, type: text, synonyms: [by, lab, laboratory, calibrated by]}
+      certificate: {label: Certificate, type: text, synonyms: [certificate, cert, report]}
+  audits:
+    label: Internal audits
+    sign: Internal audit report approved
+    fields:
+      audit_date: {label: Audit date, type: date, required: true, synonyms: [date, audit date, audited on]}
+      area: {label: Process or area audited, type: text, required: true, synonyms: [area, process, scope, department]}
+      auditor: {label: Auditor, type: text, required: true, synonyms: [auditor, audited by, lead auditor]}
+      findings: {label: Findings, type: longtext, synonyms: [findings, observations, results]}
+      nonconformities: {label: Nonconformities found, type: number, synonyms: [nonconformities, ncs, nc count, major, minor]}
+      followed_up: {label: Findings followed up, type: yesno, synonyms: [followed up, closed, follow up, status]}
+  management_reviews:
+    label: Management reviews
+    sign: Management review approved
+    fields:
+      review_date: {label: Review date, type: date, required: true, synonyms: [date, review date, meeting date]}
+      attendees: {label: Attendees, type: text, required: true, synonyms: [attendees, participants, present]}
+      inputs: {label: Inputs reviewed, type: longtext, synonyms: [inputs, agenda, topics]}
+      decisions: {label: Decisions and actions, type: longtext, required: true, synonyms: [decisions, outputs, actions, minutes]}
+  objectives:
+    label: Quality objectives
+    key: [objective]
+    fields:
+      objective: {label: Objective, type: text, required: true, synonyms: [objective, goal, kpi, metric]}
+      target: {label: Target, type: text, required: true, synonyms: [target, goal value, aim]}
+      actual: {label: Actual, type: text, synonyms: [actual, result, achieved, current]}
+      status: {label: Status, type: choice, choices: [on track, off track, met, missed], synonyms: [status, rating]}
+      reviewed_on: {label: Reviewed on, type: date, required: true, synonyms: [reviewed, review date, date, as of]}
+  risks:
+    label: Risks and opportunities
+    key: [title]
+    fields:
+      title: {label: Risk or opportunity, type: text, required: true, synonyms: [risk, opportunity, title, description, issue]}
+      kind: {label: Kind, type: choice, choices: [risk, opportunity], required: true, synonyms: [kind, type, category]}
+      action: {label: Action, type: longtext, synonyms: [action, actions, mitigation, treatment, response]}
+      owner: {label: Owner, type: text, synonyms: [owner, responsible]}
+      reviewed_on: {label: Reviewed on, type: date, required: true, synonyms: [reviewed, review date, date]}
+  complaints:
+    label: Customer feedback and complaints
+    fields:
+      received_on: {label: Received on, type: date, required: true, synonyms: [date, received, received on, date received]}
+      customer: {label: Customer, type: text, required: true, synonyms: [customer, client, account]}
+      kind: {label: Kind, type: choice, choices: [complaint, feedback, survey], required: true, synonyms: [kind, type, category]}
+      description: {label: Description, type: longtext, required: true, synonyms: [description, complaint, details, comment, feedback]}
+      response: {label: Response, type: longtext, synonyms: [response, answer, reply, resolution, action]}
+      answered_on: {label: Answered on, type: date, synonyms: [answered, answered on, closed, date closed, response date]}
+      investigation: {label: Investigation (or why none was needed), type: longtext, synonyms: [investigation, root cause, findings, investigation summary]}
+      reportable: {label: Must be reported to a regulator, type: yesno, synonyms: [reportable, mdr, vigilance, mdr reportable, regulatory report]}
+      reportable_reason: {label: Reason for the reporting decision, type: longtext, synonyms: [reportability rationale, mdr decision, reporting decision, rationale]}
+      reportable_by: {label: Reporting decided by, type: text, synonyms: [decided by, assessed by, reportability by]}
+      reported_on: {label: Reported to the regulator on, type: date, synonyms: [reported on, report date, mdr date, submitted on]}
+      report_ref: {label: Report reference, type: text, synonyms: [report number, mdr number, report reference, report id]}
+  suppliers:
+    label: Supplier approval
+    key: [supplier]
+    fields:
+      supplier: {label: Supplier, type: text, required: true, synonyms: [supplier, vendor, supplier name, name]}
+      supplies: {label: What they supply, type: text, synonyms: [supplies, products, scope, commodity]}
+      status: {label: Status, type: choice, choices: [approved, conditional, removed], required: true, synonyms: [status, approval, approval status]}
+      approved_on: {label: Approved or evaluated on, type: date, required: true, synonyms: [approved on, approved, evaluated, evaluation date, date]}
+      next_review: {label: Next review, type: date, synonyms: [next review, re-evaluation, review due, due]}
+      basis: {label: Basis, type: text, synonyms: [basis, method, certificate, criteria]}

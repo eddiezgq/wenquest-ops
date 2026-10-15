@@ -7,6 +7,7 @@ import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import { api, objectPath } from '../api'
 import { ago } from '../format'
+import { standard } from '../standard'
 
 const router = useRouter()
 const g = ref(null)
@@ -19,7 +20,7 @@ const showClosed = ref(false)
 const S = { not_met: { theme: 'red', label: 'not met' }, unknown: { theme: 'gray', label: 'unknown' } }
 
 async function load() {
-  try { g.value = await api('/api/qms/iso9001/gaps') } catch (e) { error.value = e.message }
+  try { g.value = await api(`/api/qms/${standard.value}/gaps`) } catch (e) { error.value = e.message }
 }
 load()
 async function call(path, method, body, message, key = 'x') {
@@ -27,13 +28,13 @@ async function call(path, method, body, message, key = 'x') {
   try { g.value = await api(path, { method, body }); done.value = message; form.value = {} } catch (e) { error.value = e.message } finally { busy.value = '' }
 }
 const f = (id) => (form.value[id] ||= { owner: '', due: '', note: '' })
-const addTodo = (gap) => call('/api/qms/iso9001/todos', 'POST', { control: gap.id, owner: f(gap.id).owner, due: f(gap.id).due }, 'To-do added.', gap.id)
-const addAll = () => call('/api/qms/iso9001/todos/all', 'POST', {}, 'A to-do for every gap.')
+const addTodo = (gap) => call(`/api/qms/${standard.value}/todos`, 'POST', { control: gap.id, owner: f(gap.id).owner, due: f(gap.id).due }, 'To-do added.', gap.id)
+const addAll = () => call(`/api/qms/${standard.value}/todos/all`, 'POST', {}, 'A to-do for every gap.')
 const setTodo = (t, body, message) => call(`/api/qms-todos/${t.id}`, 'PUT', body, message, `t${t.id}`)
 async function draft(gap) {
   error.value = ''; done.value = ''; busy.value = `d${gap.id}`
   try {
-    const d = await api(`/api/qms/iso9001/controls/${gap.id}/draft`, { method: 'POST' })
+    const d = await api(`/api/qms/${standard.value}/controls/${gap.id}/draft`, { method: 'POST' })
     router.push(`/documents/${d.document_id}`)
   } catch (e) { error.value = e.message } finally { busy.value = '' }
 }
@@ -51,7 +52,7 @@ function to(p, gap) {
 
 <template>
   <PageTop :crumbs="[{ label: 'Quality system', to: '/system' }]">
-    <template #title>Gap report</template>
+    <template #title>Gap report{{ g ? ` · ${g.name}` : '' }}</template>
     <Button v-if="g?.can_edit" icon-left="lucide-list-plus" label="A to-do for every gap" @click="addAll" />
     <Button icon-left="lucide-printer" label="Print" @click="print" />
   </PageTop>
@@ -69,7 +70,7 @@ function to(p, gap) {
           <Badge v-bind="S[gap.status]" class="mt-0.5" />
           <div class="min-w-0 flex-1">
             <p class="text-base text-ink-gray-9">{{ gap.summary }}</p>
-            <p class="text-sm text-ink-gray-5">ISO 9001 {{ gap.clauses.join(', ') }}</p>
+            <p class="text-sm text-ink-gray-5">{{ g.name }} {{ gap.clauses.join(', ') }}</p>
             <p class="mt-1 text-sm text-ink-gray-7">{{ gap.detail }}</p>
             <ul v-if="gap.problems.length" class="mt-1 text-sm">
               <li v-for="x in gap.problems.slice(0, 5)" :key="`${x.kind}${x.id}${x.why}`">

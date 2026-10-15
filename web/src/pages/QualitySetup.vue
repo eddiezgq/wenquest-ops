@@ -7,6 +7,7 @@ import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import { api } from '../api'
 import { ago } from '../format'
+import { standard } from '../standard'
 
 const router = useRouter()
 const v = ref(null)
@@ -21,7 +22,7 @@ const pw = ref({})
 
 async function load() {
   try {
-    v.value = await api('/api/qms/iso9001/setup')
+    v.value = await api(`/api/qms/${standard.value}/setup`)
     form.value = { ...v.value.answers }
     if (v.value.proposals.length && !prop.value) prop.value = await api(`/api/qms-setup/${v.value.proposals[0].id}`)
   } catch (e) { error.value = e.message }
@@ -33,20 +34,20 @@ async function run(key, fn, message) {
 }
 const save = () => run('save', async () => {
   const answers = Object.fromEntries(Object.entries(form.value).filter(([, x]) => x !== '' && x !== undefined))
-  v.value = await api('/api/qms/iso9001/setup/answers', { method: 'POST', body: { answers } })
+  v.value = await api(`/api/qms/${standard.value}/setup/answers`, { method: 'POST', body: { answers } })
 }, 'Answers saved.')
 const apply = () => run('apply', async () => {
-  v.value = await api('/api/qms/iso9001/setup/apply', { method: 'POST', body: { password: password.value } })
+  v.value = await api(`/api/qms/${standard.value}/setup/apply`, { method: 'POST', body: { password: password.value } })
   password.value = ''
 }, 'Declared and signed.')
 const ask = () => run('ask', async () => {
-  prop.value = await api('/api/qms/iso9001/setup/proposals', { method: 'POST', body: { document_ids: chosen.value } })
-  v.value = await api('/api/qms/iso9001/setup')
+  prop.value = await api(`/api/qms/${standard.value}/setup/proposals`, { method: 'POST', body: { document_ids: chosen.value } })
+  v.value = await api(`/api/qms/${standard.value}/setup`)
 }, 'Suggestions ready below.')
 const open = (id) => run('open', async () => { prop.value = await api(`/api/qms-setup/${id}`) }, '')
 const decide = (it, how) => run(`i${it.id}`, async () => {
   prop.value = await api(`/api/qms-setup-items/${it.id}/${how}`, { method: 'POST', body: { password: pw.value[it.id] || '' } })
-  v.value = await api('/api/qms/iso9001/setup')
+  v.value = await api(`/api/qms/${standard.value}/setup`)
 }, how === 'accept' ? 'Done: the change is made.' : 'Rejected.')
 const write = (kind) => run(`w${kind}`, async () => {
   const d = await api(`/api/qms-procedures/${kind}`, { method: 'POST' })
@@ -58,7 +59,7 @@ const label = (d) => [d.number, d.title].filter(Boolean).join(' ') || d.original
 
 <template>
   <PageTop :crumbs="[{ label: 'Quality system', to: '/system' }]">
-    <template #title>Set up</template>
+    <template #title>Set up{{ v ? ` for ${v.name}` : '' }}</template>
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>

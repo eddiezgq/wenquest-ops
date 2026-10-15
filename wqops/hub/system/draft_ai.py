@@ -24,7 +24,19 @@ PROCESS = {"production": "production", "traceability": "production", "customer_p
            "design": "production", "post_delivery": "complaints", "changes": "management_review",
            "scope": "management_review", "processes": "management_review", "policy": "management_review",
            "roles": "management_review", "ncr_concession": "nonconformance", "capa_for_major": "capa",
-           "capa_on_time": "capa"}
+           "capa_on_time": "capa",
+           # ISO 13485 (17a)
+           "regulatory_role": "management_review", "outsourced": "purchasing", "qms_software": "document_control",
+           "device_file": "document_control", "records": "document_control", "management_rep": "management_review",
+           "communication": "management_review", "infrastructure": "production", "work_environment": "production",
+           "contamination": "production", "planning": "production", "risk_management": "other",
+           "customer_requirements": "other", "customer_communication": "complaints", "purchasing_info": "purchasing",
+           "cleanliness": "production", "installation": "production", "servicing": "production",
+           "sterile_records": "production", "process_validation": "production", "sterilization_validation":
+           "production", "identification": "production", "implantable": "production", "preservation": "production",
+           "process_monitoring": "management_review", "product_release": "production",
+           "after_delivery": "nonconformance", "rework": "nonconformance", "data_analysis": "management_review",
+           "preventive": "capa"}
 
 
 class NoModel(RuntimeError):
@@ -118,6 +130,7 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
     have = conn.execute("select number, title, doc_type from documents where status in ('effective', 'confirmed', "
                         "'draft') and title is not null order by number nulls last limit 80").fetchall()
     known = "\n".join(f"- {d['number'] or ''} {d['title']} ({d['doc_type']})".strip() for d in have) or "none yet"
+    std = QMS.name_of(standard)
     ctx = T.Ctx(conn=conn, user=user, today=today)
     AG.start(ctx, "document", f"draft for {standard} {control}: {c['summary']}"[:1000])
     out = {"engine": "model", "model": model.model, "tool_calls": [], "verified": True, "unverified": [], "usage": {}}
@@ -129,7 +142,7 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
             "sites): write [to fill: ...] where they belong and list them under to_fill. Refer to the company's "
             "existing documents by number where they fit. A person reviews and approves the draft; you never make "
             "it effective.",
-            [{"role": "user", "content": f"Requirement (ISO 9001 {', '.join(c['clauses'])}): {c['summary']}\n"
+            [{"role": "user", "content": f"Requirement ({std} {', '.join(c['clauses'])}): {c['summary']}\n"
                                          f"Usually shown by: {c.get('hint') or 'a procedure'}\n\n"
                                          f"The company's documents:\n{known}"}],
             [tool()], 4000, tool_choice={"type": "tool", "name": "write_document"})
@@ -145,7 +158,7 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
             raise L.LlmError(f"the model's draft could not be written as a file: {exc}") from exc
         name = re.sub(r"[^\w .-]+", " ", f"DRAFT {d['title']}").strip()[:100] + ".docx"
         with conn.transaction():
-            imp = LIB.new_import(conn, user["email"], f"AI draft for ISO 9001 {', '.join(c['clauses'])}")
+            imp = LIB.new_import(conn, user["email"], f"AI draft for {std} {', '.join(c['clauses'])}")
             doc = LIB.add_file(conn, imp["id"], name, data)
             LIB.extract_one(conn, LIB.get(conn, doc["id"]))
             conn.execute("update documents set ai_drafted = true where id = %s", (doc["id"],))
@@ -153,7 +166,7 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
                                                 "title": d["title"], "confidence": "low",
                                                 "summary": f"AI draft for: {c['summary']}"}, "ai", ctx.run_id)
             conn.execute("update doc_imports set status = 'done', engine = 'ai' where id = %s", (imp["id"],))
-            LIB.log(conn, doc["id"], user["email"], "drafted by AI", f"for ISO 9001 {', '.join(c['clauses'])}; "
+            LIB.log(conn, doc["id"], user["email"], "drafted by AI", f"for {std} {', '.join(c['clauses'])}; "
                     f"{len(d['to_fill'])} things to fill in")
         out.update(usage=resp.get("usage", {}), answer=d["title"],
                    tool_calls=[{"tool": "write_document", "args": {"control": control}, "ok": True,

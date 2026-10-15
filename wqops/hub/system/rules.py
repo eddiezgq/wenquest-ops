@@ -438,6 +438,58 @@ def complaints_answered(facts: dict, settings: dict) -> dict:
                             for e in rows])
 
 
+def _reporting(v: dict, late: bool, age: int) -> tuple[list[str], str]:
+    """What is wrong with one complaint's investigation and reporting decision, and its state: decided, or waiting
+    while still within the days."""
+    why = []
+    if _d(v.get("answered_on")) and not str(v.get("investigation") or "").strip():
+        why.append("closed without an investigation or the reason none was needed")
+    rep = v.get("reportable")
+    if type(rep) is not bool:
+        return why + ([f"whether to report it is not decided after {age} days"] if late else []), "waiting"
+    if not str(v.get("reportable_reason") or "").strip():
+        return [*why, "the reporting decision has no reason"], "decided"
+    if rep and not _d(v.get("reported_on")):
+        return why + (["to be reported, but no report date recorded"] if late else []), "waiting"
+    return why, "decided"
+
+
+def complaints_assessed(facts: dict, settings: dict) -> dict:
+    """ISO 13485: each complaint investigated (or why not recorded) before it is closed, and whether it must be
+    reported to a regulator decided with a reason, and the report made, within the company's set days. The decision
+    itself is a person's; the check only reads that it was made and recorded."""
+    rows = [e for e in _entries(facts, "complaints") if e["values"].get("kind") == "complaint"
+            and (_d(e["values"].get("received_on")) or facts["today"]) >= facts["since"]]
+    if not rows:
+        return result(UNKNOWN, f"No complaints recorded in the last {settings['window_days']} days.")
+    days = int(settings["reportability_days"])
+    bad, waiting, decided = [], 0, []
+    for e in rows:
+        v = e["values"]
+        got = _d(v.get("received_on"))
+        if got is None:
+            bad.append(_entry(e, f"{v.get('customer')}", "no date received, so the days cannot be counted"))
+            continue
+        age = (facts["today"] - got).days
+        why, state = _reporting(v, age > days, age)
+        bad += [_entry(e, f"{v.get('customer')}, {got}", w) for w in why]
+        if not why and state == "waiting":
+            waiting += 1
+        elif not why:
+            decided.append(e)
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'problem')} with investigating or deciding on reporting "
+                               "complaints.", bad)
+    more = f" {waiting} more still within the {days} days to decide or report." if waiting else ""
+    if not decided:              # nothing decided yet: nothing to judge, so not met either
+        return result(UNKNOWN, f"{_plural(waiting, 'complaint')} still within the {days} days to decide on "
+                               "reporting; none decided yet.")
+    return result(MET, f"{_plural(len(decided), 'complaint')} decided on reporting with reasons, and reported where "
+                       "needed." + more,
+                  evidence=[_entry(e, f"{e['values'].get('customer')}, {e['values'].get('received_on')}")
+                            for e in decided])
+
+
 def feedback_collected(facts: dict, settings: dict) -> dict:
     rows = [e for e in _entries(facts, "complaints") if e["values"].get("kind") in ("feedback", "survey")
             and (_d(e["values"].get("received_on")) or dt.date.min) >= facts["since"]]
@@ -526,8 +578,15 @@ CHECKS = {f.__name__: f for f in (documents_approved, documents_current, documen
                                   ncr_concession_approved, ncr_recorded, rejected_lots_have_ncr, capa_for_major,
                                   capa_on_time, capa_effective, scope_declared, training_current, calibration_current,
                                   audits_done, reviews_done, objectives_reviewed, risks_reviewed, complaints_answered,
-                                  feedback_collected, suppliers_approved)}
+                                  complaints_assessed, feedback_collected, suppliers_approved)}
 LINKED = ("linked_document", "scope_declared")          # rules that take documents linked as evidence
+# the settings each check reads besides window_days, so a pack that leaves one out is caught when it is checked
+NEEDS = {"ncr_contained": ["ncr_contain_days"], "capa_for_major": ["capa_within_days"],
+         "capa_on_time": ["capa_overdue_days"], "training_current": ["training_followup_days"],
+         "calibration_current": ["calibration_interval_days"], "audits_done": ["audit_interval_days"],
+         "reviews_done": ["review_interval_days"], "objectives_reviewed": ["objectives_review_days"],
+         "risks_reviewed": ["risks_review_days"], "complaints_answered": ["complaint_days"],
+         "complaints_assessed": ["reportability_days"]}
 
 
 def defaults(pack: dict) -> dict:
@@ -613,6 +672,9 @@ def check_pack(pack: dict) -> list[str]:  # noqa: PLR0912 - one line per kind of
                     errs.append(f"{c.get('id')}: clauses for edition {ed!r} are a list")
             if c.get("may_exclude") and not str(c.get("short") or "").strip():
                 errs.append(f"{c.get('id')}: a short name, to say it does not apply")
+            for need in NEEDS.get(rule, []):
+                if type((sets.get(need) or {}).get("value")) is not int:
+                    errs.append(f"{c.get('id')}: its rule needs the setting {need}")
             if c.get("register") and c["register"] not in (pack.get("registers") or {}):
                 errs.append(f"{c.get('id')}: register {c['register']!r} is not defined")
             if c.get("switch") and type((sets.get(c["switch"]) or {}).get("value")) is not bool:
@@ -621,4 +683,15 @@ def check_pack(pack: dict) -> list[str]:  # noqa: PLR0912 - one line per kind of
                 errs.append(f"{c.get('id')}: a hint of what document shows it")
             if not str(c.get("summary") or "").strip():
                 errs.append(f"{c.get('id')}: a summary")
+    excludable = {c["id"] for p in (pack.get("processes") or {}).values() for c in p.get("controls") or []
+                  if c.get("may_exclude")}
+    for k, q in (pack.get("questions") or {}).items():
+        if not isinstance(q, dict) or q.get("type") not in ("text", "number", "yesno") or \
+                not str(q.get("label") or "").strip() or set(q) - {"label", "type", "if_no"} or \
+                not isinstance(q.get("if_no") or {}, dict):
+            errs.append(f"question {k}: a label, a type (text, number, yesno) and what a no means (if_no)")
+            continue
+        for ctl, why in (q.get("if_no") or {}).items():
+            if ctl not in excludable or not str(why or "").strip():
+                errs.append(f"question {k}: {ctl} is not a control point that may be excluded, or has no reason")
     return errs

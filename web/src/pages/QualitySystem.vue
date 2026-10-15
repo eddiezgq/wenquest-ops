@@ -1,12 +1,14 @@
 <script setup>
-// The quality system against ISO 9001 (ADR-0016, 16a): each control point met, not met or unknown, from the records,
-// with the records it rests on. Adopting the standard and saying what does not apply are signed.
+// The quality system against a standard, ISO 9001 or ISO 13485 (ADR-0016, ADR-0017): each control point met, not
+// met or unknown, from the records, with the records it rests on. Adopting a standard and saying what does not apply
+// are signed.
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import { api, objectPath } from '../api'
 import { ago } from '../format'
+import { setStandard, standard } from '../standard'
 
 const ws = inject('workspace')
 const route = useRoute()
@@ -31,16 +33,33 @@ const pickDay = ref('')
 const regs = ref([])
 const LINKED = ['linked_document', 'scope_declared']
 const counts = computed(() => v.value?.evaluation?.counts || {})
+const stds = ref([])
 
+let asked = 0                     // only the latest load is shown, so a slow answer for another standard is dropped
 async function load() {
+  const mine = ++asked
   error.value = ''
   try {
     const q = route.query.evaluation ? `?evaluation=${route.query.evaluation}` : route.query.day ? `?day=${route.query.day}` : ''
-    v.value = await api(`/api/qms/iso9001${q}`)
-    regs.value = await api('/api/registers')
-  } catch (e) { error.value = e.message }
+    const list = await api('/api/qms')
+    if (mine !== asked) return
+    stds.value = list
+    if (!list.some((s) => s.standard === standard.value)) { setStandard(list[0].standard); return }
+    const page = await api(`/api/qms/${standard.value}${q}`)
+    const rs = await api('/api/registers')
+    if (mine !== asked) return
+    v.value = page; regs.value = rs
+    const ready = Object.entries(page.editions).filter(([, e]) => e.ready).map(([k]) => k)
+    if (!ready.includes(edition.value)) edition.value = ready[ready.length - 1] || ''
+  } catch (e) { if (mine === asked) error.value = e.message }
 }
-watch(() => [route.query.evaluation, route.query.day], load, { immediate: true })
+watch(() => [route.query.evaluation, route.query.day, standard.value], load, { immediate: true })
+async function choose(s) {
+  if (s === standard.value) return
+  open.value = null; done.value = ''; error.value = ''; v.value = null
+  if (!latest.value) await router.replace({ path: '/system' })      // an earlier check belongs to the old standard
+  setStandard(s)
+}
 async function toggle(c) {
   open.value = open.value === c.id ? null : c.id
   if (open.value && LINKED.includes(ruleOf(c)) && canDocs.value) {
@@ -50,7 +69,7 @@ async function toggle(c) {
 
 async function post(path, body, message) {
   error.value = ''; done.value = ''; busy.value = true
-  try { v.value = await api(`/api/qms/iso9001${path}`, { method: 'POST', body }); done.value = message; open.value = null; form.value = { reason: '', password: '', doc: '' } }
+  try { v.value = await api(`/api/qms/${standard.value}${path}`, { method: 'POST', body }); stds.value = await api('/api/qms'); done.value = message; open.value = null; form.value = { reason: '', password: '', doc: '' } }
   catch (e) { error.value = e.message } finally { busy.value = false; password.value = '' }
 }
 const adopt = () => post('/enable', { edition: edition.value, password: password.value }, 'Adopted and checked against your records.')
@@ -84,6 +103,11 @@ function to(p, c) {
     <Button v-if="v?.enabled" icon-left="lucide-clipboard-check" label="Audit checklist" route="/system/audit" />
     <Button v-if="v?.enabled && latest && v.can_check" icon-left="lucide-refresh-cw" label="Check now" :loading="busy" @click="evaluate" />
   </PageTop>
+  <div v-if="stds.length > 1" class="standards mb-4 flex flex-wrap items-center gap-2" role="tablist" aria-label="Standard">
+    <Button v-for="s in stds" :key="s.standard" :variant="s.standard === standard ? 'solid' : 'subtle'" role="tab"
+            :aria-selected="s.standard === standard" @click="choose(s.standard)">
+      {{ s.name }}<span v-if="s.adopted" class="ms-1 opacity-70">· {{ s.edition }}</span></Button>
+  </div>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
 
@@ -149,7 +173,7 @@ function to(p, c) {
           <Badge v-if="c.result" v-bind="S[c.result.status]" class="mt-0.5" />
           <div class="min-w-0 flex-1">
             <p class="text-base text-ink-gray-9">{{ c.summary }}</p>
-            <p class="text-sm text-ink-gray-5">ISO 9001 {{ c.clauses.join(', ') }}<template v-if="c.hint"> · evidence: {{ c.hint }}</template></p>
+            <p class="text-sm text-ink-gray-5">{{ v.name }} {{ c.clauses.join(', ') }}<template v-if="c.hint"> · evidence: {{ c.hint }}</template></p>
             <p v-if="c.register" class="text-sm"><RouterLink :to="`/system/registers/${c.register}`" class="wq-link">Open the register</RouterLink></p>
             <p v-if="c.our_rule && ruleOn(c)" class="text-sm text-ink-gray-6">Checked by the WenQuest Ops rule: {{ c.our_rule }} (can be switched off in the settings below)</p>
             <p v-else-if="c.our_rule" class="text-sm text-ink-gray-6">Our rule is switched off: link the document that shows how you meet this.</p>
