@@ -31,6 +31,7 @@ function to(p, item) {
   if (p.kind === 'supplier') return objectPath('Supplier', p.id)
   if (p.kind === 'asl') return `/quality/suppliers#a${p.id}`
   if (p.kind === 'reading') return '/documents/control'
+  if (p.kind === 'entry' && String(p.id).startsWith('c')) return `/quality/complaints/${String(p.id).slice(1)}`
   if (p.kind === 'entry') return `/system/registers/${item.register}#e${p.id}`
   return null
 }

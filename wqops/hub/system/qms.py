@@ -20,6 +20,7 @@ from psycopg.types.json import Json, Jsonb
 from wqops.hub.docs import control as CTL
 from wqops.hub.docs import library as LIB
 from wqops.hub.ont import metrics as M
+from wqops.hub.quality import complaints as CMP
 from wqops.hub.quality import records as Q
 from wqops.hub.system import rules as R
 
@@ -248,6 +249,7 @@ def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # n
                           "where status <> 'void' order by id"):
         regs.setdefault(r["register"], []).append({"id": r["id"], "values": r["values"], "signed": r["status"] ==
                                                    "signed", "imported": r["source_doc"] is not None})
+    regs.setdefault("complaints", []).extend(CMP.register_view(conn))     # the complaints module (17e) counts too
     return {
         "today": today, "since": since, "registers": regs, "suppliers_used": used,
         "supplier_items_used": {k: sorted(v) for k, v in used_items.items()},
