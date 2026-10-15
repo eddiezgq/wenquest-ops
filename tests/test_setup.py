@@ -96,6 +96,10 @@ def test_changes_proposed_from_procedures(world):
          "document_id": qp08["id"], "quote": GAUGES},
         {"change": {"kind": "setting", "key": "audit_interval_days", "value": 5}, "document_id": qp08["id"],
          "quote": "Audits happen weekly in our plant."},
+        {"change": {"kind": "setting", "key": "gauge_days", "value": 30}, "document_id": qp11["id"], "quote": GAUGES},
+        {"change": {"kind": ["applies"]}, "document_id": qp11["id"], "quote": GAUGES},
+        {"change": {"kind": "applies", "control": "design"}, "document_id": qp11["id"], "quote": GAUGES},
+        "not a change",
     ]))
     p = SAI.propose(world, Acc.get(world, JORDAN), "iso9001", docs, s.model(), today=T, company="Harbor Lane")
     assert "calibration_interval_days: 365" in s.requests[0]["body"]["messages"][0]["content"]
@@ -105,6 +109,10 @@ def test_changes_proposed_from_procedures(world):
     assert it[4]["acceptable"] is True and it[2]["text"] == "Days to contain a nonconformance: 2"
     assert it[5]["problems"] == ["this requirement always applies"]
     assert "from 30 to 1095" in it[6]["problems"][0]
+    # malformed suggestions are kept with their problem and the set stays readable
+    assert it[7]["problems"] == ["there is no setting 'gauge_days'"] and it[7]["text"].startswith("A change WenQuest")
+    assert "a change is one of" in it[8]["problems"][0] and it[9]["problems"] == ["say whether it applies and why"]
+    assert it[10]["problems"][0].startswith("a change is one of") and len(v["items"]) == 10
     # accepting makes the change as a person would by hand: settings, links, signed declarations
     SU.decide(world, Acc.get(world, JORDAN), it[2]["id"], True, today=T)
     assert QMS.settings(world, "iso9001", QMS.load("iso9001"))["ncr_contain_days"] == 2

@@ -271,6 +271,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         return {"questions": SU.QUESTIONS, **SU.answers(c, standard),
                 "proposed": run(lambda: SU.proposed_applicability(c, standard)) if QMS.enabled(c, standard) else [],
                 "adopted": QMS.enabled(c, standard) is not None, "can_configure": can, "ai": ai_ready(),
+                "can_write": can and P.allows(u["roles"], "documents:edit"),
                 "can_propose": can_ai, "proposals": SU.listing(c, standard), "generated": SU.generated(c),
                 "procedures": [{k: r[k] for k in ("id", "number", "title", "revision", "status", "original_name")}
                                for r in WP.procedures(c, "ncr")] if can_ai else []}

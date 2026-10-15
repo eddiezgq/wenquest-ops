@@ -15,6 +15,7 @@ import io
 from psycopg.types.json import Json
 
 from wqops.hub.docs import library as LIB
+from wqops.hub.quality import records as Q
 from wqops.hub.quality import workflow as W
 from wqops.hub.quality import workflow_proposals as WP
 from wqops.hub.system import qms as QMS
@@ -116,7 +117,7 @@ MAX_ITEMS = 30
 
 
 def clean(pack: dict, raw: dict) -> dict:
-    if not isinstance(raw, dict) or raw.get("kind") not in KINDS:
+    if not isinstance(raw, dict) or not isinstance(raw.get("kind"), str) or raw["kind"] not in KINDS:
         raise SetupError(f"a change is one of: {', '.join(KINDS)}")
     k = raw["kind"]
     cs = QMS.controls(pack)
@@ -146,17 +147,20 @@ def clean(pack: dict, raw: dict) -> dict:
     return {"kind": k, "control": control}
 
 
-def describe(pack: dict, ch: dict, docs: dict | None = None) -> str:
-    if ch.get("kind") == "setting":
+def describe(pack: dict, ch: dict) -> str:
+    """One proposed change in plain words; anything malformed reads as a change WenQuest Ops cannot make."""
+    try:
+        clean(pack, ch)
+    except (SetupError, TypeError, ValueError, KeyError):
+        return "A change WenQuest Ops cannot make: " + ", ".join(f"{k} {v}" for k, v in ch.items())[:200]
+    if ch["kind"] == "setting":
         spec = pack["settings"][ch["key"]]
         v = ("on" if ch["value"] else "off") if type(ch["value"]) is bool else ch["value"]
         return f"{spec['label']}: {v}"
-    c = QMS.controls(pack).get(ch.get("control"), {})
-    if ch.get("kind") == "applies":
-        return f"{'Applies' if ch['applies'] else 'Does not apply'}: {c.get('summary', ch.get('control'))}"
-    if ch.get("kind") == "evidence":
-        return f"Evidence for: {c.get('summary', ch.get('control'))}"
-    return "a change WenQuest Ops cannot make"
+    c = QMS.controls(pack)[ch["control"]]
+    if ch["kind"] == "applies":
+        return f"{'Applies' if ch['applies'] else 'Does not apply'}: {c['summary']}"
+    return f"Evidence for: {c['summary']}"
 
 
 def check(conn, standard: str, pack: dict, ch: dict, doc_id: int | None, quote: str,  # noqa: PLR0917
@@ -198,7 +202,7 @@ def store(conn, email: str, standard: str, docs: list[dict], result: dict,  # no
             try:
                 ch = clean(pack, item.get("change"))
                 found = check(conn, standard, pack, ch, doc, quote, bodies.get(doc))
-            except SetupError as exc:
+            except (SetupError, TypeError, ValueError) as exc:
                 ch = {k: str(v)[:200] for k, v in item["change"].items()} if isinstance(item.get("change"), dict) \
                     else {}
                 found = {"verified": doc in bodies and WP.quoted(quote, bodies[doc]), "problems": [str(exc)],
@@ -227,8 +231,8 @@ def view(conn, pid: int) -> dict:
     pack = row["content"] if row else QMS.load(p["standard"])
     docs = {d["id"]: d for d in p["documents"]}
     items = conn.execute("select * from qms_setup_items where proposal_id = %s order by seq", (pid,)).fetchall()
-    return {**_iso(p), "items": [{**_iso(i), "text": describe(pack, i["change"]) if i["change"].get("kind") in KINDS
-                                  else "a change WenQuest Ops cannot make", "document": docs.get(i["document_id"]),
+    return {**_iso(p), "items": [{**_iso(i), "text": describe(pack, i["change"]),
+                                  "document": docs.get(i["document_id"]),
                                   "acceptable": acceptable(i)} for i in items]}
 
 
@@ -242,31 +246,35 @@ def listing(conn, standard: str) -> list[dict]:
 
 def decide(conn, user: dict, iid: int, accept: bool, *, password: str = "", note: str = "",
            today: dt.date, tz: str = "UTC") -> dict:
-    """Accept (make the change, as a person would by hand) or reject one proposed change."""
-    it = conn.execute("select i.*, p.standard from qms_setup_items i join qms_setup_proposals p on "
-                      "p.id = i.proposal_id where i.id = %s", (iid,)).fetchone()
-    if it is None:
-        raise KeyError(iid)
-    if it["decision"] != "open":
-        raise SetupError(f"this change was already {it['decision']} by {it['decided_by']}")
+    """Accept (make the change, as a person would by hand) or reject one proposed change. The item is locked while
+    the change is made, so it is decided and made once."""
     if accept:
-        if not acceptable(it):
-            raise SetupError("only a change whose quote was found and that passes the checks can be accepted")
-        ch, std = it["change"], it["standard"]
-        if ch["kind"] == "setting":
-            QMS.set_setting(conn, user["email"], std, ch["key"], ch["value"], today, tz)
-        elif ch["kind"] == "applies":
-            QMS.declare(conn, user, std, ch["control"], ch["applies"], ch["reason"], password, today, tz)
-        else:
-            QMS.link(conn, user["email"], std, ch["control"], it["document_id"], True, today,
-                     f"proposed from the procedure: \"{it['quote'][:300]}\"", tz)
-    out = conn.execute("update qms_setup_items set decision = %s, decided_by = %s, decided_at = now(), "
-                       "decision_note = %s where id = %s and decision = 'open' returning *",
-                       ("accepted" if accept else "rejected", user["email"], note.strip()[:1000] or None,
-                        iid)).fetchone()
-    if out is None:
-        raise SetupError("this change was decided meanwhile")
-    return out
+        it = conn.execute("select i.*, p.standard from qms_setup_items i join qms_setup_proposals p on "
+                          "p.id = i.proposal_id where i.id = %s", (iid,)).fetchone()
+        if it is not None and acceptable(it) and it["change"].get("kind") == "applies":
+            Q.check_signer(conn, user, password)       # before the transaction: a failed attempt stays recorded
+    with conn.transaction():
+        it = conn.execute("select i.*, p.standard from qms_setup_items i join qms_setup_proposals p on "
+                          "p.id = i.proposal_id where i.id = %s for update of i", (iid,)).fetchone()
+        if it is None:
+            raise KeyError(iid)
+        if it["decision"] != "open":
+            raise SetupError(f"this change was already {it['decision']} by {it['decided_by']}")
+        if accept:
+            if not acceptable(it):
+                raise SetupError("only a change whose quote was found and that passes the checks can be accepted")
+            ch, std = it["change"], it["standard"]
+            if ch["kind"] == "setting":
+                QMS.set_setting(conn, user["email"], std, ch["key"], ch["value"], today, tz)
+            elif ch["kind"] == "applies":
+                QMS.declare(conn, user, std, ch["control"], ch["applies"], ch["reason"], password, today, tz)
+            else:
+                QMS.link(conn, user["email"], std, ch["control"], it["document_id"], True, today,
+                         f"proposed from the procedure: \"{it['quote'][:300]}\"", tz)
+        return conn.execute("update qms_setup_items set decision = %s, decided_by = %s, decided_at = now(), "
+                            "decision_note = %s where id = %s returning *",
+                            ("accepted" if accept else "rejected", user["email"], note.strip()[:1000] or None,
+                             iid)).fetchone()
 
 
 # ---------------------------------------------------------------- procedures written from the workflow in use
@@ -284,7 +292,7 @@ def procedure_text(conn, kind: str) -> tuple[str, list[tuple[str, list[str]]]]:
     open_states = [label[s] for s, x in cfg["states"].items() if not x.get("final")]
     steps = []
     for name, st in cfg["steps"].items():
-        bits = [f"{st['label']} (from {', '.join(label[s] for s in st['from'])}"
+        bits = [f"{st.get('label') or name} (from {', '.join(label[s] for s in st['from'])}"
                 + (f" to {label[st['to']]})" if st.get("to") else ")")]
         bits.append("Done by: " + ", ".join(r.replace("_", " ") for r in st["who"]) + ".")
         if st["needs"]:
@@ -312,11 +320,12 @@ def procedure_text(conn, kind: str) -> tuple[str, list[tuple[str, list[str]]]]:
     if (cfg.get("rules") or {}).get("one_open_capa_per_ncr"):
         rules.append("A nonconformance has at most one open corrective action at a time.")
     num = cfg["numbering"]
+    name_of = cfg.get("label") or kind
     sections = [
-        ("1. Purpose", [f"To set out how {cfg['label'].lower()}s are recorded, decided and closed, as WenQuest Ops "
+        ("1. Purpose", [f"To set out how {name_of.lower()}s are recorded, decided and closed, as WenQuest Ops "
                         "carries them out. This procedure is written from the workflow in use; when the workflow "
                         "changes, it is written again."]),
-        ("2. Scope", ["Every " + cfg["label"].lower() + " recorded in WenQuest Ops."]),
+        ("2. Scope", ["Every " + name_of.lower() + " recorded in WenQuest Ops."]),
         ("3. Records", [f"Each is numbered {num['prefix']}-{'0' * (int(num['digits']) - 1)}1 onwards and moves "
                         f"through: {', '.join(open_states)}, then "
                         + " or ".join(label[s] for s, x in cfg["states"].items() if x.get("final")) + ".",
@@ -329,7 +338,7 @@ def procedure_text(conn, kind: str) -> tuple[str, list[tuple[str, list[str]]]]:
             f"{f['label']} ({f['type']})" for f in cfg["fields"].values()]))
     if rules:
         sections.append((f"{len(sections) + 1}. Rules", rules))
-    sections.append((f"{len(sections) + 1}. Source", [f"{cfg['label']} workflow version {v['version']}, enabled by "
+    sections.append((f"{len(sections) + 1}. Source", [f"{name_of} workflow version {v['version']}, enabled by "
                                                       f"{v['enabled_by']} on {v['enabled_at']:%Y-%m-%d}, fingerprint "
                                                       f"{v['fingerprint'][:12]}."]))
     return title, sections

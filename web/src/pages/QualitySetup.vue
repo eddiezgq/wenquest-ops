@@ -129,7 +129,7 @@ const label = (d) => [d.number, d.title].filter(Boolean).join(' ') || d.original
       <h2 class="wq-h2">3. Procedures written from the workflow</h2>
       <p class="wq-muted mb-3">WenQuest Ops writes the procedure from the workflow in use, so the procedure says what the system does. It goes into Documents
         to review and is in effect once someone else approves it. Write it again after the workflow changes.</p>
-      <div v-if="v.can_configure" class="mb-3 flex flex-wrap gap-2">
+      <div v-if="v.can_write" class="mb-3 flex flex-wrap gap-2">
         <Button label="Write the nonconformance procedure" :loading="busy === 'wncr'" @click="write('ncr')" />
         <Button label="Write the corrective action procedure" :loading="busy === 'wcapa'" @click="write('capa')" />
       </div>
