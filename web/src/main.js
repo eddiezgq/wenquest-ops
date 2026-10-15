@@ -23,6 +23,7 @@ import QualitySystem from './pages/QualitySystem.vue'
 import RegisterPage from './pages/RegisterPage.vue'
 import QualityGaps from './pages/QualityGaps.vue'
 import AuditChecklist from './pages/AuditChecklist.vue'
+import QualitySetup from './pages/QualitySetup.vue'
 import './style.css'
 
 const router = createRouter({
@@ -44,6 +45,7 @@ const router = createRouter({
     { path: '/system/registers/:name', component: RegisterPage, meta: { title: 'Register' } },
     { path: '/system/gaps', component: QualityGaps, meta: { title: 'Gap report' } },
     { path: '/system/audit', component: AuditChecklist, meta: { title: 'Audit checklist' } },
+    { path: '/system/setup', component: QualitySetup, meta: { title: 'Set up' } },
     { path: '/help/:topic?', component: Help, meta: { title: 'Help' } },
     { path: '/account', component: Account, meta: { title: 'My account' } },
     { path: '/people', component: People, meta: { title: 'People' } },

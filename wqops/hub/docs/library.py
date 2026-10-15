@@ -225,7 +225,7 @@ def confirm(conn, email: str, doc_id: int, changes: dict | None = None) -> dict:
         corrected = [{"field": k, "from": str(doc[k]) if doc[k] is not None else None, "to": v}
                      for k, v in changes.items() if (str(doc[k]) if doc[k] is not None else None) != v]
         # a document the model drafted (ADR-0016, 16c) is approved by someone else whatever its type
-        kept = f["doc_type"] not in K.CONTROLLED and not doc.get("ai_drafted")
+        kept = f["doc_type"] not in K.CONTROLLED and not doc.get("ai_drafted") and not doc.get("generated_from")
         row = conn.execute(
             "update documents set doc_type = %s, process = %s, number = %s, title = %s, revision = %s, "
             "effective_date = %s, owner = %s, language = %s, summary = %s, corrected = %s, confirmed_by = %s, "
@@ -325,7 +325,7 @@ def edit(conn, email: str, doc_id: int, changes: dict) -> dict:
         if isinstance(f.get("effective_date"), dt.date):
             f["effective_date"] = f["effective_date"].isoformat()
         _check_fields(conn, f)
-        if f["doc_type"] not in K.CONTROLLED and not doc.get("ai_drafted"):   # an AI draft of any type is approved
+        if f["doc_type"] not in K.CONTROLLED and not (doc.get("ai_drafted") or doc.get("generated_from")):
             raise DocError("a draft stays a procedure, work instruction or form; to keep it as a record, make it "
                            "obsolete after approval or ask for it to be imported again")
         before = {k: (str(doc[k]) if doc[k] is not None else None) for k in EDITABLE}

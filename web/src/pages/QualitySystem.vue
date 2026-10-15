@@ -79,6 +79,7 @@ function to(p, c) {
 <template>
   <PageTop>
     <template #title>Quality system</template>
+    <Button icon-left="lucide-settings-2" label="Set up" route="/system/setup" />
     <Button v-if="v?.enabled" icon-left="lucide-list-todo" label="Gap report" route="/system/gaps" />
     <Button v-if="v?.enabled" icon-left="lucide-clipboard-check" label="Audit checklist" route="/system/audit" />
     <Button v-if="v?.enabled && latest && v.can_check" icon-left="lucide-refresh-cw" label="Check now" :loading="busy" @click="evaluate" />
