@@ -26,6 +26,8 @@ import AuditChecklist from './pages/AuditChecklist.vue'
 import QualitySetup from './pages/QualitySetup.vue'
 import IqcHome from './pages/IqcHome.vue'
 import AslPage from './pages/AslPage.vue'
+import Gauges from './pages/Gauges.vue'
+import GaugePage from './pages/GaugePage.vue'
 import Complaints from './pages/Complaints.vue'
 import ComplaintPage from './pages/ComplaintPage.vue'
 import DocControlPage from './pages/DocControlPage.vue'
@@ -46,6 +48,8 @@ const router = createRouter({
     { path: '/quality', component: Quality, meta: { title: 'Quality' } },
     { path: '/quality/complaints', component: Complaints, meta: { title: 'Complaints' } },
     { path: '/quality/complaints/:id', component: ComplaintPage, meta: { title: 'Complaint' } },
+    { path: '/quality/gauges', component: Gauges, meta: { title: 'Measuring equipment' } },
+    { path: '/quality/gauges/:id', component: GaugePage, meta: { title: 'Equipment' } },
     { path: '/quality/suppliers', component: AslPage, meta: { title: 'Approved suppliers' } },
     { path: '/quality/iqc', component: IqcHome, meta: { title: 'Incoming inspection' } },
     { path: '/quality/iqc/plans/:id', component: IqcPlan, meta: { title: 'Inspection plan' } },

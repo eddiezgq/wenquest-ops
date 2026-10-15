@@ -60,6 +60,7 @@ async function sign() {                       // the readings on screen are save
 }
 const decide = () => { const pw = password.value; password.value = ''; return call('decide', `/api/iqc/inspections/${v.value.id}/decide`, 'POST', { password: pw, note: note.value },
   v.value.result === 'accept' ? 'Released. The result is in Drafts for ERPNext.' : 'Rejected. A nonconformance report is open.') }
+const setGauge = (c, id) => call('gauge', `/api/iqc/inspections/${v.value.id}/gauges`, 'PUT', { characteristic: c.name, gauge_id: id ? Number(id) : null }, 'Equipment noted.')
 const voidIt = () => call('void', `/api/iqc/inspections/${v.value.id}/void`, 'POST', { reason: reason.value }, 'Void.')
 function cls(s, c) {
   const r = at.value[k(s, c)]
@@ -99,7 +100,13 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null ?
     <section class="readings wq-panel mb-5 p-5">
       <h2 class="wq-h2">Readings <span class="text-sm font-normal text-ink-gray-5">{{ v.entered }} of {{ v.readings.length }} entered</span></h2>
       <div class="overflow-x-auto"><table class="wq-table text-sm">
-        <thead><tr><th>Sample</th><th v-for="c in chars" :key="c.name">{{ c.name }}<span class="block font-normal text-ink-gray-5">{{ limits(c) }}</span></th></tr></thead>
+        <thead><tr><th>Sample</th><th v-for="c in chars" :key="c.name">{{ c.name }}<span class="block font-normal text-ink-gray-5">{{ limits(c) }}</span>
+          <span v-if="c.kind === 'measured'" class="gauge block font-normal">
+            <select v-if="open && v.can_edit" class="wq-select mt-1 w-40" :value="v.gauges[c.name]?.gauge_id ?? ''" @change="setGauge(c, $event.target.value)">
+              <option value="">Equipment…</option>
+              <option v-if="v.gauges[c.name] && !v.gauge_choices.some((g) => g.id === v.gauges[c.name].gauge_id)" :value="v.gauges[c.name].gauge_id">{{ v.gauges[c.name].gauge_code }} (no longer usable)</option>
+              <option v-for="g in v.gauge_choices" :key="g.id" :value="g.id">{{ g.code }} · {{ g.name }}</option></select>
+            <span v-else-if="v.gauges[c.name]" class="text-ink-gray-5">with {{ v.gauges[c.name].gauge_code }} (due {{ v.gauges[c.name].next_due }})</span></span></th></tr></thead>
         <tbody><tr v-for="s in samples" :key="s"><td>{{ s }}</td>
           <td v-for="c in chars" :key="c.name" :class="cls(s, c)">
             <template v-if="open && v.can_edit">

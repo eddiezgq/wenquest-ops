@@ -296,13 +296,13 @@ def _entries(facts: dict, name: str, signed_only: bool = False) -> list[dict]:
 
 def _latest(rows: list[dict], key: list[str], when: str) -> list[dict]:
     """The latest entry about each thing (by the register's key and its date field)."""
-    best: dict[tuple, dict] = {}
-    for e in rows:
+    best: dict[tuple, tuple] = {}
+    for n, e in enumerate(rows):          # rows come oldest first; on the same day the later one counts
         k = tuple(str(e["values"].get(f, "")).strip().lower() for f in key)
         d = _d(e["values"].get(when)) or dt.date.min
-        if k not in best or (d, e["id"]) >= (_d(best[k]["values"].get(when)) or dt.date.min, best[k]["id"]):
-            best[k] = e
-    return list(best.values())
+        if k not in best or (d, n) >= best[k][0]:
+            best[k] = ((d, n), e)
+    return [e for _, e in best.values()]
 
 
 def _entry(e: dict, label: str, why: str = "") -> dict:
