@@ -21,6 +21,7 @@ from wqops.hub import permissions as P
 from wqops.hub.docs import ai_classify as AIC
 from wqops.hub.docs import checks as CK
 from wqops.hub.docs import classify as K
+from wqops.hub.docs import control as CTL
 from wqops.hub.docs import library as LIB
 from wqops.hub.docs import store as F
 from wqops.hub.ont import api as OA
@@ -94,7 +95,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     def run(fn):
         try:
             return fn()
-        except LIB.DocError as exc:
+        except (LIB.DocError, CTL.ControlError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(404, "no such document") from exc
@@ -273,6 +274,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
                         (doc["import_id"],)).fetchone()
         same = c.execute("select id, original_name, path, status from documents where sha256 = %s and id <> %s "
                          "order by id", (doc["sha256"], doc["id"])).fetchall()
+        nxt = CTL.next_review(c, doc)
         return _iso(doc) | {
             "text": body_[:TEXT_SHOWN], "text_more": max(0, len(body_) - TEXT_SHOWN),
             "history": LIB.history(c, doc["id"]), "signatures": Q.signatures(c, "document", doc["id"]),
@@ -280,7 +282,13 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
             "same_file": same, "batch_ok": K.batch_ok(doc), "controlled": doc["doc_type"] in K.CONTROLLED,
             "involved": sorted(LIB.involved(c, doc)),
             "process_name": LIB.processes(c).get(doc["process"] or "", None),
-            "suggest": LIB.suggestions(c, doc)}
+            "suggest": LIB.suggestions(c, doc),
+            "next_review": nxt.isoformat() if nxt else None,
+            "reviews": CTL.reviews(c, doc["id"]), "review_outcomes": CTL.OUTCOMES,
+            "training": CTL.training(c, document_id=doc["id"], today=OA.today(company()[0])),
+            "readers_now": CTL.readers(c, doc["trainees"]),
+            "roles": sorted(P.ROLE_PERMISSIONS), "people": [r["email"] for r in c.execute(
+                "select email from users where active order by email")]}
 
     @app.get("/api/docs/{doc_id}")
     def document(doc_id: int, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -342,7 +350,11 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         need(u, "documents:edit")
         d = await body(request)
         today = OA.today(company()[0])
-        out = doc_view(c, run(lambda: LIB.approve(c, u, doc_id, str(d.get("password", "")), today)))
+        try:
+            on = dt.date.fromisoformat(str(d["effective_on"])[:10]) if d.get("effective_on") else None
+        except ValueError as exc:
+            raise HTTPException(400, "effective_on is a date like 2026-11-02") from exc
+        out = doc_view(c, run(lambda: LIB.approve(c, u, doc_id, str(d.get("password", "")), today, on)))
         rechecked(c, u)
         return out
 
@@ -373,3 +385,83 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         data = await up.read(F.MAX_BYTES + 1)
         return doc_view(c, run(lambda: LIB.new_revision(c, u["email"], doc_id, name=up.filename or "file", data=data,
                                                                  revision=str(form.get("revision") or ""))))
+
+    # ---------------------------------------------------------------- document control and reading (17d)
+
+    def today_() -> dt.date:
+        return OA.today(company()[0])
+
+    def ident(v: int) -> int:
+        if not 0 < v < 2**63:
+            raise HTTPException(404, "not found")
+        return v
+
+    @app.put("/api/docs/{doc_id}/readers")
+    async def set_readers(doc_id: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        """Who must read the document, and whether this revision needs it."""
+        need(u, "documents:edit")
+        d = await body(request)
+        if not isinstance(d, dict):
+            raise HTTPException(400, "send the readers")
+        doc = run(lambda: CTL.set_training(c, u["email"], ident(doc_id), d.get("trainees"),
+                                           d.get("needs_training", False)))
+        return doc_view(c, doc)
+
+    @app.post("/api/docs/{doc_id}/reviews", status_code=201)
+    async def record_review(doc_id: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "documents:edit")
+        d = await body(request)
+        rev = d.get("revision_id")
+        if rev is not None and (type(rev) is not int or not 0 < rev < 2**63):
+            raise HTTPException(400, "revision_id is a document number")
+        run(lambda: CTL.record_review(c, u["email"], ident(doc_id), str(d.get("outcome") or ""),
+                                      str(d.get("note") or ""), today=today_(), revision_id=rev,
+                                      next_due=d.get("next_due")))
+        return doc_view(c, LIB.get(c, doc_id))
+
+    @app.post("/api/doc-reviews/{rid}/{how}")
+    async def decide_review(rid: int, how: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "qms:configure")
+        if how not in ("approve", "send-back"):
+            raise HTTPException(404, "not found")
+        d = await body(request)
+        r = run(lambda: CTL.decide_review(c, u, ident(rid), how == "approve", password=str(d.get("password") or ""),
+                                          note=str(d.get("note") or "")))
+        return doc_view(c, LIB.get(c, r["document_id"]))
+
+    @app.get("/api/doc-control")
+    def control(u=Depends(user_dep), c=Depends(conn_dep)):
+        """Reviews due, reading by everyone, my reading, and the settings per document type."""
+        need(u, "documents:view")
+        LIB.take_effect_due(c, today_())
+        return {"reviews": CTL.review_list(c, today_()), "training": CTL.training(c, today=today_()),
+                "mine": CTL.training(c, email=u["email"], today=today_()), "types": CTL.type_settings(c),
+                "doc_types": K.TYPES, "can_configure": P.allows(u["roles"], "qms:configure")}
+
+    @app.get("/api/my-reading")
+    def mine(u=Depends(user_dep), c=Depends(conn_dep)):
+        """What I must read: open to everyone signed in."""
+        LIB.take_effect_due(c, today_())
+        return CTL.training(c, email=u["email"], today=today_())
+
+    @app.post("/api/my-reading/{tid}/acknowledge")
+    async def acknowledge(tid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        d = await body(request)
+        run(lambda: CTL.acknowledge(c, u, ident(tid), str(d.get("password") or "")))
+        return CTL.training(c, email=u["email"], today=today_())
+
+    @app.post("/api/doc-training/{tid}/waive")
+    async def waive(tid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "qms:configure")
+        d = await body(request)
+        run(lambda: CTL.waive(c, u["email"], ident(tid), str(d.get("reason") or "")))
+        return CTL.training(c, today=today_())
+
+    @app.post("/api/doc-types/{doc_type}")
+    async def set_type(doc_type: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "qms:configure")
+        if doc_type not in K.TYPES:
+            raise HTTPException(404, "no such document type")
+        d = await body(request)
+        return run(lambda: CTL.set_type(c, u["email"], doc_type, d.get("review_months"),
+                                        d.get("training_days", 30)))

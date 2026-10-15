@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
+import DocControl from '../components/DocControl.vue'
 import { CONF, DOC_STATE, STATUS, label } from '../ui/themes'
 import { api, apiForm } from '../api'
 import { ago } from '../format'
@@ -18,7 +19,7 @@ const meta = ref(null)
 const error = ref('')
 const done = ref('')
 const form = ref({})
-const x = ref({ password: '', reason: '', revision: '', file: null, showText: false })
+const x = ref({ password: '', reason: '', revision: '', file: null, showText: false, effective_on: '' })
 const FIELDS = [['doc_type', 'Type'], ['process', 'Process'], ['number', 'Number'], ['title', 'Title'],
   ['revision', 'Revision'], ['effective_date', 'Effective date'], ['owner', 'Owner'], ['language', 'Language']]
 
@@ -171,8 +172,11 @@ async function newRevision() {
         <h2 class="wq-h2">Approval</h2>
         <p v-if="involved" class="wq-muted">You uploaded, confirmed or sent this document, so someone else approves it.</p>
         <div v-else class="flex flex-wrap items-center gap-2">
-          <input v-model="x.password" class="wq-input max-w-56" type="password" placeholder="Your password to sign" autocomplete="current-password">
-          <Button variant="solid" icon-left="lucide-pen-line" label="Approve (sign)" @click="step('approve', { password: x.password }, 'Approved. The document is effective.')" />
+          <label class="wq-field">Takes effect on<input v-model="x.effective_on" type="date" class="wq-input w-44"></label>
+          <input v-model="x.password" class="wq-input max-w-56 self-end" type="password" placeholder="Your password to sign" autocomplete="current-password">
+          <Button class="self-end" variant="solid" icon-left="lucide-pen-line" label="Approve (sign)"
+                  @click="step('approve', { password: x.password, effective_on: x.effective_on || undefined }, x.effective_on ? `Approved. It takes effect on ${x.effective_on}.` : 'Approved. The document is effective.')" />
+          <p class="wq-muted w-full">Leave the day empty for today. A later day leaves time for people to read it; the revision in effect stays until then.</p>
         </div>
         <div class="mt-3 flex flex-wrap items-center gap-2">
           <input v-model="x.reason" class="wq-input max-w-80" placeholder="What needs to change">
@@ -195,6 +199,8 @@ async function newRevision() {
         </div>
       </section>
       <p v-if="d.status === 'obsolete'" class="mt-5 text-base text-ink-gray-7">Obsolete: {{ d.obsolete_reason }}</p>
+      <p v-if="d.status === 'approved'" class="mt-5 text-base text-ink-gray-7">Approved by {{ d.approved_by }}; takes effect on {{ d.effective_date }}.</p>
+      <DocControl v-if="d.controlled && ['draft', 'in_review', 'approved', 'effective'].includes(d.status)" :d="d" :can-edit="canEdit" @changed="set" />
 
       <section class="mt-5">
         <div class="mb-2 flex items-center gap-3">
