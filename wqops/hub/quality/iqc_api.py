@@ -69,7 +69,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         return {"id": row["id"], "name": row["name"]}
 
     def page(c, u, iid: int) -> dict:
-        return {**run(lambda: I.view(c, iid)), **can(u)}
+        return {**run(lambda: I.view(c, iid, OA.today(company()[0]))), **can(u)}
 
     @app.get("/api/iqc/inspections/{iid}")
     def inspection(iid: int, u=Depends(user_dep), c=Depends(conn_dep)):

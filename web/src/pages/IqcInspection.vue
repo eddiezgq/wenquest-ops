@@ -60,7 +60,10 @@ async function sign() {                       // the readings on screen are save
 }
 const decide = () => { const pw = password.value; password.value = ''; return call('decide', `/api/iqc/inspections/${v.value.id}/decide`, 'POST', { password: pw, note: note.value },
   v.value.result === 'accept' ? 'Released. The result is in Drafts for ERPNext.' : 'Rejected. A nonconformance report is open.') }
-const setGauge = (c, id) => call('gauge', `/api/iqc/inspections/${v.value.id}/gauges`, 'PUT', { characteristic: c.name, gauge_id: id ? Number(id) : null }, 'Equipment noted.')
+async function setGauge(c, id) {                  // readings typed so far are saved first, so none are lost
+  if (changed().length && !(await save())) return
+  await call('gauge', `/api/iqc/inspections/${v.value.id}/gauges`, 'PUT', { characteristic: c.name, gauge_id: id ? Number(id) : null }, 'Equipment noted.')
+}
 const voidIt = () => call('void', `/api/iqc/inspections/${v.value.id}/void`, 'POST', { reason: reason.value }, 'Void.')
 function cls(s, c) {
   const r = at.value[k(s, c)]

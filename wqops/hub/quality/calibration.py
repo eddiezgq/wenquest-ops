@@ -174,8 +174,8 @@ def measured_since(conn, gid: int, since: dt.date | None) -> list[dict]:
     rows = conn.execute(
         "select i.id, i.name, i.item_code, i.supplier, i.lot_no, i.signed_at, i.result, i.status from iqc_gauges g "
         "join iqc_inspections i on i.id = g.inspection_id where g.gauge_id = %s and i.signed_at is not null and "
-        "(%s::date is null or i.signed_at::date >= %s) group by i.id order by i.signed_at",
-        (gid, since, since)).fetchall()
+        "(%s::date is null or i.signed_at >= %s::date - 1) group by i.id order by i.signed_at",   # a day early: any
+        (gid, since, since)).fetchall()                                                           # time zone
     return [_iso(r) for r in rows]
 
 
@@ -188,13 +188,11 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
         raise CalError("the calibration is already approved")
     if user["email"] in (c["recorded_by"], c["changed_by"]):
         raise PermissionError("someone other than whoever recorded or last changed it approves it")
-    g = get(conn, c["gauge_id"])
-    if g["status"] == "retired":
-        raise CalError("the equipment is retired")
-    if c["result"] == "pass" and g["last_pass"] and c["done_on"] < g["last_pass"]:
-        raise CalError(f"a good calibration on {g['last_pass']} is already approved: this one is older")
+    _date_rules(conn, c, get(conn, c["gauge_id"]))
     Q.check_signer(conn, user, password)
     with conn.transaction():
+        g = conn.execute("select * from gauges where id = %s for update", (c["gauge_id"],)).fetchone()
+        _date_rules(conn, c, g)                       # again, under the lock: another approval may have come first
         Q._sign(conn, user, f"Calibration approved ({c['result']})", "calibration", cid, g["code"])
         if conn.execute("update gauge_calibrations set status = 'approved', approved_by = %s, approved_at = now() "
                         "where id = %s and status = 'draft' returning id", (user["email"], cid)).fetchone() is None:
@@ -208,13 +206,29 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
             log(conn, g["id"], user["email"], "calibration approved", f"pass on {c['done_on']}; next due {due}"
                 + ("; stays out of service until the out-of-tolerance assessment is signed" if open_ else ""))
         else:
-            hit = measured_since(conn, g["id"], g["last_pass"])
+            # what it measured since its last good calibration before this one
+            prev = conn.execute("select max(done_on) as d from gauge_calibrations where gauge_id = %s and status = "
+                                "'approved' and result = 'pass' and done_on < %s", (g["id"], c["done_on"])).fetchone()
+            since = prev["d"]
+            hit = measured_since(conn, g["id"], since)
             conn.execute("update gauges set status = 'out_of_service', updated_at = now() where id = %s", (g["id"],))
             conn.execute("insert into gauge_impacts (gauge_id, calibration_id, since, inspections) values "
-                         "(%s, %s, %s, %s)", (g["id"], cid, g["last_pass"], Jsonb(hit)))
+                         "(%s, %s, %s, %s)", (g["id"], cid, since, Jsonb(hit)))
             log(conn, g["id"], user["email"], "out of tolerance", f"on {c['done_on']}: out of service; "
-                f"{len(hit)} inspections measured since {g['last_pass'] or 'it was registered'} to assess")
+                f"{len(hit)} inspections measured since {since or 'it was registered'} to assess")
     return get(conn, g["id"])
+
+
+def _date_rules(conn, c: dict, g: dict) -> None:
+    if g["status"] == "retired":
+        raise CalError("the equipment is retired")
+    if c["result"] == "pass":
+        if g["last_pass"] and c["done_on"] < g["last_pass"]:
+            raise CalError(f"a good calibration on {g['last_pass']} is already approved: this one is older")
+        fail = conn.execute("select max(done_on) as d from gauge_calibrations where gauge_id = %s and status = "
+                            "'approved' and result = 'fail'", (g["id"],)).fetchone()["d"]
+        if fail and c["done_on"] <= fail:
+            raise CalError(f"it was found out of tolerance on {fail}: a good calibration must be after that")
 
 
 def assess(conn, user: dict, impact_id: int, password: str, conclusion: str, *, open_ncr: bool = False) -> dict:
@@ -227,9 +241,12 @@ def assess(conn, user: dict, impact_id: int, password: str, conclusion: str, *, 
         raise CalError("it is already assessed")
     if not conclusion.strip():
         raise CalError("write the conclusion: were the results it measured still valid?")
-    g = get(conn, imp["gauge_id"])
     Q.check_signer(conn, user, password)
     with conn.transaction():
+        g = conn.execute("select * from gauges where id = %s for update", (imp["gauge_id"],)).fetchone()
+        if conn.execute("select status from gauge_impacts where id = %s for update",
+                        (impact_id,)).fetchone()["status"] != "open":
+            raise CalError("it is already assessed")
         ncr = None
         if open_ncr:
             ncr = Q.create_ncr(conn, user["email"], title=f"Out-of-tolerance equipment {g['code']}",
@@ -246,7 +263,7 @@ def assess(conn, user: dict, impact_id: int, password: str, conclusion: str, *, 
             + (f" ({ncr['name']})" if ncr else ""))
         good_after = conn.execute(
             "select 1 from gauge_calibrations p join gauge_calibrations f on f.id = %s where p.gauge_id = %s and "
-            "p.status = 'approved' and p.result = 'pass' and p.approved_at > f.approved_at",
+            "p.status = 'approved' and p.result = 'pass' and p.done_on > f.done_on",
             (imp["calibration_id"], g["id"])).fetchone()
         still = conn.execute("select 1 from gauge_impacts where gauge_id = %s and status = 'open'",
                              (g["id"],)).fetchone()
@@ -293,14 +310,20 @@ def in_use(conn) -> bool:
 
 
 def register_view(conn) -> list[dict]:
-    """The equipment as the ISO calibration check reads the calibration register: one entry per piece with a good
-    calibration; a piece out of service after a failure reads as failed."""
+    """The equipment as the ISO calibration check reads the calibration register: one entry per piece with an
+    approved calibration; a piece out of service after a failure reads as failed, dated by that failure."""
     out = []
-    for g in conn.execute("select * from gauges where status <> 'retired' and last_pass is not null order by id"):
+    for g in conn.execute("select * from gauges where status <> 'retired' order by id").fetchall():
+        last = conn.execute("select done_on, result from gauge_calibrations where gauge_id = %s and status = "
+                            "'approved' order by done_on desc, approved_at desc limit 1", (g["id"],)).fetchone()
+        if last is None:
+            continue
         failed = g["status"] == "out_of_service"
+        on = last["done_on"] if failed else g["last_pass"]
         out.append({"id": f"g{g['id']}", "values": {"equipment": g["code"], "description": g["name"],
-                                                     "calibrated_on": g["last_pass"].isoformat(),
-                                                     "next_due": g["next_due"].isoformat() if g["next_due"] else None,
+                                                     "calibrated_on": on.isoformat(),
+                                                     "next_due": g["next_due"].isoformat() if g["next_due"] and
+                                                     not failed else None,
                                                      "result": "fail" if failed else "pass"},
                     "signed": True, "imported": False})
     return out

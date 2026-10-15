@@ -582,6 +582,9 @@ def set_gauge(conn, email: str, ins_id: int, characteristic: str, gauge_id: int 
     if kinds.get(characteristic) != "measured":
         raise IqcError("equipment is named for a measured characteristic")
     with conn.transaction():
+        if conn.execute("select status from iqc_inspections where id = %s for update",
+                        (ins_id,)).fetchone()["status"] != "in_progress":
+            raise IqcError("the inspection is signed: the equipment it used is fixed")
         if gauge_id is None:
             conn.execute("delete from iqc_gauges where inspection_id = %s and characteristic = %s",
                          (ins_id, characteristic))
@@ -602,12 +605,12 @@ def set_gauge(conn, email: str, ins_id: int, characteristic: str, gauge_id: int 
 def _check_gauges(conn, ins: dict, chars: list[dict], today: dt.date) -> None:
     """At signing: every measured characteristic names equipment that is in calibration today (a setting; only
     once equipment is registered). What was used, and its due date then, stays with the inspection."""
-    if not (settings(conn)["gauge_required"] and CAL.in_use(conn)):
-        return
     used = _gauges(conn, ins["id"])
-    missing = [c["name"] for c in chars if c["kind"] == "measured" and c["name"] not in used]
-    if missing:
-        raise IqcError("name the equipment used for: " + ", ".join(missing))
+    if settings(conn)["gauge_required"] and CAL.in_use(conn):
+        missing = [c["name"] for c in chars if c["kind"] == "measured" and c["name"] not in used]
+        if missing:
+            raise IqcError("name the equipment used for: " + ", ".join(missing))
+    # equipment that is named is checked whatever the setting
     for ch, row in used.items():
         g = CAL.get(conn, row["gauge_id"])
         ok, why = CALR.usable(g, today)
@@ -719,7 +722,7 @@ def listing(conn, status: str = "open") -> list[dict]:
                                           "order by id desc limit 500").fetchall()]
 
 
-def view(conn, ins_id: int) -> dict:
+def view(conn, ins_id: int, today: dt.date | None = None) -> dict:
     ins = get(conn, ins_id)
     p = plan(conn, ins["plan_id"])
     row = conn.execute("select * from iqc_sampling_rows where id = %s", (ins["sampling_row_id"],)).fetchone()
@@ -733,7 +736,7 @@ def view(conn, ins_id: int) -> dict:
                        (ins["ncr_id"],)).fetchone() if ins["ncr_id"] else None
     return {**_iso(ins), "plan": _iso(p), "sampling_row": _iso(row), "readings": rd,
             "gauges": {k: _iso(v) for k, v in _gauges(conn, ins_id).items()},
-            "gauge_choices": [_iso(g) for g in CAL.usable_gauges(conn, dt.datetime.now(dt.UTC).date())]
+            "gauge_choices": [_iso(g) for g in CAL.usable_gauges(conn, today or dt.datetime.now(dt.UTC).date())]
             if ins["status"] == "in_progress" else [],
             "entered": sum(r["entered_by"] is not None for r in rd), "draft": draft, "ncr": ncr,
             "history": history(conn, "inspection", ins_id), "signatures": Q.signatures(conn, "iqc", ins_id),

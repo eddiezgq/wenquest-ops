@@ -136,12 +136,19 @@ def test_out_of_tolerance(world):
     calibrate(world, g["id"], T - dt.timedelta(days=30))
     I.set_gauge(world, JORDAN, ins["id"], "Length", g["id"], today=T)
     I.sign(world, u(world, JORDAN), ins["id"], PW, today=T)
-    out = calibrate(world, g["id"], T, result="fail")
+    out = calibrate(world, g["id"], T - dt.timedelta(days=10), result="fail")
     assert out["status"] == "out_of_service"
     imp = CAL.view(world, g["id"], T)["impacts"][0]
     assert imp["status"] == "open" and [x["name"] for x in imp["inspections"]] == [ins["name"]]
     assert imp["since"] == (T - dt.timedelta(days=30)).isoformat()
-    # a good calibration alone does not bring it back while the assessment is open
+    # a good calibration from before the failure does not count; nor does the state change by hand
+    with pytest.raises(CAL.CalError, match="must be after that"):
+        calibrate(world, g["id"], T - dt.timedelta(days=12))
+    with pytest.raises(psycopg.errors.RaiseException, match="stays out of service"):
+        world.execute("update gauges set status = 'in_service' where id = %s", (g["id"],))
+    with pytest.raises(psycopg.errors.RaiseException, match="approved calibration"):
+        world.execute("update gauges set last_pass = %s where id = %s", (T, g["id"]))
+    # a good calibration after it does not bring it back while the assessment is open
     assert calibrate(world, g["id"], T)["status"] == "out_of_service"
     with pytest.raises(CAL.CalError, match="conclusion"):
         CAL.assess(world, u(world, SAM), imp["id"], PW, "")
@@ -154,6 +161,17 @@ def test_out_of_tolerance(world):
         world.execute("update gauge_impacts set conclusion = 'x' where id = %s", (imp["id"],))
 
 
+def test_named_equipment_is_checked_even_when_not_required(world):
+    ins = started(world)
+    g = caliper(world)
+    calibrate(world, g["id"], T - dt.timedelta(days=30))
+    I.set_gauge(world, JORDAN, ins["id"], "Length", g["id"], today=T)
+    calibrate(world, g["id"], T - dt.timedelta(days=1), result="fail")
+    I.set_setting(world, DANA, "gauge_required", False)
+    with pytest.raises(I.IqcError, match="out of service"):
+        I.sign(world, u(world, JORDAN), ins["id"], PW, today=T)
+
+
 def test_iso_calibration_check_reads_equipment(world):
     QMS.enable(world, u(world, JORDAN), "iso9001", "2015", PW, T)
     g = caliper(world)
@@ -161,7 +179,7 @@ def test_iso_calibration_check_reads_equipment(world):
     QMS.evaluate(world, "iso9001", T, "manual", JORDAN)
     r = QMS.latest(world, "iso9001")["results"]["measuring"]
     assert r["status"] == "met" and r["evidence"][0]["id"] == f"g{g['id']}"
-    calibrate(world, g["id"], T, result="fail")
+    calibrate(world, g["id"], T - dt.timedelta(days=2), result="fail")
     QMS.evaluate(world, "iso9001", T, "manual", JORDAN)
     r = QMS.latest(world, "iso9001")["results"]["measuring"]
     assert r["status"] == "not_met" and r["problems"][0]["why"] == "failed its last calibration"

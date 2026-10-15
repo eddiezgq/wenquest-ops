@@ -28,6 +28,35 @@ create table gauges (
 create unique index gauges_code on gauges (lower(code));
 create trigger gauges_no_delete before delete on gauges for each row execute function wqo_append_only();
 
+-- the calibration state changes only as approvals and assessments say
+create or replace function wqo_gauge_kept() returns trigger language plpgsql as $$
+begin
+    if old.status = 'retired' then
+        raise exception 'equipment % is retired', old.code;
+    end if;
+    if new.code <> old.code or new.created_by <> old.created_by then
+        raise exception 'equipment % keeps its ID', old.code;
+    end if;
+    if new.last_pass is distinct from old.last_pass and not exists (
+            select 1 from gauge_calibrations where gauge_id = new.id and status = 'approved' and result = 'pass'
+            and done_on = new.last_pass and approved_at = now()) then
+        raise exception 'equipment %: the last good calibration comes from an approved calibration', old.code;
+    end if;
+    if new.next_due is distinct from old.next_due
+            and new.next_due is distinct from (new.last_pass + make_interval(months => new.interval_months))::date then
+        raise exception 'equipment %: the due date follows from the last good calibration and the interval', old.code;
+    end if;
+    if new.status = 'in_service' and old.status <> 'in_service' and (
+            exists (select 1 from gauge_impacts where gauge_id = new.id and status = 'open')
+            or exists (select 1 from gauge_calibrations f where f.gauge_id = new.id and f.status = 'approved'
+                       and f.result = 'fail' and f.done_on >= new.last_pass)) then
+        raise exception 'equipment % stays out of service: an out-of-tolerance result is open or later than its last '
+                        'good calibration', old.code;
+    end if;
+    return new;
+end $$;
+create trigger gauges_kept before update on gauges for each row execute function wqo_gauge_kept();
+
 create table gauge_calibrations (
     id           bigserial primary key,
     gauge_id     bigint not null references gauges (id),
