@@ -61,4 +61,5 @@ ignore = ["PLR2004", "PLR0913", "S101", "RUF001", "RUF002", "RUF003"]  # RUF00x:
 "wqops/hub/quality/proposal_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/system/api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/iqc_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
+"wqops/hub/quality/asl_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/records.py" = ["PLR0917"]  # (conn, id, email, value, note): one record step per call

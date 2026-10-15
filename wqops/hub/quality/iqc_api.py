@@ -64,7 +64,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         row = run(lambda: I.start(c, u["email"], str(d.get("item_code") or ""), d.get("lot_qty"),
                                   receipt=str(d["receipt"]) if d.get("receipt") else None,
                                   supplier=str(d["supplier"]) if d.get("supplier") else None,
-                                  lot_no=str(d.get("lot_no") or "")))
+                                  lot_no=str(d.get("lot_no") or ""), today=OA.today(company()[0])))
         return {"id": row["id"], "name": row["name"]}
 
     def page(c, u, iid: int) -> dict:

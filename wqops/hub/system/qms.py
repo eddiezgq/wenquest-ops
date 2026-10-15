@@ -256,6 +256,8 @@ def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # n
         "approval_dispositions": {k for k, t in Q.disposition_types(conn, active_only=False).items()
                                   if t["requires_approval"]},
         "incoming_inspections": lots,
+        "asl": [{"id": r["id"], "supplier": r["supplier"], "item_code": r["item_code"], "status": r["status"],
+                 "review_due": r["review_due"]} for r in conn.execute("select * from asl_entries order by id")],
         "ncr_inspections": {n["inspection"] for n in ncrs if n["inspection"] and n["status"] != "cancelled"},
         "applicability": applicability(conn, standard),
         "excludable": {c: x.get("short", c) for c, x in controls(pack).items() if x.get("may_exclude")},
