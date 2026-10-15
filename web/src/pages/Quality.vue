@@ -104,7 +104,9 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
   </template>
 
   <template v-if="tab === 'incoming'">
-    <p class="wq-muted mb-3">Receipts of items marked "inspect on receipt" in ERPNext that have no inspection yet. A draft inspection goes to Drafts for Quality to confirm; it is then created in ERPNext.</p>
+    <p class="wq-muted mb-3">Receipts of items marked "inspect on receipt" in ERPNext that have no inspection yet. A draft inspection goes to Drafts for Quality to confirm; it is then created in ERPNext.
+      To sample a lot by plan, with readings, a signed result and switching between normal, tightened and reduced inspection, use
+      <RouterLink to="/quality/iqc" class="wq-link">Incoming inspection</RouterLink>.</p>
     <p v-if="!rows.length" class="wq-muted">Nothing waiting.</p>
     <div v-else class="wq-panel overflow-x-auto">
       <table class="wq-table">
