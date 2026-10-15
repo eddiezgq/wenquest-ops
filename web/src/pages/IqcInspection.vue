@@ -80,6 +80,7 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null ?
         <Badge v-bind="ST[v.status]" />
         <Badge v-if="v.result" :theme="v.result === 'accept' ? 'green' : 'red'" :label="v.result === 'accept' ? 'accept' : 'reject'" />
         <Badge v-if="v.unverified" theme="amber" label="sampling table row not checked" />
+        <Badge v-if="v.supplier_standing && v.supplier_standing !== 'approved'" theme="amber" :label="v.supplier_standing" />
       </div>
       <dl class="grid gap-x-6 gap-y-1 text-sm md:grid-cols-3">
         <div><dt class="inline text-ink-gray-5">Lot </dt><dd class="inline">{{ v.lot_no || '–' }}, {{ v.lot_qty }} pieces</dd></div>

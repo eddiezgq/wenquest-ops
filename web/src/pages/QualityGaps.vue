@@ -45,6 +45,7 @@ function to(p, gap) {
   if (p.kind === 'document') return `/documents/${p.id}`
   if (p.kind === 'inspection') return objectPath('QualityInspection', p.id)
   if (p.kind === 'supplier') return objectPath('Supplier', p.id)
+  if (p.kind === 'asl') return `/quality/suppliers#a${p.id}`
   if (p.kind === 'entry') return `/system/registers/${gap.register}#e${p.id}`
   return null
 }

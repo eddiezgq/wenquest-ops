@@ -64,6 +64,7 @@ const menu = computed(() => [
             <SidebarLabel divider>Records</SidebarLabel>
             <SidebarItem v-if="can('quality:view')" label="Quality" icon="lucide-shield-check" route="/quality" />
             <SidebarItem v-if="can('quality:view')" label="Incoming inspection" icon="lucide-scan-search" route="/quality/iqc" />
+            <SidebarItem v-if="can('quality:view')" label="Approved suppliers" icon="lucide-badge-check" route="/quality/suppliers" />
             <SidebarItem v-if="can('quality:view')" label="Quality system" icon="lucide-list-checks" route="/system" />
             <SidebarItem v-if="can('documents:view')" label="Documents" icon="lucide-folder-open" route="/documents" />
             <SidebarItem label="Objects" icon="lucide-boxes" route="/objects" />

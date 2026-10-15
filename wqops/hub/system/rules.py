@@ -18,6 +18,8 @@ from __future__ import annotations
 import datetime as dt
 import re
 
+from wqops.hub.quality import approval as AP
+
 MET, NOT_MET, UNKNOWN, NA = "met", "not_met", "unknown", "not_applicable"
 SHOW = 25                                       # records listed per answer; the count says how many there are
 
@@ -505,7 +507,42 @@ def _name(s) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
 
 
+def _asl_approved(facts: dict, settings: dict) -> dict:
+    """The approved supplier list (17c), once it has entries: every item bought in the window is from a supplier
+    approved for it (the same judgement as incoming inspection), and no approval is past its re-evaluation date."""
+    asl = facts["asl"]
+    used = facts.get("suppliers_used") or {}
+    items = facts.get("supplier_items_used") or {}
+    ok = ("approved", "conditional")
+    bad = []
+    for key, name in sorted(used.items()):
+        for item in sorted(items.get(key) or [None], key=lambda x: x or ""):
+            s = AP.standing(asl, key, item, facts["today"])
+            if s["outcome"] == "block":
+                bad.append({"kind": "supplier", "id": key, "label": name, "why": "bought from but " + s["why"]})
+                break
+    for e in asl:
+        due = _d(e.get("review_due"))
+        if e["status"] in ok and due and due < facts["today"]:
+            bad.append({"kind": "asl", "id": e["id"], "label": f"{e['supplier']}, {e.get('item_code') or 'all items'}",
+                        "why": f"re-evaluation was due on {due}"})
+    approved = [e for e in asl if e["status"] in ok]
+    evidence = [{"kind": "asl", "id": e["id"], "label": f"{e['supplier']}, {e.get('item_code') or 'all items'}",
+                 "why": ""} for e in approved]
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'supplier')} not approved or not re-evaluated in time "
+                               "(approved supplier list).", bad)
+    if not used:
+        return result(UNKNOWN, f"No purchases in the last {settings['window_days']} days to check the approved "
+                               "supplier list against.", evidence=evidence)
+    return result(MET, f"{_plural(len(approved), 'entry').replace('entrys', 'entries')} on the approved supplier "
+                       f"list; every item bought in the last {settings['window_days']} days is from a supplier "
+                       "approved for it.", evidence=evidence)
+
+
 def suppliers_approved(facts: dict, settings: dict) -> dict:
+    if facts.get("asl"):
+        return _asl_approved(facts, settings)
     rows = _entries(facts, "suppliers")
     used = facts.get("suppliers_used") or {}
     if not rows and not used:

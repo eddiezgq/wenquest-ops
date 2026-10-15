@@ -57,7 +57,16 @@ def table(conn):
     return I.rows(conn)
 
 
+def approved(conn):
+    """Gulf Fasteners on the approved supplier list for all its items (17c)."""
+    from wqops.hub.quality import asl as ASL
+
+    e = ASL.add(conn, JORDAN, "Gulf Fasteners", None, {"basis": "ISO 9001 certificate and sample lots"})
+    ASL.approve(conn, u(conn, DANA), e["id"], PW, reason="Evaluated", today=AS_OF, review_due="2027-09-30")
+
+
 def plan(conn):
+    approved(conn)
     p = I.new_plan(conn, JORDAN, "BOLT-B", 1.0, CHARS)
     return I.enable_plan(conn, u(conn, DANA), p["id"], PW)
 
@@ -260,6 +269,8 @@ def test_iqc_api(db_url):
             Acc.set_password(conn, e, PW)
         Y.run(conn, ErpClient("http://erp", transport=f.transport()))
         OP.project(conn, manifest=DEMO)
+        Acc.sync(conn, DEMO)
+        approved(conn)
 
     def login(e):
         assert c.post("/api/login", json={"email": e, "password": PW}).status_code == 200

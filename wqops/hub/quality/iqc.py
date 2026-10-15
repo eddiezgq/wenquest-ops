@@ -21,6 +21,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.hub import drafts as D
 from wqops.hub.ont import metrics as M
+from wqops.hub.quality import approval as AP
 from wqops.hub.quality import incoming as IN
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import sampling as S
@@ -29,6 +30,10 @@ SETTINGS = {
     "plan_by_other": (True, "A plan is enabled by someone other than the person who drafted it"),
     "release_by_other": (True, "A lot is released or rejected by someone other than the inspector who signed it"),
     "unverified_reason": (True, "Releasing a lot sampled with an unchecked sampling table row needs a reason"),
+    # the approved supplier list (17c)
+    "asl_enforced": (True, "Once the approved supplier list has entries, lots from a supplier not approved for the "
+                           "item cannot be inspected"),
+    "asl_approve_by_other": (True, "A supplier is approved by someone other than the person who entered it"),
 }
 
 
@@ -453,7 +458,7 @@ def _receipt_lot(conn, receipt: str, item_code: str, supplier, lot_qty) -> tuple
 
 
 def start(conn, email: str, item_code: str, lot_qty=None, *, receipt: str | None = None,
-          supplier: str | None = None, lot_no: str = "") -> dict:
+          supplier: str | None = None, lot_no: str = "", today: dt.date | None = None) -> dict:
     """Begin the inspection of a lot: n, Ac and Re from the sampling table for the plan's AQL, the lot size and the
     supplier's inspection level; one reading per sample unit and characteristic."""
     item_code = str(item_code or "").strip()
@@ -468,6 +473,13 @@ def start(conn, email: str, item_code: str, lot_qty=None, *, receipt: str | None
     qty = _int(lot_qty, "the lot size")
     if qty < 1:
         raise IqcError("the lot size is at least 1")
+    standing = None
+    entries = asl_entries(conn)
+    if settings(conn)["asl_enforced"] and entries:      # the list is in use once it has entries
+        st = AP.standing(entries, supplier, item_code, today or dt.datetime.now(dt.UTC).date())
+        if st["outcome"] == "block":
+            raise IqcError(f"{st['why']}: approve the supplier first (Approved suppliers)")
+        standing = st["why"] if st["outcome"] == "flag" else "approved"
     level = level_of(conn, supplier, item_code)["level"]
     try:
         row = S.lookup(rows(conn, active_only=True), float(p["aql"]), level, qty)
@@ -483,16 +495,17 @@ def start(conn, email: str, item_code: str, lot_qty=None, *, receipt: str | None
         name = Q._next_name(conn, "iqc_inspections", "IQC")
         ins = conn.execute(
             "insert into iqc_inspections (name, plan_id, item_code, receipt, supplier, lot_no, lot_qty, level, "
-            "sampling_row_id, n, ac, re, unverified, created_by) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-            "%s, %s, %s) returning *",
+            "sampling_row_id, n, ac, re, unverified, supplier_standing, created_by) values (%s, %s, %s, %s, %s, %s, "
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
             (name, p["id"], item_code, receipt, supplier, str(lot_no or "").strip()[:100], qty, level, row["id"],
-             sp["n"], sp["ac"], sp["re"], row["verified_by"] is None, email)).fetchone()
+             sp["n"], sp["ac"], sp["re"], row["verified_by"] is None, standing, email)).fetchone()
         with conn.cursor() as cur:
             cur.executemany("insert into iqc_readings (inspection_id, sample, characteristic) values (%s, %s, %s)",
                             [(ins["id"], i, c["name"]) for i in range(1, sp["n"] + 1) for c in p["characteristics"]])
         note = (f"{level} inspection of {qty}: n {sp['n']}, Ac {sp['ac']}, Re {sp['re']}"
                 + (" (every piece)" if sp["all"] else "") + ("; the sampling table row is not checked"
-                                                            if row["verified_by"] is None else ""))
+                                                            if row["verified_by"] is None else "")
+                + (f"; {standing}" if standing and standing != "approved" else ""))
         if lot_no and supplier and conn.execute(
                 "select 1 from iqc_inspections where supplier = %s and lot_no = %s and status <> 'void' and id <> %s",
                 (supplier, str(lot_no).strip(), ins["id"])).fetchone():
@@ -687,3 +700,8 @@ def suppliers(conn) -> list[dict]:
                           "type = 'supplier'"):
         names.setdefault(r["dst_key"], r["dst_key"])
     return [{"key": k, "name": v} for k, v in sorted(names.items(), key=lambda x: x[1])]
+
+
+def asl_entries(conn) -> list[dict]:
+    """The approved supplier list as the judgement reads it (wqops/hub/quality/approval.py)."""
+    return [dict(r) for r in conn.execute("select * from asl_entries order by id").fetchall()]

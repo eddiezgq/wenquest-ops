@@ -235,11 +235,13 @@ def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # n
     sup_of = {r["src_key"]: r["dst_key"] for r in conn.execute(
         "select src_key, dst_key from ont_links where src_type = 'PurchaseReceipt' and type = 'supplier'")}
     names = {o["key"]: o["props"].get("supplier_name") or o["key"] for o in M._objs(conn, "Supplier")}
-    used = {}
+    used, used_items = {}, {}
     for r in M._objs(conn, "PurchaseReceipt"):
         d = M._d(r["props"].get("posting_date"))
         if M._submitted(r["props"]) and d and since <= d <= today and r["key"] in sup_of:
             used[sup_of[r["key"]]] = names.get(sup_of[r["key"]], sup_of[r["key"]])
+            used_items.setdefault(sup_of[r["key"]], set()).update(
+                ln["item_code"] for ln in r["props"].get("lines", []) if ln.get("item_code"))
     regs: dict[str, list[dict]] = {}
     for r in conn.execute("select id, register, \"values\", status, source_doc from qms_register_entries "
                           "where status <> 'void' order by id"):
@@ -247,6 +249,7 @@ def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # n
                                                    "signed", "imported": r["source_doc"] is not None})
     return {
         "today": today, "since": since, "registers": regs, "suppliers_used": used,
+        "supplier_items_used": {k: sorted(v) for k, v in used_items.items()},
         "documents": [dict(d, name=LIB.name_of(d)) for d in state["docs"]], "document_issues": state["issues"],
         "document_approvals": {k[1] for k in sig if k[0] == "document"},
         "ncrs": ncrs, "capas": capas, "ncr_capas": linked,
@@ -256,6 +259,8 @@ def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # n
         "approval_dispositions": {k for k, t in Q.disposition_types(conn, active_only=False).items()
                                   if t["requires_approval"]},
         "incoming_inspections": lots,
+        "asl": [{"id": r["id"], "supplier": r["supplier"], "item_code": r["item_code"], "status": r["status"],
+                 "review_due": r["review_due"]} for r in conn.execute("select * from asl_entries order by id")],
         "ncr_inspections": {n["inspection"] for n in ncrs if n["inspection"] and n["status"] != "cancelled"},
         "applicability": applicability(conn, standard),
         "excludable": {c: x.get("short", c) for c, x in controls(pack).items() if x.get("may_exclude")},
