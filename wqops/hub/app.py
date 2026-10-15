@@ -399,6 +399,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import asl_api as ASLA  # noqa: PLC0415
 
     ASLA.mount(app, conn, current_user, company)
+    from wqops.hub.quality import complaints_api as CMPA  # noqa: PLC0415
+
+    CMPA.mount(app, conn, current_user, company)
     from wqops.hub.docs import api as DA  # noqa: PLC0415
 
     DA.mount(app, conn, current_user, company, ai_model, db_url)
