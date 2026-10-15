@@ -330,25 +330,38 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         d = await body(request)
         return doc_view(c, run(lambda: LIB.send_back(c, u["email"], doc_id, str(d.get("reason", "")))))
 
+    def rechecked(c, u) -> None:
+        """A document came into effect or went out of it: the quality system is checked again (ADR-0016)."""
+        from wqops.hub.system import qms as QMS  # noqa: PLC0415
+
+        m = company()[0]
+        QMS.evaluate_changed(c, OA.today(m), u["email"], m["company"]["timezone"] if m else "UTC")
+
     @app.post("/api/docs/{doc_id}/approve")
     async def approve(doc_id: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "documents:edit")
         d = await body(request)
         today = OA.today(company()[0])
-        return doc_view(c, run(lambda: LIB.approve(c, u, doc_id, str(d.get("password", "")), today)))
+        out = doc_view(c, run(lambda: LIB.approve(c, u, doc_id, str(d.get("password", "")), today)))
+        rechecked(c, u)
+        return out
 
     @app.post("/api/docs/{doc_id}/archive")
     async def archive(doc_id: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         """Keep an older revision found among the imported files as obsolete."""
         need(u, "documents:edit")
         d = await body(request)
-        return doc_view(c, run(lambda: LIB.archive(c, u["email"], doc_id, str(d.get("reason", "")))))
+        out = doc_view(c, run(lambda: LIB.archive(c, u["email"], doc_id, str(d.get("reason", "")))))
+        rechecked(c, u)
+        return out
 
     @app.post("/api/docs/{doc_id}/obsolete")
     async def make_obsolete(doc_id: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "documents:edit")
         d = await body(request)
-        return doc_view(c, run(lambda: LIB.obsolete(c, u["email"], doc_id, str(d.get("reason", "")))))
+        out = doc_view(c, run(lambda: LIB.obsolete(c, u["email"], doc_id, str(d.get("reason", "")))))
+        rechecked(c, u)
+        return out
 
     @app.post("/api/docs/{doc_id}/revision", status_code=201)
     async def revision(doc_id: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):

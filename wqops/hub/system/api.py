@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from wqops.hub import db as DB
 from wqops.hub import permissions as P
 from wqops.hub.ai import llm as L
+from wqops.hub.docs import library as LIB
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import records as Q
 from wqops.hub.system import draft_ai as DAI
@@ -29,7 +30,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
     def run(fn):
         try:
             return fn()
-        except (QMS.QmsError, Q.QualityError, RG.RegisterError, G.TodoError) as exc:
+        except (QMS.QmsError, Q.QualityError, RG.RegisterError, G.TodoError, LIB.DocError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(404, "not found") from exc

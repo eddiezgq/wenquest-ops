@@ -49,3 +49,7 @@ create trigger qms_todo_log_append_only before update or delete on qms_todo_log
 alter table ai_runs drop constraint ai_runs_kind_check;
 alter table ai_runs add constraint ai_runs_kind_check
     check (kind in ('ask', 'brief', 'draft', 'classify', 'ledger', 'workflow', 'document'));
+
+-- a document the model drafted always needs a signed approval by someone else before it is in effect, whatever its
+-- type (16c)
+alter table documents add column ai_drafted boolean not null default false;

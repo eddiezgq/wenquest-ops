@@ -127,10 +127,23 @@ def test_the_model_drafts_a_missing_document(world):
     assert "DRAFT written by AI" in body and "To fill in before approval" in body and "who signs the policy" in body
     run = world.execute("select * from ai_runs where id = %s", (doc["ai_run"],)).fetchone()
     assert run["kind"] == "document" and run["engine"] == "model"
-    # a person confirms it; it counts only once it is in the library as confirmed and linked
-    LIB.confirm(world, JORDAN, doc["id"])
+    # confirming it does not put it in effect, whatever its type: someone else approves it with a signature
+    LIB.confirm(world, JORDAN, doc["id"], {"doc_type": "record"})
+    assert LIB.get(world, doc["id"])["status"] == "draft"
     QMS.link(world, JORDAN, "iso9001", "policy", doc["id"], True, T)
+    assert QMS.latest(world, "iso9001")["results"]["policy"]["status"] == "not_met"
+    LIB.edit(world, JORDAN, doc["id"], {"number": "QM-01", "revision": "A"})
+    LIB.submit(world, JORDAN, doc["id"])
+    with pytest.raises(PermissionError):
+        LIB.approve(world, Acc.get(world, JORDAN), doc["id"], PW, T)
+    LIB.approve(world, Acc.get(world, SAM), doc["id"], PW, T)
+    QMS.evaluate(world, "iso9001", T, "changed")
     assert QMS.latest(world, "iso9001")["results"]["policy"]["status"] == "met"
+    # odd model output: text as a word instead of a list, control characters; still a sound draft
+    odd = draft_reply(title="Roles\x00 and responsibilities",
+                      sections=[{"heading": "Who", "paragraphs": "The\x1b owner."}], to_fill="who is who")
+    d2 = DAI.draft(world, Acc.get(world, JORDAN), "iso9001", "roles", Scripted(odd).model(), today=T)
+    assert d2["title"] == "Roles and responsibilities" and "The owner." in LIB.text(world, d2["id"])
     # a draft with no text, or cut off, is not stored; the run says why
     for reply, msg in [(draft_reply(sections=[]), "no title or no text"),
                        (dict(draft_reply(), stop_reason="max_tokens"), "cut off")]:

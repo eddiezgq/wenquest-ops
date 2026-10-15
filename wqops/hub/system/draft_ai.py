@@ -79,22 +79,32 @@ def _docx(company: str, title: str, sections: list[dict], to_fill: list[str]) ->
     return buf.getvalue()
 
 
+CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _t(v, n: int) -> str:
+    return CONTROL_CHARS.sub("", str(v if v is not None else "")).strip()[:n]
+
+
+def _items(v) -> list:
+    return v if isinstance(v, list) else ([v] if v not in (None, "") else [])
+
+
 def _clean(inp: dict) -> dict:
-    title = re.sub(r"\s+", " ", str(inp.get("title") or "")).strip()[:120]
+    title = re.sub(r"\s+", " ", _t(inp.get("title"), 200))[:120]
     sections = []
-    for s in inp.get("sections") or []:
+    for s in _items(inp.get("sections")):
         if not isinstance(s, dict):
             continue
-        paras = [str(x).strip()[:3000] for x in (s.get("paragraphs") or []) if str(x).strip()]
-        if str(s.get("heading") or "").strip() and paras:
-            sections.append({"heading": str(s["heading"]).strip()[:120], "paragraphs": paras[:40]})
+        paras = [_t(x, 3000) for x in _items(s.get("paragraphs")) if _t(x, 3000)]
+        if _t(s.get("heading"), 120) and paras:
+            sections.append({"heading": _t(s["heading"], 120), "paragraphs": paras[:40]})
     if not title or not sections:
         raise L.LlmError("the model's draft has no title or no text")
     if sum(len(p) for s in sections for p in s["paragraphs"]) > MAX_CHARS:
         raise L.LlmError("the model's draft is too long")
     return {"title": title, "doc_type": inp.get("doc_type") if inp.get("doc_type") in TYPES else "other",
-            "sections": sections[:20], "to_fill": [str(x).strip()[:300] for x in (inp.get("to_fill") or [])
-                                                   if str(x).strip()][:30]}
+            "sections": sections[:20], "to_fill": [_t(x, 300) for x in _items(inp.get("to_fill")) if _t(x, 300)][:30]}
 
 
 def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | None, *, today: dt.date,
@@ -129,12 +139,16 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
         if use is None or not isinstance(use.get("input"), dict):
             raise L.LlmError("the model did not write a draft")
         d = _clean(use["input"])
-        data = _docx(company, d["title"], d["sections"], d["to_fill"])
+        try:
+            data = _docx(company, d["title"], d["sections"], d["to_fill"])
+        except ValueError as exc:
+            raise L.LlmError(f"the model's draft could not be written as a file: {exc}") from exc
         name = re.sub(r"[^\w .-]+", " ", f"DRAFT {d['title']}").strip()[:100] + ".docx"
         with conn.transaction():
             imp = LIB.new_import(conn, user["email"], f"AI draft for ISO 9001 {', '.join(c['clauses'])}")
             doc = LIB.add_file(conn, imp["id"], name, data)
             LIB.extract_one(conn, LIB.get(conn, doc["id"]))
+            conn.execute("update documents set ai_drafted = true where id = %s", (doc["id"],))
             row = LIB.propose(conn, doc["id"], {"doc_type": d["doc_type"], "process": PROCESS.get(control, "other"),
                                                 "title": d["title"], "confidence": "low",
                                                 "summary": f"AI draft for: {c['summary']}"}, "ai", ctx.run_id)
