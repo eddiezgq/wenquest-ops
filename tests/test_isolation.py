@@ -20,7 +20,8 @@ DECISION = ["hub/quality/records.py", "hub/quality/auto.py", "hub/quality/incomi
             "hub/quality/complaint_rules.py", "hub/quality/complaints.py",
             "hub/quality/cal_rules.py", "hub/quality/calibration.py",
             "hub/quality/change_rules.py", "hub/quality/change_control.py",
-            "hub/quality/risk_rules.py", "hub/quality/risk.py"]
+            "hub/quality/risk_rules.py", "hub/quality/risk.py",
+            "hub/quality/prod_rules.py", "hub/quality/production.py"]
 FORBIDDEN = {"openai", "anthropic", "requests", "httpx", "urllib", "urllib3", "aiohttp", "socket", "http",
              "langchain", "litellm", "boto3"}
 

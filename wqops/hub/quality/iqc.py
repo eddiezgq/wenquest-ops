@@ -39,6 +39,10 @@ SETTINGS = {
     # measuring equipment (17f)
     "gauge_required": (True, "Once measuring equipment is registered, each measured characteristic names the "
                              "equipment used, which must be in calibration when the inspector signs"),
+    # production records (17i)
+    "template_by_other": (True, "A production template is activated by someone who did not draft or edit it"),
+    "production_training": (True, "An operator records a production step only after confirming reading the "
+                                  "documents its template follows (when those documents need training)"),
 }
 
 
