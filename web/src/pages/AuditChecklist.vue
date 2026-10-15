@@ -7,6 +7,7 @@ import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import { api, objectPath } from '../api'
 import { ago } from '../format'
+import { standard } from '../standard'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,7 +20,7 @@ const S = { met: { theme: 'green', label: 'met' }, not_met: { theme: 'red', labe
 
 async function load() {
   error.value = ''
-  try { cl.value = await api(`/api/qms/iso9001/checklist${process.value ? `?process=${process.value}` : ''}`) } catch (e) { error.value = e.message }
+  try { cl.value = await api(`/api/qms/${standard.value}/checklist${process.value ? `?process=${process.value}` : ''}`) } catch (e) { error.value = e.message }
 }
 watch(process, (p) => { router.replace({ query: p ? { process: p } : {} }); load() }, { immediate: true })
 function to(p, item) {
@@ -35,7 +36,7 @@ function to(p, item) {
 
 <template>
   <PageTop :crumbs="[{ label: 'Quality system', to: '/system' }]">
-    <template #title>Internal audit checklist</template>
+    <template #title>Internal audit checklist{{ cl ? ` · ${cl.name}` : '' }}</template>
     <Button icon-left="lucide-printer" label="Print" @click="print" />
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
@@ -53,7 +54,7 @@ function to(p, item) {
           <div class="flex flex-wrap items-start gap-2">
             <span class="text-sm text-ink-gray-5">{{ i + 1 }}.</span>
             <div class="min-w-0 flex-1">
-              <p class="text-base text-ink-gray-9">{{ it.question }} <span class="text-sm text-ink-gray-5">(ISO 9001 {{ it.clauses.join(', ') }})</span></p>
+              <p class="text-base text-ink-gray-9">{{ it.question }} <span class="text-sm text-ink-gray-5">({{ cl.name }} {{ it.clauses.join(', ') }})</span></p>
               <p class="mt-1 text-sm text-ink-gray-7"><Badge v-if="it.status" v-bind="S[it.status]" class="me-1" />{{ it.detail }}</p>
               <p v-if="it.sample.length" class="mt-1 text-sm text-ink-gray-6">Sample to look at:
                 <template v-for="(x, j) in it.sample" :key="j"><RouterLink v-if="to(x, it)" :to="to(x, it)" class="wq-link">{{ x.label }}</RouterLink><span v-else>{{ x.label }}</span>{{ j < it.sample.length - 1 ? ', ' : '' }}</template></p>

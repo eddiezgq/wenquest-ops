@@ -23,17 +23,38 @@ from wqops.hub.quality import records as Q
 from wqops.hub.system import rules as R
 
 PACKS = Path(__file__).resolve().parent / "packs"
-STANDARDS = ("iso9001",)
+STANDARDS = ("iso9001", "iso13485")
 
 
 class QmsError(ValueError):
     pass
 
 
+def shared_registers() -> dict:
+    """The quality registers every pack reads (packs/registers.yaml): one set of records for the company."""
+    return yaml.safe_load((PACKS / "registers.yaml").read_text(encoding="utf-8"))["registers"]
+
+
 def load(standard: str) -> dict:
+    """A standard's pack as it is adopted: the pack file with the shared registers."""
     if standard not in STANDARDS:
         raise KeyError(standard)
-    return yaml.safe_load((PACKS / f"{standard}.yaml").read_text(encoding="utf-8"))
+    pack = yaml.safe_load((PACKS / f"{standard}.yaml").read_text(encoding="utf-8"))
+    return {**pack, "registers": shared_registers()}
+
+
+def standards(conn) -> list[dict]:
+    """Every standard there is a pack for, and whether the company uses it."""
+    out = []
+    for s in STANDARDS:
+        p, row = load(s), enabled(conn, s)
+        out.append({"standard": s, "name": p.get("name") or s, "label": p["label"], "adopted": row is not None,
+                    "edition": row["edition"] if row else None})
+    return out
+
+
+def name_of(standard: str) -> str:
+    return load(standard).get("name") or standard
 
 
 def fingerprint(pack: dict) -> str:
@@ -315,7 +336,7 @@ def view(conn, standard: str, eval_id: int | None = None, day: dt.date | None = 
     made under, declarations, linked documents, and the days that have checks."""
     pack_file = load(standard)
     row = enabled(conn, standard)
-    out = {"standard": standard, "label": pack_file["label"],
+    out = {"standard": standard, "name": pack_file.get("name") or standard, "label": pack_file["label"],
            "editions": {k: {"label": v["label"], "ready": bool(v.get("ready")), "note": v.get("note", "")}
                         for k, v in pack_file["editions"].items()},
            "pack_version": pack_file["version"], "enabled": None}

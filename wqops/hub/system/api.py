@@ -59,6 +59,12 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
                 "can_configure": P.allows(u["roles"], "qms:configure"),
                 "can_check": P.allows(u["roles"], "quality:edit")}
 
+    @app.get("/api/qms")
+    def standards(u=Depends(user_dep), c=Depends(conn_dep)):
+        """The standards there is a pack for, and which ones the company uses."""
+        need(u, "quality:view")
+        return QMS.standards(c)
+
     @app.get("/api/qms/{standard}")
     def show(standard: str, evaluation: int = 0, day: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
         """The latest check, or one asked for by its number or by day."""
@@ -268,7 +274,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
     def setup_page(c, u, standard: str) -> dict:
         can = P.allows(u["roles"], "qms:configure")
         can_ai = can and ai_ready() and all(P.allows(u["roles"], x) for x in ("documents:view", "ai:use"))
-        return {"questions": SU.QUESTIONS, **SU.answers(c, standard),
+        return {"name": QMS.name_of(standard), "questions": SU.questions(c, standard), **SU.answers(c, standard),
                 "proposed": run(lambda: SU.proposed_applicability(c, standard)) if QMS.enabled(c, standard) else [],
                 "adopted": QMS.enabled(c, standard) is not None, "can_configure": can, "ai": ai_ready(),
                 "can_write": can and P.allows(u["roles"], "documents:edit"),

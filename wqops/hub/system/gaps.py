@@ -54,7 +54,8 @@ def report(conn, standard: str) -> dict:
         if rows:
             rows.sort(key=lambda x: x["status"] != R.NOT_MET)
             procs.append({"id": p["id"], "label": p["label"], "gaps": rows})
-    return {"edition_label": v["edition_label"], "evaluation": v["evaluation"], "counts": n, "processes": procs,
+    return {"name": v["name"], "edition_label": v["edition_label"], "evaluation": v["evaluation"], "counts": n,
+            "processes": procs,
             "todos": todos(conn, standard)}
 
 
@@ -145,5 +146,5 @@ def checklist(conn, standard: str, process: str = "") -> dict:
                           "sample": (r.get("evidence") or [])[:SAMPLE], "gaps": (r.get("problems") or [])[:SAMPLE],
                           "register": c.get("register")})
         out.append({"id": p["id"], "label": p["label"], "items": items})
-    return {"edition_label": v["edition_label"], "evaluation": v["evaluation"],
+    return {"name": v["name"], "edition_label": v["edition_label"], "evaluation": v["evaluation"],
             "processes_all": [{"id": p["id"], "label": p["label"]} for p in v["processes"]], "processes": out}

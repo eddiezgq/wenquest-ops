@@ -23,34 +23,22 @@ from wqops.hub.system import rules as R
 
 # ---------------------------------------------------------------- the questionnaire
 
-QUESTIONS = {
-    "products": {"label": "What the company makes or provides", "type": "text"},
-    "people": {"label": "How many people work in it", "type": "number"},
-    "sites": {"label": "Sites the system covers", "type": "text"},
-    "designs": {"label": "Does the company design its own products or services?", "type": "yesno",
-                "no": ("design", "We do not design products or services; we make or supply to our customers' "
-                                 "or suppliers' designs.")},
-    "customer_property": {"label": "Does it hold property of customers or suppliers (materials, tools, data)?",
-                          "type": "yesno", "no": ("customer_property", "We hold no property of customers or "
-                                                                       "external providers.")},
-    "after_delivery": {"label": "Does it do anything after delivery (warranty, service, returns)?", "type": "yesno",
-                       "no": ("post_delivery", "We do no activities after delivery beyond what the order states.")},
-    "measures": {"label": "Does it use measuring equipment to show products conform?", "type": "yesno",
-                 "no": ("measuring", "No measuring equipment is used to show that products conform.")},
-    "outsourced": {"label": "Processes done by others for the company", "type": "text"},
-}
+def questions(conn, standard: str) -> dict:
+    """The questionnaire of the standard's pack: the one adopted, or the pack file before it is adopted."""
+    row = QMS.enabled(conn, standard)
+    return ((row["content"] if row else QMS.load(standard)).get("questions")) or {}
 
 
 class SetupError(ValueError):
     pass
 
 
-def clean_answers(raw: dict) -> dict:
+def clean_answers(qs: dict, raw: dict) -> dict:
     if not isinstance(raw, dict):
         raise SetupError("answers are given by question")
     out = {}
     for k, v in raw.items():
-        q = QUESTIONS.get(k)
+        q = qs.get(k)
         if q is None:
             raise SetupError(f"there is no question {k!r}")
         if v in (None, ""):
@@ -75,7 +63,7 @@ def answers(conn, standard: str) -> dict:
 
 
 def save_answers(conn, email: str, standard: str, raw: dict) -> dict:
-    vals = clean_answers(raw)
+    vals = clean_answers(questions(conn, standard), raw)
     conn.execute("insert into qms_setup (standard, answers, email) values (%s, %s, %s)", (standard, Json(vals), email))
     return vals
 
@@ -85,15 +73,15 @@ def proposed_applicability(conn, standard: str) -> list[dict]:
     vals = answers(conn, standard)["answers"]
     now = QMS.applicability(conn, standard)
     out = []
-    for k, q in QUESTIONS.items():
-        if "no" not in q or k not in vals:
+    for k, q in questions(conn, standard).items():
+        if not q.get("if_no") or k not in vals:
             continue
-        control, reason = q["no"]
-        applies = bool(vals[k])
-        why = reason if not applies else f"Answered yes: {q['label'].rstrip('?').lower()}."
-        current = now.get(control)
-        out.append({"control": control, "applies": applies, "reason": why, "question": q["label"],
-                    "same": bool(current) and current["applies"] == applies})
+        for control, reason in q["if_no"].items():
+            applies = bool(vals[k])
+            why = reason if not applies else f"Answered yes: {q['label'].rstrip('?').lower()}."
+            current = now.get(control)
+            out.append({"control": control, "applies": applies, "reason": why, "question": q["label"],
+                        "same": bool(current) and current["applies"] == applies})
     return out
 
 

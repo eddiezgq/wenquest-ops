@@ -25,13 +25,13 @@ class RegisterError(ValueError):
     pass
 
 
-def specs(standard: str = "iso9001") -> dict[str, dict]:
-    """The registers of a standard's pack, as the pack file defines them."""
-    return QMS.load(standard).get("registers") or {}
+def specs() -> dict[str, dict]:
+    """The quality registers, shared by every standard's pack (packs/registers.yaml)."""
+    return QMS.shared_registers() or {}
 
 
-def spec(name: str, standard: str = "iso9001") -> dict:
-    s = specs(standard).get(name)
+def spec(name: str) -> dict:
+    s = specs().get(name)
     if s is None:
         raise KeyError(name)
     return s

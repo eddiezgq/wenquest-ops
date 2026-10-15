@@ -1,0 +1,465 @@
+# ISO 13485 process pack (ADR-0017, step 17a). Medical device quality management systems, as processes and control
+# points that WenQuest Ops checks against the company's records, the same way as the ISO 9001 pack (ADR-0016). The
+# company keeps one set of records: both packs read the same quality records and registers (registers.yaml).
+#
+# Summaries are our own words, not the standard's text. Clause numbers are for ISO 13485:2016 and are reviewed by the
+# project lead before they are merged. The extra requirements of FDA QMSR (21 CFR 820, which incorporates
+# ISO 13485:2016 by reference) are a later step. A control point's rule is carried out by code
+# (wqops/hub/system/rules.py); missing data gives "unknown", never "met".
+#
+# rule kinds, settings, switches and questions: as in iso9001.yaml. The standard lets a company leave out requirements
+# of clauses 6, 7 and 8 that do not apply to its activities or devices, and design and development only where
+# regulations allow it; may_exclude is only given to control points in those clauses.
+standard: iso13485
+name: ISO 13485
+label: ISO 13485 medical devices quality management system
+version: 1
+editions:
+  "2016": {label: "ISO 13485:2016", ready: true}
+settings:
+  window_days: {value: 365, min: 30, max: 3650, label: Days of records looked at}
+  ncr_contain_days: {value: 7, min: 0, max: 365, label: Days to contain a nonconformance}
+  concession_by_other: {value: true, label: A concession is approved by someone other than the person who proposed it}
+  major_needs_capa: {value: true, label: Every major nonconformance gets a corrective action}
+  capa_within_days: {value: 14, min: 0, max: 365, label: Days to open the corrective action for a major nonconformance}
+  actions_on_time: {value: true, label: Planned actions are checked against their due dates}
+  capa_overdue_days: {value: 0, min: 0, max: 365, label: Days an action may be late before it counts}
+  calibration_interval_days: {value: 365, min: 1, max: 3650, label: Days between calibrations when no due date is given}
+  training_followup_days: {value: 90, min: 0, max: 3650, label: Days to follow up training marked as needing follow-up}
+  audit_interval_days: {value: 365, min: 30, max: 1095, label: Days between internal audits}
+  review_interval_days: {value: 365, min: 30, max: 1095, label: Days between management reviews}
+  objectives_review_days: {value: 180, min: 30, max: 730, label: Days between reviews of each quality objective}
+  complaint_days: {value: 30, min: 1, max: 365, label: Days to answer a customer complaint}
+  reportability_days: {value: 30, min: 1, max: 365, label: "Days to decide whether a complaint must be reported to a regulator (set it to what your regulations require)"}
+questions:
+  products: {label: The medical devices the company makes or handles, type: text}
+  role: {label: "Its role under medical device regulations (manufacturer, contract manufacturer, distributor, importer...)", type: text}
+  people: {label: How many people work in it, type: number}
+  sites: {label: Sites the system covers, type: text}
+  designs:
+    label: Does the company design the devices (or have them designed for it)?
+    type: yesno
+    if_no: {design: "We do not design medical devices; we make or supply to designs owned by others."}
+  sterile:
+    label: Does it supply sterile devices or sterilize devices?
+    type: yesno
+    if_no:
+      sterile_records: We supply no sterile medical devices.
+      sterilization_validation: We do not sterilize devices or use sterile barrier systems.
+  implantable:
+    label: Does it make or handle implantable devices?
+    type: yesno
+    if_no: {implantable: We make or handle no implantable medical devices.}
+  cleanliness:
+    label: Does it clean devices, or does cleanliness or contamination matter for them?
+    type: yesno
+    if_no:
+      cleanliness: No device is cleaned by us, and cleanliness is not a requirement of our devices.
+      contamination: There is no contamination to control for our devices, work environment or products.
+  installs:
+    label: Does it install devices at the customer?
+    type: yesno
+    if_no: {installation: We do not install devices; installation is not a requirement of our devices.}
+  services:
+    label: Does it service devices?
+    type: yesno
+    if_no: {servicing: We do not service devices; servicing is not a requirement of our devices.}
+  special_processes:
+    label: Does it use processes whose results cannot be checked afterwards (sealing, welding, coating, software in production)?
+    type: yesno
+    if_no: {process_validation: Every production output is verified by inspection or test afterwards.}
+  customer_property:
+    label: Does it hold property of customers or suppliers (materials, tools, data)?
+    type: yesno
+    if_no: {customer_property: We hold no property of customers or external providers.}
+  measures:
+    label: Does it use measuring equipment to show devices conform?
+    type: yesno
+    if_no: {measuring: No measuring equipment is used to show that devices conform.}
+  rework:
+    label: Does it ever rework nonconforming product?
+    type: yesno
+    if_no: {rework: We do not rework nonconforming product; it is scrapped or returned.}
+  outsourced: {label: Processes done by others for the company, type: text}
+processes:
+  context:
+    label: Quality management system and its documents
+    controls:
+      - id: scope
+        summary: The quality manual states the scope of the system and gives a reason for every requirement that does
+          not apply.
+        clauses: {"2016": ["4.2.2"]}
+        rule: scope_declared
+        hint: the quality manual
+      - id: regulatory_role
+        summary: The company's roles under the medical device regulations that apply to it are stated, and the system
+          covers what those regulations require.
+        clauses: {"2016": ["4.1.1"]}
+        rule: linked_document
+        hint: the quality manual or a regulatory register naming the company's roles
+      - id: processes
+        summary: The processes of the system are determined, controlled with a risk-based approach, and described with
+          how they interact.
+        clauses: {"2016": ["4.1.2", "4.1.3", "4.2.2"]}
+        rule: linked_document
+        hint: a process map or the quality manual
+      - id: outsourced
+        summary: Processes done by others are controlled in proportion to their risk, with written quality agreements.
+        clauses: {"2016": ["4.1.5"]}
+        rule: linked_document
+        hint: quality agreements, or a statement that no process is outsourced
+      - id: qms_software
+        summary: Software used in the quality system is validated before first use and after changes, in proportion
+          to its risk, with records.
+        clauses: {"2016": ["4.1.6"]}
+        rule: linked_document
+        hint: the procedure and records for validating the software used
+      - id: device_file
+        summary: A medical device file is kept for each device type or family, with or pointing to the documents that
+          show it meets requirements.
+        clauses: {"2016": ["4.2.3"]}
+        rule: linked_document
+        hint: the medical device file (or its index)
+  documents:
+    label: Control of documents and records
+    controls:
+      - id: doc_approved
+        summary: Documents are reviewed and approved before they are issued, and changes are approved the same way.
+        clauses: {"2016": ["4.2.4"]}
+        rule: documents_approved
+      - id: doc_current
+        summary: Only the current revision of each document is in use; obsolete documents cannot be used by mistake.
+        clauses: {"2016": ["4.2.4"]}
+        rule: documents_current
+      - id: doc_referenced
+        summary: The forms and records that procedures name are themselves controlled.
+        clauses: {"2016": ["4.2.4", "4.2.5"]}
+        rule: documents_referenced
+      - id: records
+        summary: Records are kept legible, retrievable and protected, with health information kept confidential, for
+          the retention period the company sets from its devices' lifetime and its regulations.
+        clauses: {"2016": ["4.2.5"]}
+        rule: linked_document
+        hint: the procedure for control of records, with retention periods
+  leadership:
+    label: Management responsibility
+    controls:
+      - id: policy
+        summary: Top management has set a quality policy that commits to meeting requirements and keeping the system
+          effective, and it is communicated.
+        clauses: {"2016": ["5.3"]}
+        rule: linked_document
+        hint: the quality policy
+      - id: objectives
+        summary: Quality objectives, including those needed to meet regulatory requirements, are set, measured and
+          reviewed.
+        clauses: {"2016": ["5.4.1"]}
+        rule: objectives_reviewed
+        register: objectives
+      - id: changes
+        summary: The system is planned, and changes to it are made without losing its integrity.
+        clauses: {"2016": ["5.4.2"]}
+        rule: linked_document
+        hint: the procedure for planning changes to the system
+      - id: roles
+        summary: Responsibilities, authorities and how people who manage, do and check work relate to each other are
+          documented.
+        clauses: {"2016": ["5.5.1"]}
+        rule: linked_document
+        hint: an organization chart or responsibility matrix
+      - id: management_rep
+        summary: A member of management is appointed to look after the system and report on it to top management.
+        clauses: {"2016": ["5.5.2"]}
+        rule: linked_document
+        hint: the appointment of the management representative
+      - id: communication
+        summary: Internal communication about the system's effectiveness is in place.
+        clauses: {"2016": ["5.5.3"]}
+        rule: linked_document
+        hint: the procedure or schedule for internal communication
+      - id: review
+        summary: Top management reviews the system at planned intervals, with the inputs the standard lists, and
+          records its decisions.
+        clauses: {"2016": ["5.6"]}
+        rule: reviews_done
+        register: management_reviews
+  resources:
+    label: Resources
+    controls:
+      - id: competence
+        summary: People doing work that affects quality are competent, trained, and the effectiveness of their training
+          is checked and recorded.
+        clauses: {"2016": ["6.2"]}
+        rule: training_current
+        register: training
+      - id: infrastructure
+        summary: Buildings, equipment and supporting services are suitable, and their maintenance is planned and
+          recorded.
+        clauses: {"2016": ["6.3"]}
+        rule: linked_document
+        hint: the maintenance procedure or plan
+      - id: work_environment
+        short: work environment requirements
+        summary: Requirements for the work environment and for people's health, cleanliness and clothing are
+          documented where they can affect the product.
+        clauses: {"2016": ["6.4.1"]}
+        rule: linked_document
+        hint: the work environment procedure
+        may_exclude: true
+      - id: contamination
+        short: contamination control
+        summary: Contamination of the work environment, people and product is controlled; for sterile devices,
+          microbial and particulate contamination too.
+        clauses: {"2016": ["6.4.2"]}
+        rule: linked_document
+        hint: the contamination control procedure
+        may_exclude: true
+  realization:
+    label: Planning, customers and design
+    controls:
+      - id: planning
+        summary: Product realization is planned, with the quality objectives, processes, documents, checks and records
+          each device needs.
+        clauses: {"2016": ["7.1"]}
+        rule: linked_document
+        hint: the product realization plan or procedure
+      - id: risk_management
+        summary: Risk management is documented and applied through product realization, with records kept.
+        clauses: {"2016": ["7.1"]}
+        rule: linked_document
+        hint: the risk management procedure and the risk management files
+      - id: customer_requirements
+        summary: The requirements for each device, including regulatory and user training needs, are determined and
+          reviewed before the company commits to supply.
+        clauses: {"2016": ["7.2.1", "7.2.2"]}
+        rule: linked_document
+        hint: the order or contract review procedure
+      - id: customer_communication
+        summary: Arrangements are in place to communicate with customers (information, enquiries, orders, feedback,
+          advisory notices) and with regulators.
+        clauses: {"2016": ["7.2.3"]}
+        rule: linked_document
+        hint: the procedure for communicating with customers and regulators
+      - id: design
+        short: design and development
+        summary: Design and development is planned, reviewed, verified, validated, transferred to production and its
+          changes controlled, with a design history file for each device.
+        clauses: {"2016": ["7.3"]}
+        rule: linked_document
+        hint: the design and development procedure
+        may_exclude: true
+  purchasing:
+    label: Purchasing
+    controls:
+      - id: supplier_approval
+        summary: Suppliers are evaluated and selected by set criteria in proportion to the risk of what they supply,
+          monitored, and re-evaluated.
+        clauses: {"2016": ["7.4.1"]}
+        rule: suppliers_approved
+        register: suppliers
+      - id: purchasing_info
+        summary: Purchase orders state the product's specifications and, where needed, that the supplier tells the
+          company before changing it.
+        clauses: {"2016": ["7.4.2"]}
+        rule: linked_document
+        hint: the purchasing procedure or purchase order template
+      - id: rejected_lots
+        summary: Purchased product is verified, and incoming lots that fail are recorded as nonconforming and kept from
+          use.
+        clauses: {"2016": ["7.4.3", "8.3.1"]}
+        rule: rejected_lots_have_ncr
+  production:
+    label: Production and service provision
+    controls:
+      - id: production
+        summary: Production is planned and carried out under controlled conditions, with a record for each device or
+          batch that identifies the quantity made and released.
+        clauses: {"2016": ["7.5.1"]}
+        rule: linked_document
+        hint: work instructions or the production procedure
+      - id: cleanliness
+        short: cleanliness of product
+        summary: Requirements for cleaning devices, or for their cleanliness, are documented and met.
+        clauses: {"2016": ["7.5.2"]}
+        rule: linked_document
+        hint: the cleaning procedure
+        may_exclude: true
+      - id: installation
+        short: installation
+        summary: Requirements and acceptance criteria for installing devices are documented, and installations are
+          recorded.
+        clauses: {"2016": ["7.5.3"]}
+        rule: linked_document
+        hint: the installation procedure
+        may_exclude: true
+      - id: servicing
+        short: servicing
+        summary: Servicing is done to documented procedures, and servicing records are kept and analyzed.
+        clauses: {"2016": ["7.5.4"]}
+        rule: linked_document
+        hint: the servicing procedure
+        may_exclude: true
+      - id: sterile_records
+        short: sterile medical devices
+        summary: Records of the sterilization process parameters are kept for each sterilization batch and traceable
+          to each production batch.
+        clauses: {"2016": ["7.5.5"]}
+        rule: linked_document
+        hint: the procedure for sterilization records
+        may_exclude: true
+      - id: process_validation
+        short: processes whose output cannot be verified
+        summary: Processes whose results cannot be verified afterwards are validated before use, and revalidated as
+          needed, with records.
+        clauses: {"2016": ["7.5.6"]}
+        rule: linked_document
+        hint: the process validation procedure and reports
+        may_exclude: true
+      - id: sterilization_validation
+        short: sterilization and sterile barrier systems
+        summary: Sterilization and sterile barrier processes are validated before use, with records.
+        clauses: {"2016": ["7.5.7"]}
+        rule: linked_document
+        hint: the sterilization validation procedure and reports
+        may_exclude: true
+      - id: identification
+        summary: Product is identified, and its status shows whether it has passed its checks, through production,
+          storage, installation and servicing.
+        clauses: {"2016": ["7.5.8"]}
+        rule: linked_document
+        hint: the identification procedure
+      - id: traceability
+        summary: Traceability is documented to the extent regulations and the device's risk need it.
+        clauses: {"2016": ["7.5.9.1"]}
+        rule: linked_document
+        hint: the traceability procedure
+      - id: implantable
+        short: implantable devices
+        summary: For implantable devices, the components, materials and work conditions are traceable, and
+          distributors keep records of where devices went.
+        clauses: {"2016": ["7.5.9.2"]}
+        rule: linked_document
+        hint: the traceability procedure for implantable devices
+        may_exclude: true
+      - id: customer_property
+        short: customer property
+        summary: Property belonging to customers is identified, protected and reported if lost or damaged.
+        clauses: {"2016": ["7.5.10"]}
+        rule: linked_document
+        hint: the procedure for customer property
+        may_exclude: true
+      - id: preservation
+        summary: Product is protected from change, contamination and damage during handling, storage and delivery.
+        clauses: {"2016": ["7.5.11"]}
+        rule: linked_document
+        hint: the handling, storage and packaging procedure
+      - id: measuring
+        short: measuring equipment
+        summary: Monitoring and measuring equipment is calibrated or verified at set intervals, identified, and
+          protected; software used for measuring is validated.
+        clauses: {"2016": ["7.6"]}
+        rule: calibration_current
+        register: calibration
+        may_exclude: true
+  measurement:
+    label: Measurement and monitoring
+    controls:
+      - id: feedback
+        summary: Feedback from production and after production is collected and used, including as input to risk
+          management.
+        clauses: {"2016": ["8.2.1"]}
+        rule: feedback_collected
+        register: complaints
+      - id: complaints_handled
+        summary: Complaints are received, recorded and dealt with in good time.
+        clauses: {"2016": ["8.2.2"]}
+        rule: complaints_answered
+        register: complaints
+      - id: complaints_assessed
+        summary: Each complaint is investigated (or the reason for not investigating recorded), and whether it must be
+          reported to a regulator is decided and recorded; reports are made and recorded.
+        clauses: {"2016": ["8.2.2", "8.2.3"]}
+        rule: complaints_assessed
+        register: complaints
+      - id: audit
+        summary: Internal audits are planned and carried out at set intervals, and their findings followed up.
+        clauses: {"2016": ["8.2.4"]}
+        rule: audits_done
+        register: audits
+      - id: process_monitoring
+        summary: The processes of the system are monitored and measured, and action is taken when they fall short.
+        clauses: {"2016": ["8.2.5"]}
+        rule: linked_document
+        hint: the procedure or plan for monitoring processes
+      - id: product_release
+        summary: Product is released only after its checks are done, with the identity of the person who released it
+          recorded.
+        clauses: {"2016": ["8.2.6"]}
+        rule: linked_document
+        hint: the product release procedure
+  nonconforming:
+    label: Control of nonconforming product
+    controls:
+      - id: ncr_contained
+        summary: Nonconforming product is identified and contained promptly so it is not used or delivered by mistake.
+        clauses: {"2016": ["8.3.1"]}
+        rule: ncr_contained
+      - id: ncr_records
+        summary: Each nonconformity is recorded with its description, its evaluation, the action taken and who decided.
+        clauses: {"2016": ["8.3.1"]}
+        rule: ncr_recorded
+      - id: ncr_concession
+        summary: Nonconforming product is accepted by concession only with a reason, authorization and the regulatory
+          requirements met; who authorized it is recorded.
+        our_rule: The authorization is signed by someone other than the person who proposed the concession.
+        switch: concession_by_other
+        hint: the procedure that says who authorizes concessions
+        clauses: {"2016": ["8.3.2"]}
+        rule: ncr_concession_approved
+      - id: after_delivery
+        summary: Nonconforming product found after delivery is dealt with in proportion to its effects, including
+          advisory notices.
+        clauses: {"2016": ["8.3.3"]}
+        rule: linked_document
+        hint: the procedure for nonconforming product after delivery and advisory notices
+      - id: rework
+        short: rework
+        summary: Rework is done to documented instructions that consider its effect on the product, and is checked
+          again afterwards.
+        clauses: {"2016": ["8.3.4"]}
+        rule: linked_document
+        hint: the rework procedure
+        may_exclude: true
+  improvement:
+    label: Analysis and improvement
+    controls:
+      - id: data_analysis
+        summary: Data on feedback, product, processes, suppliers, audits and service is analyzed to show the system is
+          effective.
+        clauses: {"2016": ["8.4"]}
+        rule: linked_document
+        hint: the data analysis procedure or report
+      - id: capa_for_major
+        summary: Action is taken to remove the cause of nonconformities, in proportion to their effects.
+        our_rule: Every major nonconformance gets a corrective action within the set number of days.
+        switch: major_needs_capa
+        hint: the procedure that says when a corrective action is needed
+        clauses: {"2016": ["8.5.2"]}
+        rule: capa_for_major
+      - id: capa_on_time
+        summary: Corrective actions are carried out without undue delay.
+        our_rule: Each planned action is done by its due date.
+        switch: actions_on_time
+        hint: the procedure that says how actions are followed up
+        clauses: {"2016": ["8.5.2"]}
+        rule: capa_on_time
+      - id: capa_effective
+        summary: It is verified that each corrective action does not harm the device's safety or performance and is
+          effective, before it is closed.
+        clauses: {"2016": ["8.5.2"]}
+        rule: capa_effective
+      - id: preventive
+        summary: Action is taken on the causes of potential nonconformities.
+        clauses: {"2016": ["8.5.3"]}
+        rule: linked_document
+        hint: the preventive action procedure

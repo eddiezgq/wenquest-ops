@@ -10,9 +10,12 @@
 # may_exclude: the company may declare the control point does not apply, with a reason (signed)
 # settings: defaults the company can change on the Quality system page. A control point checked by a rule of our own
 # names its switch; switched off, the company shows how it meets the requirement with a linked document instead.
+# questions: the set-up questionnaire; a yes/no question's if_no lists the control points it says do not apply, with
+# the reason. The registers come from registers.yaml, shared by every pack.
 standard: iso9001
+name: ISO 9001
 label: ISO 9001 quality management system
-version: 2
+version: 3
 editions:
   "2015": {label: "ISO 9001:2015 (with Amendment 1:2024)", ready: true}
   "2026": {label: "ISO 9001:2026", ready: false, note: "clause mapping after review of the published text"}
@@ -31,6 +34,27 @@ settings:
   objectives_review_days: {value: 180, min: 30, max: 730, label: Days between reviews of each quality objective}
   risks_review_days: {value: 365, min: 30, max: 1095, label: Days between reviews of each risk or opportunity}
   complaint_days: {value: 30, min: 1, max: 365, label: Days to answer a customer complaint}
+questions:
+  products: {label: What the company makes or provides, type: text}
+  people: {label: How many people work in it, type: number}
+  sites: {label: Sites the system covers, type: text}
+  designs:
+    label: Does the company design its own products or services?
+    type: yesno
+    if_no: {design: "We do not design products or services; we make or supply to our customers' or suppliers' designs."}
+  customer_property:
+    label: Does it hold property of customers or suppliers (materials, tools, data)?
+    type: yesno
+    if_no: {customer_property: We hold no property of customers or external providers.}
+  after_delivery:
+    label: Does it do anything after delivery (warranty, service, returns)?
+    type: yesno
+    if_no: {post_delivery: We do no activities after delivery beyond what the order states.}
+  measures:
+    label: Does it use measuring equipment to show products conform?
+    type: yesno
+    if_no: {measuring: No measuring equipment is used to show that products conform.}
+  outsourced: {label: Processes done by others for the company, type: text}
 processes:
   context:
     label: Context, scope and processes
@@ -213,84 +237,3 @@ processes:
         clauses: {"2015": ["10.2.1", "10.2.2"]}
         rule: capa_effective
 
-# Quality registers (ADR-0016, 16b): simple records the company keeps, defined here so the company can change them
-# without code. key: the fields that name the same thing (the latest entry about it counts). sign: entries are
-# approved with a password and then locked. synonyms: column names that bring an old spreadsheet in (ledger import).
-# Field types: text, longtext, number, date, choice, yesno.
-registers:
-  training:
-    label: Training and competence
-    key: [person, topic]
-    fields:
-      person: {label: Person, type: text, required: true, synonyms: [person, name, employee, trainee, staff]}
-      topic: {label: Training or skill, type: text, required: true, synonyms: [training, topic, course, skill, procedure, subject]}
-      trained_on: {label: Date, type: date, required: true, synonyms: [date, trained on, completed, training date, completed on]}
-      result: {label: Result, type: choice, choices: [competent, needs follow-up], synonyms: [result, assessment, status, outcome]}
-      trainer: {label: Trainer or assessor, type: text, synonyms: [trainer, assessor, trained by, by]}
-      valid_until: {label: Valid until, type: date, synonyms: [valid until, expires, expiry, retraining due, due]}
-  calibration:
-    label: Measuring equipment and calibration
-    key: [equipment]
-    fields:
-      equipment: {label: Equipment ID, type: text, required: true, synonyms: [equipment, gauge, gauge id, id, asset, instrument]}
-      description: {label: Description, type: text, synonyms: [description, name, type]}
-      calibrated_on: {label: Calibrated on, type: date, required: true, synonyms: [calibrated, calibration date, last calibration, date, calibrated on]}
-      next_due: {label: Next due, type: date, synonyms: [next due, due, due date, next calibration]}
-      result: {label: Result, type: choice, choices: [pass, adjusted, fail], synonyms: [result, status, outcome]}
-      by: {label: Calibrated by, type: text, synonyms: [by, lab, laboratory, calibrated by]}
-      certificate: {label: Certificate, type: text, synonyms: [certificate, cert, report]}
-  audits:
-    label: Internal audits
-    sign: Internal audit report approved
-    fields:
-      audit_date: {label: Audit date, type: date, required: true, synonyms: [date, audit date, audited on]}
-      area: {label: Process or area audited, type: text, required: true, synonyms: [area, process, scope, department]}
-      auditor: {label: Auditor, type: text, required: true, synonyms: [auditor, audited by, lead auditor]}
-      findings: {label: Findings, type: longtext, synonyms: [findings, observations, results]}
-      nonconformities: {label: Nonconformities found, type: number, synonyms: [nonconformities, ncs, nc count, major, minor]}
-      followed_up: {label: Findings followed up, type: yesno, synonyms: [followed up, closed, follow up, status]}
-  management_reviews:
-    label: Management reviews
-    sign: Management review approved
-    fields:
-      review_date: {label: Review date, type: date, required: true, synonyms: [date, review date, meeting date]}
-      attendees: {label: Attendees, type: text, required: true, synonyms: [attendees, participants, present]}
-      inputs: {label: Inputs reviewed, type: longtext, synonyms: [inputs, agenda, topics]}
-      decisions: {label: Decisions and actions, type: longtext, required: true, synonyms: [decisions, outputs, actions, minutes]}
-  objectives:
-    label: Quality objectives
-    key: [objective]
-    fields:
-      objective: {label: Objective, type: text, required: true, synonyms: [objective, goal, kpi, metric]}
-      target: {label: Target, type: text, required: true, synonyms: [target, goal value, aim]}
-      actual: {label: Actual, type: text, synonyms: [actual, result, achieved, current]}
-      status: {label: Status, type: choice, choices: [on track, off track, met, missed], synonyms: [status, rating]}
-      reviewed_on: {label: Reviewed on, type: date, required: true, synonyms: [reviewed, review date, date, as of]}
-  risks:
-    label: Risks and opportunities
-    key: [title]
-    fields:
-      title: {label: Risk or opportunity, type: text, required: true, synonyms: [risk, opportunity, title, description, issue]}
-      kind: {label: Kind, type: choice, choices: [risk, opportunity], required: true, synonyms: [kind, type, category]}
-      action: {label: Action, type: longtext, synonyms: [action, actions, mitigation, treatment, response]}
-      owner: {label: Owner, type: text, synonyms: [owner, responsible]}
-      reviewed_on: {label: Reviewed on, type: date, required: true, synonyms: [reviewed, review date, date]}
-  complaints:
-    label: Customer feedback and complaints
-    fields:
-      received_on: {label: Received on, type: date, required: true, synonyms: [date, received, received on, date received]}
-      customer: {label: Customer, type: text, required: true, synonyms: [customer, client, account]}
-      kind: {label: Kind, type: choice, choices: [complaint, feedback, survey], required: true, synonyms: [kind, type, category]}
-      description: {label: Description, type: longtext, required: true, synonyms: [description, complaint, details, comment, feedback]}
-      response: {label: Response, type: longtext, synonyms: [response, answer, reply, resolution, action]}
-      answered_on: {label: Answered on, type: date, synonyms: [answered, answered on, closed, date closed, response date]}
-  suppliers:
-    label: Supplier approval
-    key: [supplier]
-    fields:
-      supplier: {label: Supplier, type: text, required: true, synonyms: [supplier, vendor, supplier name, name]}
-      supplies: {label: What they supply, type: text, synonyms: [supplies, products, scope, commodity]}
-      status: {label: Status, type: choice, choices: [approved, conditional, removed], required: true, synonyms: [status, approval, approval status]}
-      approved_on: {label: Approved or evaluated on, type: date, required: true, synonyms: [approved on, approved, evaluated, evaluation date, date]}
-      next_review: {label: Next review, type: date, synonyms: [next review, re-evaluation, review due, due]}
-      basis: {label: Basis, type: text, synonyms: [basis, method, certificate, criteria]}
