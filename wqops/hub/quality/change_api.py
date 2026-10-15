@@ -82,7 +82,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         pw, why = str(d.get("password") or ""), str(d.get("reason") or "")
         steps = {"submit": ("quality:edit", lambda: CC.submit(c, u["email"], cid)),
                  "implement": ("quality:edit", lambda: CC.implement(c, u, cid)),
-                 "cancel": ("quality:edit", lambda: CC.cancel(c, u["email"], cid, why)),
+                 "cancel": ("quality:edit", lambda: CC.cancel(c, u, cid, why)),
                  "send-back": ("qms:configure", lambda: CC.send_back(c, u["email"], cid, why)),
                  "approve": ("qms:configure", lambda: CC.approve(c, u, cid, pw)),
                  "close": ("qms:configure", lambda: CC.close(c, u, cid, pw))}

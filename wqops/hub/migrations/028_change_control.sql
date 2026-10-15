@@ -59,8 +59,24 @@ begin
     if (new.name, new.created_by, new.created_at) is distinct from (old.name, old.created_by, old.created_at) then
         raise exception 'change % keeps its number and origin', old.name;
     end if;
-    -- submitted: what was assessed is fixed
-    if old.status <> 'draft' and new.status <> 'draft' and (new.title, new.kind, new.description, new.reason,
+    -- everyone who was involved stays involved; who signed stays who signed
+    if not (old.editors <@ new.editors) then
+        raise exception 'change % keeps everyone who edited, owned or submitted it', old.name;
+    end if;
+    if (old.approved_by is not null and (new.approved_by, new.approved_at) is distinct from
+            (old.approved_by, old.approved_at))
+       or (old.implemented_by is not null and (new.implemented_by, new.implemented_at) is distinct from
+            (old.implemented_by, old.implemented_at))
+       or ((new.approved_by, new.approved_at) is distinct from (old.approved_by, old.approved_at)
+            and not (old.status = 'submitted' and new.status = 'approved'))
+       or ((new.implemented_by, new.implemented_at) is distinct from (old.implemented_by, old.implemented_at)
+            and not (old.status = 'approved' and new.status = 'implemented'))
+       or ((new.closed_by, new.closed_at) is distinct from (old.closed_by, old.closed_at)
+            and not (old.status = 'implemented' and new.status = 'closed')) then
+        raise exception 'change %: signatures are given by their steps and kept', old.name;
+    end if;
+    -- submitted: what was assessed is fixed (also when it is sent back: it is changed as a draft afterwards)
+    if old.status <> 'draft' and (new.title, new.kind, new.description, new.reason,
             new.owner, new.capa_id, new.documents::text, new.q_product, new.q_regulatory, new.q_risk, new.q_validation,
             new.assessment, new.regulatory_decision, new.validation_plan) is distinct from (old.title, old.kind,
             old.description, old.reason, old.owner, old.capa_id, old.documents::text, old.q_product, old.q_regulatory,
@@ -74,6 +90,9 @@ begin
     if old.status in ('draft', 'submitted') and (new.effectiveness, new.validation_result, new.implementation)
             is distinct from (old.effectiveness, old.validation_result, old.implementation) then
         raise exception 'change % is not approved yet', old.name;
+    end if;
+    if old.status = 'approved' and new.effectiveness is distinct from old.effectiveness then
+        raise exception 'change % is not implemented yet', old.name;
     end if;
     if not (old.status = new.status or (old.status = 'draft' and new.status in ('submitted', 'cancelled'))
             or (old.status = 'submitted' and new.status in ('draft', 'approved', 'cancelled'))

@@ -19,7 +19,8 @@ def _blank(v) -> bool:
     return not str(v or "").strip()
 
 
-def to_submit(c: dict) -> list[str]:
+def to_submit(c: dict, docs: dict[int, dict] | None = None) -> list[str]:
+    """``docs``: the documents it changes, by id; each must still be in effect."""
     out = []
     for k, what in (("title", "a title"), ("description", "what changes"), ("reason", "why"),
                     ("owner", "an owner"), ("assessment", "the assessment")):
@@ -32,11 +33,17 @@ def to_submit(c: dict) -> list[str]:
         out.append("the regulatory decision (what will be submitted or notified, or why not)")
     if c.get("q_validation") == "yes" and _blank(c.get("validation_plan")):
         out.append("the verification or validation plan")
+    for d in c.get("documents") or []:
+        doc = (docs or {}).get(int(d))
+        if docs is not None and (doc is None or doc.get("status") != "effective"):
+            out.append(f"{(doc or {}).get('number') or f'document {d}'} is no longer in effect: choose its current "
+                       "revision")
     return out
 
 
 def to_implement(c: dict, docs: dict[int, dict]) -> list[str]:
-    """``docs``: the documents it affects and its new revisions, by id ({status, supersedes, number})."""
+    """``docs``: the documents it affects and its new revisions, by id ({status, supersedes, number, approved_at}).
+    A new revision counts only if it was approved after the change was."""
     out = []
     if _blank(c.get("implementation")):
         out.append("how it was implemented")
@@ -44,10 +51,11 @@ def to_implement(c: dict, docs: dict[int, dict]) -> list[str]:
         out.append("the verification or validation result")
     revs = [docs.get(int(r)) for r in c.get("revisions") or []]
     for d in c.get("documents") or []:
-        new = [r for r in revs if r and r.get("supersedes") == int(d) and r.get("status") == "effective"]
+        new = [r for r in revs if r and r.get("supersedes") == int(d) and r.get("status") == "effective"
+               and (c.get("approved_at") is None or (r.get("approved_at") and r["approved_at"] >= c["approved_at"]))]
         if not new:
             name = (docs.get(int(d)) or {}).get("number") or f"document {d}"
-            out.append(f"a new revision of {name}, in effect")
+            out.append(f"a new revision of {name}, approved after the change and in effect")
     return out
 
 

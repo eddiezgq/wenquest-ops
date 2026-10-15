@@ -14,7 +14,7 @@ const meta = ref(null)
 const error = ref('')
 const done = ref('')
 const f = ref({})
-const x = ref({ password: '', reason: '' })
+const x = ref({ password: '', reason: '', cancel: '' })
 const ST = { draft: 'gray', submitted: 'amber', approved: 'blue', implemented: 'violet', closed: 'green', cancelled: 'gray' }
 const TEXT = ['title', 'description', 'reason', 'assessment', 'regulatory_decision', 'validation_plan', 'validation_result', 'implementation', 'effectiveness']
 const ALL = [...TEXT, 'kind', 'owner', 'target_date', 'documents', 'revisions', 'q_product', 'q_regulatory', 'q_risk', 'q_validation']
@@ -40,7 +40,7 @@ function changes() {
 }
 async function call(path, method, body, message) {
   error.value = ''; done.value = ''
-  try { set(await api(path, { method, body })); done.value = message; x.value = { password: '', reason: '' } } catch (e) { error.value = e.message }
+  try { set(await api(path, { method, body })); done.value = message; x.value = { password: '', reason: '', cancel: '' } } catch (e) { error.value = e.message }
 }
 const save = () => call(`/api/changes/${c.value.id}`, 'PUT', changes(), 'Saved.')
 const act = (a, body, msg) => call(`/api/changes/${c.value.id}/${a}`, 'POST', body, msg)
@@ -104,7 +104,7 @@ const docName = (d) => [d.number, d.title, d.revision ? `rev ${d.revision}` : ''
       <p v-if="c.status === 'submitted'" class="mt-2 text-sm text-ink-gray-5">Approved by someone who did not raise, own, submit or edit it.</p>
       <p v-if="c.status === 'implemented'" class="mt-2 text-sm text-ink-gray-5">Closed by someone other than the owner.</p>
       <details v-if="['draft', 'submitted', 'approved'].includes(c.status)" class="mt-3"><summary class="cursor-pointer text-sm text-ink-gray-7">Cancel the change</summary>
-        <div class="mt-2 flex gap-2"><input v-model="x.reason" class="wq-input w-96" placeholder="Why"><Button label="Cancel" :disabled="!x.reason.trim()" @click="act('cancel', { reason: x.reason }, 'Cancelled.')" /></div></details>
+        <div class="mt-2 flex gap-2"><input v-model="x.cancel" class="wq-input w-96" placeholder="Why"><Button label="Cancel" :disabled="!x.cancel.trim()" @click="act('cancel', { reason: x.cancel }, 'Cancelled.')" /></div></details>
     </section>
     <h2 class="wq-h2 mt-6">Signatures</h2>
     <Trail :items="c.signatures" kind="signatures" />

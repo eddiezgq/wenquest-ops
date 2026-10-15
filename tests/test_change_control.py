@@ -51,8 +51,14 @@ def test_rules():
     assert "the verification or validation plan" in miss
     c = {"implementation": "done", "q_validation": "yes", "validation_result": "", "documents": [1], "revisions": [2]}
     assert CR.to_implement(c, {1: {"number": "QP-08"}, 2: {"supersedes": 1, "status": "in_review"}}) == [
-        "the verification or validation result", "a new revision of QP-08, in effect"]
+        "the verification or validation result", "a new revision of QP-08, approved after the change and in effect"]
     assert CR.to_implement({**c, "validation_result": "OK"}, {2: {"supersedes": 1, "status": "effective"}}) == []
+    # a revision approved before the change was approved does not implement it
+    late = {**c, "validation_result": "OK", "approved_at": "2026-10-02T09:00"}
+    assert CR.to_implement(late, {2: {"supersedes": 1, "status": "effective", "approved_at": "2026-10-01T09:00"}})
+    assert CR.to_implement(late, {2: {"supersedes": 1, "status": "effective", "approved_at": "2026-10-03T09:00"}}) == []
+    assert CR.to_submit({"documents": [1]}, {1: {"number": "QP-08", "status": "obsolete"}})[-1].startswith(
+        "QP-08 is no longer in effect")
 
 
 def test_change_from_draft_to_closed(world):
@@ -82,16 +88,24 @@ def test_change_from_draft_to_closed(world):
     CC.approve(world, u(world, SAM), c["id"], PW)
     with pytest.raises(CC.ChangeError, match=r"how it was implemented.*validation result.*new revision of QP-08"):
         CC.implement(world, u(world, LEE), c["id"])
+    with pytest.raises(CC.ChangeError, match="not a new revision of a document this change changes"):
+        CC.update(world, LEE, c["id"], {"revisions": [doc["id"]]})
     _, data = file("QP-08 Control of Nonconforming Product Rev B")
     rev = LIB.new_revision(world, JORDAN, doc["id"], name="QP-08 Rev D.pdf", data=data, revision="D")
     CC.update(world, LEE, c["id"], {"revisions": [rev["id"]], "implementation": "QP-08 rev D issued",
                                     "validation_result": "3 lots, no escapes"})
-    with pytest.raises(CC.ChangeError, match="new revision of QP-08, in effect"):
+    with pytest.raises(CC.ChangeError, match="new revision of QP-08, approved after the change and in effect"):
         CC.implement(world, u(world, LEE), c["id"])
     LIB.submit(world, JORDAN, rev["id"])
     LIB.approve(world, u(world, SAM), rev["id"], PW, T)
     with pytest.raises(PermissionError, match="the owner or Quality"):
         CC.implement(world, u(world, SAM), c["id"])
+    with pytest.raises(CC.ChangeError, match="already in effect: implement and close"):
+        CC.cancel(world, u(world, LEE), c["id"], "not needed")
+    with pytest.raises(psycopg.errors.RaiseException, match="signatures"):
+        world.execute("update changes set approved_by = %s where id = %s", (DANA, c["id"]))
+    with pytest.raises(psycopg.errors.RaiseException, match="keeps everyone"):
+        world.execute("update changes set editors = '{}' where id = %s", (c["id"],))
     CC.implement(world, u(world, LEE), c["id"])
     with pytest.raises(CC.ChangeError, match="effectiveness check"):
         CC.close(world, u(world, DANA), c["id"], PW)
@@ -112,19 +126,24 @@ def test_send_back_and_cancel(world):
     c = CC.create(world, JORDAN, {"title": "New label printer", "kind": "equipment", "description": "x", "reason": "y",
                                   "owner": LEE, "assessment": "z", "q_product": "no", "q_regulatory": "no",
                                   "q_risk": "no", "q_validation": "no"})
-    CC.submit(world, JORDAN, c["id"])
+    CC.submit(world, DANA, c["id"])
     with pytest.raises(CC.ChangeError, match="say what"):
         CC.send_back(world, SAM, c["id"], "")
     CC.send_back(world, SAM, c["id"], "Say which lines")
     CC.update(world, SAM, c["id"], {"description": "Lines 1 and 2"})
     CC.submit(world, JORDAN, c["id"])
-    # Sam edited it while it was a draft again: Sam does not approve it
-    with pytest.raises(PermissionError):
-        CC.approve(world, u(world, SAM), c["id"], PW)
-    CC.approve(world, u(world, DANA), c["id"], PW)
-    assert CC.cancel(world, JORDAN, c["id"], "Printer vendor withdrew")["status"] == "cancelled"
+    # Sam edited it while it was a draft again, and Dana submitted it once: neither approves it
+    for who in (SAM, DANA):
+        with pytest.raises(PermissionError):
+            CC.approve(world, u(world, who), c["id"], PW)
+    world.execute("update users set roles = '{owner}' where email = 'alex@demo.example'")
+    Acc.set_password(world, "alex@demo.example", PW)
+    CC.approve(world, u(world, "alex@demo.example"), c["id"], PW)
+    with pytest.raises(PermissionError, match="the owner or Quality"):
+        CC.cancel(world, {"email": SAM, "roles": ["ops_manager"]}, c["id"], "x")
+    assert CC.cancel(world, u(world, LEE), c["id"], "Printer vendor withdrew")["status"] == "cancelled"
     with pytest.raises(CC.ChangeError, match="cannot be cancelled"):
-        CC.cancel(world, JORDAN, c["id"], "again")
+        CC.cancel(world, u(world, LEE), c["id"], "again")
     assert [x["name"] for x in CC.listing(world, "open", T)] == []
 
 
