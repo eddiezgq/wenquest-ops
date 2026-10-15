@@ -1,0 +1,302 @@
+"""The quality system against ISO 9001, step 16a (ADR-0016): the pack file, each check (met, not met, and unknown
+when there is nothing to judge; imported history counted, not judged), adopting a standard with a signature,
+declaring what does not apply, documents linked as evidence, evaluations kept and run once a day, the API and
+permissions. Fictional data only."""
+
+import datetime as dt
+
+import psycopg
+import pytest
+from fastapi.testclient import TestClient
+
+from tests.test_documents import imported
+from tests.test_metrics import AS_OF, DEMO, build
+from wqops.erp import ErpClient
+from wqops.hub import accounts as Acc
+from wqops.hub import db as DB
+from wqops.hub import permissions as P
+from wqops.hub import sync as Y
+from wqops.hub.ai import llm as L
+from wqops.hub.app import create_app
+from wqops.hub.docs import ai_classify as AIC
+from wqops.hub.docs import library as LIB
+from wqops.hub.ont import project as OP
+from wqops.hub.quality import auto as AUTO
+from wqops.hub.quality import records as Q
+from wqops.hub.system import qms as QMS
+from wqops.hub.system import rules as R
+
+PW = "Demo pass 2026"
+JORDAN, SAM, DANA = "jordan@demo.example", "sam@demo.example", "dana@demo.example"
+SET = {"window_days": 365, "ncr_contain_days": 7, "capa_overdue_days": 0}
+T = AS_OF
+OLD = dt.datetime(2026, 9, 1, tzinfo=dt.UTC)
+
+
+@pytest.fixture(autouse=True)
+def files_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("WQO_FILES_DIR", str(tmp_path / "files"))
+
+
+@pytest.fixture
+def world(conn):
+    Acc.sync(conn, DEMO)
+    for e in (JORDAN, SAM, DANA):
+        Acc.set_password(conn, e, PW)
+    Y.run(conn, ErpClient("http://erp", transport=build().transport()))
+    OP.project(conn, manifest=DEMO)
+    return conn
+
+
+def facts(**kw):
+    base = {"today": T, "since": T - dt.timedelta(days=365), "documents": [], "document_issues": [],
+            "document_approvals": set(), "ncrs": [], "capas": [], "ncr_capas": set(), "capa_actions": [],
+            "signatures": {}, "approval_dispositions": {"use_as_is"}, "incoming_inspections": [],
+            "ncr_inspections": set(), "applicability": {}, "excludable": {"design": "design and development"},
+            "evidence": {}}
+    return base | kw
+
+
+def ncr(i, **kw):
+    return {"id": i, "name": f"NCR-{i:05d}", "status": "open", "severity": "minor", "description": "d",
+            "disposition": None, "disposition_reason": None, "disposition_by": None, "approved_by": None,
+            "closed_by": None, "inspection": None, "created_at": OLD, "reported_on": None, "source_doc": None} | kw
+
+
+# ---------------------------------------------------------------- the pack
+
+def test_the_pack_file():
+    pack = QMS.load("iso9001")
+    assert R.check_pack(pack) == []
+    cs = QMS.controls(pack)
+    assert len(cs) >= 25 and all(c["clauses"]["2015"] for c in cs.values())
+    assert {c for c, x in cs.items() if x.get("may_exclude")} == {"measuring", "design", "customer_property",
+                                                                   "post_delivery"}
+    assert pack["editions"]["2026"]["ready"] is False
+    # every 2015 clause cited is a clause of chapters 4 to 10
+    for c in cs.values():
+        for cl in c["clauses"]["2015"]:
+            assert 4 <= int(cl.split(".")[0]) <= 10, cl
+    bad = dict(pack, settings={"window_days": "a year"})
+    bad["processes"] = {"x": {"label": "x", "controls": [{"id": "a", "summary": "", "rule": "guess",
+                                                          "clauses": {"1987": ["4"]}}] * 2}}
+    errs = R.check_pack(bad)
+    assert "setting window_days is a whole number" in errs and "control point a twice" in errs
+    assert "a: unknown rule 'guess'" in errs and "a: clauses for edition '1987' are a list" in errs
+    assert "a: a summary" in errs
+
+
+# ---------------------------------------------------------------- the checks, on facts
+
+def test_nonconformance_checks():
+    f = facts()
+    for rule in (R.ncr_contained, R.ncr_concession_approved, R.ncr_recorded, R.capa_for_major):
+        assert rule(f, SET)["status"] == "unknown"                     # nothing to judge is not "met"
+    imported_only = facts(ncrs=[ncr(1, source_doc=5, status="closed", disposition=None)])
+    out = R.ncr_recorded(imported_only, SET)
+    assert out["status"] == "unknown" and "1 imported report counted as history" in out["detail"]
+    late = facts(ncrs=[ncr(1), ncr(2, created_at=dt.datetime(2026, 10, 10, tzinfo=dt.UTC)),
+                       ncr(3, status="contained")])
+    out = R.ncr_contained(late, SET)
+    assert out["status"] == "not_met" and [p["id"] for p in out["problems"]] == [1]
+    assert "open for 41 days" in out["problems"][0]["why"]
+    assert R.ncr_contained(facts(ncrs=[ncr(3, status="contained")]), SET)["status"] == "met"
+    # older than the window: not looked at
+    assert R.ncr_contained(facts(ncrs=[ncr(4, created_at=dt.datetime(2024, 1, 1, tzinfo=dt.UTC))]),
+                           SET)["status"] == "unknown"
+    conc = [ncr(1, status="closed", disposition="use_as_is", disposition_by=JORDAN, approved_by=SAM),
+            ncr(2, status="dispositioned", disposition="use_as_is", disposition_by=JORDAN, approved_by=JORDAN),
+            ncr(3, status="dispositioned", disposition="use_as_is", disposition_by=JORDAN),
+            ncr(4, status="closed", disposition="use_as_is", disposition_by=JORDAN, approved_by=DANA),
+            ncr(5, status="closed", disposition="scrap")]
+    out = R.ncr_concession_approved(facts(ncrs=conc, signatures={("ncr", 1): {SAM}, ("ncr", 4): {JORDAN}}), SET)
+    assert out["status"] == "not_met" and {p["id"]: p["why"] for p in out["problems"]} == {
+        2: "approved by the person who proposed it", 3: "no approval recorded", 4: "the approval has no signature"}
+    assert R.ncr_concession_approved(facts(ncrs=conc[:1], signatures={("ncr", 1): {SAM}}), SET)["status"] == "met"
+    closed = [ncr(1, status="closed", disposition="scrap", disposition_reason="bent", closed_by=JORDAN),
+              ncr(2, status="closed", disposition="scrap", disposition_reason="", closed_by=JORDAN)]
+    out = R.ncr_recorded(facts(ncrs=closed, signatures={("ncr", 1): {JORDAN}}), SET)
+    assert out["problems"] == [{"kind": "ncr", "id": 2, "label": "NCR-00002",
+                                "why": "missing: reason for the disposition, the closing signature"}]
+    major = [ncr(1, severity="major"), ncr(2, severity="major", created_at=dt.datetime(2026, 10, 9, tzinfo=dt.UTC)),
+             ncr(3, severity="major", status="cancelled"), ncr(4, severity="major")]
+    out = R.capa_for_major(facts(ncrs=major, ncr_capas={4}), SET)
+    assert out["status"] == "not_met" and [p["id"] for p in out["problems"]] == [1]   # 2 is new, 3 cancelled
+    assert R.capa_for_major(facts(ncrs=major[1:], ncr_capas={4}), SET)["status"] == "met"
+
+
+def test_incoming_and_corrective_action_checks():
+    assert R.rejected_lots_have_ncr(facts(), SET)["status"] == "unknown"
+    lots = [{"key": "QI-1", "item_code": "BOLT", "rejected": True}, {"key": "QI-2", "item_code": "NUT",
+                                                                     "rejected": False}]
+    out = R.rejected_lots_have_ncr(facts(incoming_inspections=lots), SET)
+    assert out["status"] == "not_met" and out["problems"][0]["why"] == "rejected BOLT without a nonconformance report"
+    assert R.rejected_lots_have_ncr(facts(incoming_inspections=lots[1:]), SET)["detail"].startswith(
+        "1 incoming inspection, 0 rejected")
+    capa = {"id": 1, "name": "CAPA-00001", "status": "implementation", "owner": JORDAN, "created_at": OLD,
+            "reported_on": None, "source_doc": None, "verification_result": None, "verification_method": None,
+            "closed_by": None}
+    acts = [{"capa_id": 1, "text": "Scan check", "due": dt.date(2026, 10, 1), "done": False, "done_at": None},
+            {"capa_id": 1, "text": "Train", "due": dt.date(2026, 10, 1), "done": True,
+             "done_at": dt.datetime(2026, 10, 3, tzinfo=dt.UTC)},
+            {"capa_id": 1, "text": "Later", "due": dt.date(2026, 12, 1), "done": False, "done_at": None},
+            {"capa_id": 1, "text": "No date", "due": None, "done": False, "done_at": None}]
+    assert R.capa_on_time(facts(capas=[capa]), SET)["status"] == "unknown"
+    out = R.capa_on_time(facts(capas=[capa], capa_actions=acts), SET)
+    assert [p["why"] for p in out["problems"]] == ["Scan check: due 2026-10-01, not done",
+                                                    "Train: due 2026-10-01, done 2026-10-03"]
+    assert R.capa_on_time(facts(capas=[capa], capa_actions=acts), dict(SET, capa_overdue_days=30))["status"] == "met"
+    shut = [dict(capa, status="closed", verification_result="effective", verification_method="0 swaps", closed_by=SAM),
+            dict(capa, id=2, name="CAPA-00002", status="closed", verification_result="effective",
+                 verification_method="", closed_by=JORDAN),
+            dict(capa, id=3, name="CAPA-00003", status="closed", source_doc=9)]
+    out = R.capa_effective(facts(capas=shut, signatures={("capa", 1): {SAM}, ("capa", 2): {JORDAN}}), SET)
+    assert out["problems"] == [{"kind": "capa", "id": 2, "label": "CAPA-00002", "why": "missing: the evidence of "
+                                "effectiveness, someone other than the owner to close it"}]
+    assert R.capa_effective(facts(capas=shut[2:]), SET)["status"] == "unknown"
+
+
+def test_document_checks_and_declarations():
+    assert R.documents_approved(facts(), SET)["status"] == "unknown"
+    docs = [{"id": 1, "doc_type": "procedure", "status": "effective", "name": "QP-01"},
+            {"id": 2, "doc_type": "form", "status": "draft", "name": "F-1"},
+            {"id": 3, "doc_type": "record", "status": "confirmed", "name": "log"}]
+    out = R.documents_approved(facts(documents=docs, document_approvals={1}), SET)
+    assert out["status"] == "met" and "1 other not approved yet" in out["detail"]
+    assert R.documents_approved(facts(documents=docs), SET)["problems"][0]["why"] == \
+        "in effect without a recorded approval"
+    assert R.documents_approved(facts(documents=docs[1:]), SET)["status"] == "not_met"
+    issue = {"kind": "revisions", "docs": [1, 2], "title": "QP-01: 2 revisions", "detail": "keep the old one obsolete"}
+    assert R.documents_current(facts(documents=docs, document_issues=[issue]), SET)["status"] == "not_met"
+    assert R.documents_current(facts(documents=docs, document_issues=[dict(issue, kind="no_date")]),
+                               SET)["status"] == "met"
+    ref = dict(issue, kind="missing_ref")
+    assert R.documents_referenced(facts(documents=docs, document_issues=[ref]), SET)["status"] == "not_met"
+    # scope: met once every excludable point is declared
+    assert R.scope_declared(facts(), SET)["status"] == "unknown"
+    decl = {"design": {"applies": False, "reason": "we resell only", "email": DANA}}
+    assert R.scope_declared(facts(applicability=decl), SET)["detail"] == \
+        "Excluded, with reasons: design and development (we resell only)"
+    ev = {"policy": [{"id": 7, "name": "Quality policy", "status": "obsolete"}]}
+    assert R.linked_document(facts(evidence=ev), SET, "policy")["status"] == "not_met"
+    assert R.linked_document(facts(), SET, "policy")["status"] == "unknown"
+    pack = QMS.load("iso9001")
+    res = R.evaluate(pack, "2015", facts(applicability=decl, documents=docs, document_approvals={1}))
+    assert res["design"]["status"] == "not_applicable" and res["doc_approved"]["status"] == "met"
+    assert res["audit"]["status"] == "unknown" and "register" in res["audit"]["detail"]
+    assert res["ncr_concession"]["clauses"] == ["8.7.1"] and res["ncr_concession"]["process"] == "nonconforming"
+    assert sum(R.counts(res).values()) == len(QMS.controls(pack))
+
+
+# ---------------------------------------------------------------- in the database
+
+def test_adopting_declaring_linking_and_evaluating(world):
+    jordan, dana = Acc.get(world, JORDAN), Acc.get(world, DANA)
+    assert QMS.view(world, "iso9001")["enabled"] is None and QMS.evaluate(world, "iso9001", T, "manual") is None
+    with pytest.raises(QMS.QmsError, match="not ready yet"):
+        QMS.enable(world, jordan, "iso9001", "2026", PW, T)
+    with pytest.raises(Q.SignatureError):
+        QMS.enable(world, jordan, "iso9001", "2015", "wrong", T)
+    p = QMS.enable(world, jordan, "iso9001", "2015", PW, T)
+    assert p["fingerprint"] == QMS.fingerprint(QMS.load("iso9001"))
+    assert Q.signatures(world, "qms", p["id"])[0]["meaning"] == "ISO 9001:2015 (with Amendment 1:2024) adopted"
+    with pytest.raises(QMS.QmsError, match="already in use"):
+        QMS.enable(world, dana, "iso9001", "2015", PW, T)
+    v = QMS.view(world, "iso9001")
+    assert v["evaluation"]["trigger"] == "enabled" and v["newer_pack"] is False
+    res = {c["id"]: c["result"] for proc in v["processes"] for c in proc["controls"]}
+    assert res["scope"]["status"] == "unknown" and res["ncr_contained"]["status"] == "unknown"
+    # QI-1 and QI-3 of the demo business were rejected and have no report yet
+    assert res["rejected_lots"]["status"] == "not_met"
+    assert {x["id"] for x in res["rejected_lots"]["problems"]} == {"QI-1", "QI-3"}
+
+    # records: an uncontained major report with no corrective action
+    n = Q.create_ncr(world, JORDAN, title="Bent bolts", description="12 bent", severity="major")
+    world.execute("update ncr_records set created_at = %s where id = %s", (OLD, n["id"]))
+    AUTO.open_for_rejected(world, dt.date(2026, 7, 1))
+    out = QMS.evaluate(world, "iso9001", T, "manual", JORDAN)["results"]
+    assert out["rejected_lots"]["status"] == "met"
+    assert out["ncr_contained"]["status"] == "not_met" and out["capa_for_major"]["problems"][0]["id"] == n["id"]
+
+    # what does not apply, signed with a reason
+    with pytest.raises(QMS.QmsError, match="always applies"):
+        QMS.declare(world, dana, "iso9001", "ncr_records", False, "no", PW, T)
+    with pytest.raises(QMS.QmsError, match="give the reason"):
+        QMS.declare(world, dana, "iso9001", "design", False, " ", PW, T)
+    for c in ("design", "customer_property", "post_delivery"):
+        QMS.declare(world, dana, "iso9001", c, False, "distribution only, no design or service", PW, T)
+    QMS.declare(world, dana, "iso9001", "measuring", True, "we gauge incoming bolts", PW, T)
+    ev = QMS.latest(world, "iso9001")
+    assert ev["trigger"] == "changed" and ev["results"]["design"]["status"] == "not_applicable"
+    assert ev["results"]["scope"]["status"] == "met" and ev["counts"]["not_applicable"] == 3
+    signed = world.execute("select meaning, email from signatures where kind = 'qms_applicability' "
+                           "order by id").fetchall()
+    assert [s["meaning"] for s in signed] == ["Does not apply"] * 3 + ["Applies"] and signed[0]["email"] == DANA
+
+    # a document linked as evidence counts while it is in effect
+    imp, docs = imported(world, ["QP-01"])
+    AIC.run(world, {"email": JORDAN, "roles": ["quality"]}, imp["id"], None, today=T)
+    with pytest.raises(QMS.QmsError, match="confirmed in the library"):
+        QMS.link(world, JORDAN, "iso9001", "policy", docs[0]["id"], True, T)
+    LIB.confirm(world, JORDAN, docs[0]["id"])
+    with pytest.raises(QMS.QmsError, match="judged from the records"):
+        QMS.link(world, JORDAN, "iso9001", "ncr_records", docs[0]["id"], True, T)
+    QMS.link(world, JORDAN, "iso9001", "policy", docs[0]["id"], True, T, "stands in for the policy in this test")
+    assert QMS.latest(world, "iso9001")["results"]["policy"]["status"] == "not_met"   # a draft is not in effect
+    LIB.submit(world, JORDAN, docs[0]["id"])
+    LIB.approve(world, Acc.get(world, SAM), docs[0]["id"], PW, T)
+    out = QMS.evaluate(world, "iso9001", T, "manual")["results"]
+    assert out["policy"]["status"] == "met" and out["doc_approved"]["status"] == "met"
+    with pytest.raises(QMS.QmsError, match="already linked"):
+        QMS.link(world, JORDAN, "iso9001", "policy", docs[0]["id"], True, T)
+    QMS.link(world, JORDAN, "iso9001", "policy", docs[0]["id"], False, T)
+    assert QMS.latest(world, "iso9001")["results"]["policy"]["status"] == "unknown"
+
+    # once a day; kept as they were
+    assert QMS.evaluate_if_due(world, T) == ["iso9001"] and QMS.evaluate_if_due(world, T) == []
+    assert QMS.evaluate_if_due(world, T + dt.timedelta(days=1)) == ["iso9001"]
+    first = world.execute("select id from qms_evaluations order by id limit 1").fetchone()["id"]
+    assert QMS.view(world, "iso9001", first)["evaluation"]["trigger"] == "enabled"
+    for sql in ("update qms_evaluations set counts = '{}' where id = %s", "delete from qms_evaluations where id = %s",
+                "update qms_packs set fingerprint = 'x' where id = %s", "delete from qms_packs where id = %s"):
+        with pytest.raises(psycopg.errors.RaiseException):
+            world.execute(sql, (first if "evaluations" in sql else p["id"],))
+    with pytest.raises(psycopg.errors.RaiseException):
+        world.execute("update qms_applicability set reason = 'x'")
+
+
+def test_quality_system_api(db_url):
+    c = TestClient(create_app({}, lambda: (DEMO, "ok"), db_url=db_url, ai=L.Anthropic("", env={})))
+    c.__enter__()
+    with DB.connect(db_url) as conn:
+        for e in (JORDAN, SAM, DANA):
+            Acc.set_password(conn, e, PW)
+
+    def login(e):
+        assert c.post("/api/login", json={"email": e, "password": PW}).status_code == 200
+
+    assert {r for r, perms in P.ROLE_PERMISSIONS.items() if "qms:configure" in perms} == {"owner", "quality"}
+    login(SAM)                                                     # operations manager: may look
+    v = c.get("/api/qms/iso9001").json()
+    assert v["enabled"] is None and v["can_configure"] is False and v["editions"]["2015"]["ready"] is True
+    assert c.post("/api/qms/iso9001/enable", json={"edition": "2015", "password": PW}).status_code == 403
+    assert c.post("/api/qms/iso9001/evaluate").status_code == 409
+    assert c.get("/api/qms/iso14001").status_code == 404
+    login(JORDAN)
+    assert c.post("/api/qms/iso9001/enable", json={"edition": "2015", "password": "no"}).status_code == 403
+    v = c.post("/api/qms/iso9001/enable", json={"edition": "2015", "password": PW}).json()
+    assert v["enabled"]["edition"] == "2015" and v["evaluation"]["counts"]["unknown"] > 0
+    assert c.post("/api/qms/iso9001/controls/design/applies", json={"applies": "no"}).status_code == 400
+    r = c.post("/api/qms/iso9001/controls/design/applies", json={"applies": False, "reason": "resale only",
+                                                                    "password": PW})
+    assert r.status_code == 200 and r.json()["applicability"]["design"]["applies"] is False
+    assert c.post("/api/qms/iso9001/controls/nope/applies", json={"applies": False, "reason": "x",
+                                                                     "password": PW}).status_code == 404
+    assert c.post("/api/qms/iso9001/controls/policy/evidence", json={"document_id": True}).status_code == 400
+    assert c.post("/api/qms/iso9001/controls/policy/evidence", json={"document_id": 10**6}).status_code == 404
+    login(SAM)
+    v = c.post("/api/qms/iso9001/evaluate").json()
+    assert v["evaluation"]["trigger"] == "manual" and len(v["history"]) == 3
+    assert c.get(f"/api/qms/iso9001?evaluation={v['history'][-1]['id']}").json()["evaluation"]["trigger"] == "enabled"
+    assert c.get("/api/qms/iso9001?evaluation=999999").status_code == 404
+    c.__exit__(None, None, None)

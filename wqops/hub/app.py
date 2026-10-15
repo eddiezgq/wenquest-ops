@@ -137,6 +137,14 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 BR.generate(c, day, m, ai_model)
                 log.info("daily brief for %s made", day)
 
+    def qms_if_due() -> None:
+        from wqops.hub.system import qms as QMS  # noqa: PLC0415
+
+        with DB.connect(db_url) as c:
+            done = QMS.evaluate_if_due(c, OA.today(company()[0]))
+            if done:
+                log.info("quality system evaluated: %s", ", ".join(done))
+
     async def sync_loop():
         await asyncio.sleep(min(15.0, sync_seconds))
         while True:
@@ -151,6 +159,10 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 await asyncio.to_thread(brief_if_due)
             except Exception:
                 log.exception("daily brief failed")
+            try:
+                await asyncio.to_thread(qms_if_due)
+            except Exception:
+                log.exception("daily quality system evaluation failed")
             await asyncio.sleep(sync_seconds)
 
     @contextlib.asynccontextmanager
@@ -386,6 +398,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import proposal_api as PA  # noqa: PLC0415
 
     PA.mount(app, conn, current_user, company, ai_model, db_url)
+    from wqops.hub.system import api as SA  # noqa: PLC0415
+
+    SA.mount(app, conn, current_user, company)
 
     @app.get("/api/workspace")
     def workspace(u=Depends(current_user)):
@@ -487,7 +502,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     if has_web:
         for path in ("/objects", "/o/{rest:path}", "/anomalies", "/anomalies/{rest:path}", "/drafts", "/assistant",
                      "/quality", "/quality/{rest:path}", "/help", "/help/{rest:path}", "/account", "/people",
-                     "/documents", "/documents/{rest:path}"):
+                     "/documents", "/documents/{rest:path}", "/system"):
             app.add_api_route(path, spa_page, methods=["GET"], include_in_schema=False)
 
     @app.get("/", response_class=HTMLResponse)
