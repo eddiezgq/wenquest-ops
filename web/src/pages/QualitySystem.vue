@@ -41,7 +41,7 @@ async function load() {
 watch(() => [route.query.evaluation, route.query.day], load, { immediate: true })
 async function toggle(c) {
   open.value = open.value === c.id ? null : c.id
-  if (open.value && LINKED.includes(c.rule) && canDocs.value) {
+  if (open.value && LINKED.includes(ruleOf(c)) && canDocs.value) {
     try { docs.value = (await api('/api/docs?status=library')).filter((d) => d.status !== 'obsolete') } catch (e) { error.value = e.message }
   }
 }
@@ -55,6 +55,9 @@ const adopt = () => post('/enable', { edition: edition.value, password: password
 const evaluate = () => post('/evaluate', {}, 'Checked again against your records.')
 const declare = (c, applies) => post(`/controls/${c.id}/applies`, { applies, reason: form.value.reason, password: form.value.password },
   applies ? 'Recorded: it applies.' : 'Recorded: it does not apply.')
+const saveSetting = (key, value) => post('/settings', { key, value }, 'Setting saved and checked again.')
+const ruleOf = (c) => c.result?.rule || c.rule
+const ruleOn = (c) => !c.switch || v.value.settings[c.switch]
 const link = (c, id, linked) => post(`/controls/${c.id}/evidence`, { document_id: Number(id), linked }, linked ? 'Document linked.' : 'Link removed.')
 
 const docName = (d) => [d.number, d.title].filter(Boolean).join(' ') || d.original_name
@@ -123,7 +126,8 @@ function to(p) {
           <div class="min-w-0 flex-1">
             <p class="text-base text-ink-gray-9">{{ c.summary }}</p>
             <p class="text-sm text-ink-gray-5">ISO 9001 {{ c.clauses.join(', ') }}<template v-if="c.hint"> · evidence: {{ c.hint }}</template></p>
-            <p v-if="c.our_rule" class="text-sm text-ink-gray-6">Checked by the WenQuest Ops rule: {{ c.our_rule }}</p>
+            <p v-if="c.our_rule && ruleOn(c)" class="text-sm text-ink-gray-6">Checked by the WenQuest Ops rule: {{ c.our_rule }} (can be switched off in the settings below)</p>
+            <p v-else-if="c.our_rule" class="text-sm text-ink-gray-6">Our rule is switched off: link the document that shows how you meet this.</p>
             <p v-if="c.result" class="mt-1 text-sm text-ink-gray-7">{{ c.result.detail }}</p>
             <ul v-if="c.result?.problems.length" class="mt-1 flex flex-col gap-0.5 text-sm">
               <li v-for="x in c.result.problems" :key="`${x.kind}${x.id}${x.why}`">
@@ -135,11 +139,11 @@ function to(p) {
               <template v-for="(x, i) in c.result.evidence" :key="x.id"><RouterLink :to="to(x)" class="wq-link">{{ x.label }}</RouterLink>{{ i < c.result.evidence.length - 1 ? ', ' : '' }}</template>
               <span v-if="c.result.evidence_count > c.result.evidence.length"> and {{ c.result.evidence_count - c.result.evidence.length }} more</span></p>
           </div>
-          <Button v-if="can && latest && (LINKED.includes(c.rule) || c.may_exclude)" size="sm" variant="ghost"
+          <Button v-if="can && latest && (LINKED.includes(ruleOf(c)) || c.may_exclude)" size="sm" variant="ghost"
                   :label="open === c.id ? 'Close' : 'Change'" @click="toggle(c)" />
         </div>
         <div v-if="open === c.id" class="mt-3 flex flex-col gap-3 rounded-4 bg-surface-gray-1 p-4 text-sm">
-          <div v-if="LINKED.includes(c.rule)">
+          <div v-if="LINKED.includes(ruleOf(c))">
             <p class="mb-1 text-ink-gray-7">Documents linked as evidence:</p>
             <ul class="mb-2"><li v-for="d in v.evidence[c.id] || []" :key="d.id">
               <RouterLink :to="`/documents/${d.id}`" class="wq-link">{{ d.name }}</RouterLink> <span class="text-ink-gray-5">{{ d.status.replace('_', ' ') }}, by {{ d.email }}</span>
@@ -163,6 +167,26 @@ function to(p) {
           </div>
         </div>
       </article>
+    </section>
+
+    <section v-if="latest" class="settings wq-panel mb-4 p-5">
+      <h2 class="wq-h2">Settings</h2>
+      <p class="wq-muted mb-3">Your company's values. The rules marked as ours are one way to show a requirement is met; switch them off and link
+        your own procedure instead. Changes are recorded and the system is checked again.</p>
+      <div class="flex flex-col gap-2 text-sm">
+        <div v-for="(spec, key) in v.setting_specs" :key="key" class="flex flex-wrap items-center gap-3">
+          <span class="min-w-96 text-ink-gray-8">{{ spec.label }}</span>
+          <template v-if="typeof spec.value === 'boolean'">
+            <label class="inline-flex items-center gap-1.5"><input type="checkbox" class="form-checkbox" :checked="v.settings[key]" :disabled="!can"
+              @change="saveSetting(key, $event.target.checked)">{{ v.settings[key] ? 'on' : 'off' }}</label>
+          </template>
+          <template v-else>
+            <input type="number" class="wq-input w-24" :min="spec.min" :max="spec.max" :value="v.settings[key]" :disabled="!can"
+                   @change="saveSetting(key, Number($event.target.value))">
+          </template>
+          <span v-if="v.settings[key] !== spec.value" class="text-ink-gray-5">default {{ spec.value === true ? 'on' : spec.value === false ? 'off' : spec.value }}</span>
+        </div>
+      </div>
     </section>
 
     <section class="wq-panel p-5">

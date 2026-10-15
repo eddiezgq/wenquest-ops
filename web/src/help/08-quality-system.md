@@ -32,8 +32,9 @@ judged, because they were not made under these rules; imported records still ope
 
 Where WenQuest Ops checks a requirement with a rule of its own, for example "every major nonconformance gets a
 corrective action within 14 days" or "a concession is approved by someone other than the person who proposed it",
-the control point says so. These rules are how the system shows the requirement is met; the standard itself may
-allow other ways.
+the control point says so. These rules are one way to show the requirement is met; the standard itself allows others.
+Under *Settings* at the bottom of the page you can change the numbers of days, or switch one of these rules off and
+link your own procedure for that control point instead. Changes are recorded and the system is checked again.
 
 ## Say what does not apply, link documents
 

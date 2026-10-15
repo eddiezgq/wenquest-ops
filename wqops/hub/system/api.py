@@ -14,7 +14,7 @@ from wqops.hub.quality import records as Q
 from wqops.hub.system import qms as QMS
 
 
-def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
+def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per action
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
             raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
@@ -81,6 +81,14 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
             raise HTTPException(400, "applies is true or false")
         run(lambda: QMS.declare(c, u, standard, control, d["applies"], str(d.get("reason") or ""),
                                 str(d.get("password") or ""), today(), tz()))
+        return page(c, u, standard)
+
+    @app.post("/api/qms/{standard}/settings")
+    async def setting(standard: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        """Change one of the pack's settings: a number of days, or a rule of our own switched on or off."""
+        need(u, "qms:configure")
+        d = await body(request)
+        run(lambda: QMS.set_setting(c, u["email"], standard, str(d.get("key") or ""), d.get("value"), today(), tz()))
         return page(c, u, standard)
 
     @app.post("/api/qms/{standard}/controls/{control}/evidence")

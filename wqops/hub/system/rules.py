@@ -307,13 +307,20 @@ CHECKS = {f.__name__: f for f in (documents_approved, documents_current, documen
 LINKED = ("linked_document", "scope_declared")          # rules that take documents linked as evidence
 
 
-def evaluate(pack: dict, edition: str, facts: dict) -> dict:
-    """Every control point of the pack: {control: result with process, summary, clauses}."""
-    settings = pack.get("settings") or {}
+def defaults(pack: dict) -> dict:
+    return {k: v["value"] for k, v in (pack.get("settings") or {}).items()}
+
+
+def evaluate(pack: dict, edition: str, facts: dict, settings: dict | None = None) -> dict:
+    """Every control point of the pack: {control: result with process, summary, clauses}. ``settings``: the
+    company's values over the pack's defaults."""
+    settings = {**defaults(pack), **(settings or {})}
     out = {}
     for pname, proc in pack["processes"].items():
         for c in proc["controls"]:
             rule = c["rule"]
+            if c.get("switch") and not settings.get(c["switch"]):
+                rule = "linked_document"            # our rule switched off: the company shows it its own way
             decl = facts["applicability"].get(c["id"])
             if c.get("may_exclude") and decl and not decl["applies"]:
                 r = result(NA, f"Does not apply: {decl['reason']} (declared by {decl['email']})")
@@ -335,12 +342,16 @@ def counts(results: dict) -> dict:
     return out
 
 
-def check_pack(pack: dict) -> list[str]:
+def check_pack(pack: dict) -> list[str]:  # noqa: PLR0912 - one line per kind of mistake
     """What is wrong with a pack file: unknown rules, duplicate control points, settings the checks need."""
     errs, seen = [], set()
+    sets = pack.get("settings") or {}
     for need in ("window_days", "ncr_contain_days", "capa_within_days", "capa_overdue_days"):
-        if not isinstance((pack.get("settings") or {}).get(need), int):
+        if not isinstance(sets.get(need), dict) or type(sets[need].get("value")) is not int:
             errs.append(f"setting {need} is a whole number")
+    for k, v in sets.items():
+        if not isinstance(v, dict) or not str(v.get("label") or "").strip() or type(v.get("value")) not in (int, bool):
+            errs.append(f"setting {k}: a value (a whole number or yes/no) and a label")
     for proc in (pack.get("processes") or {}).values():
         for c in proc.get("controls") or []:
             if c.get("id") in seen:
@@ -354,7 +365,9 @@ def check_pack(pack: dict) -> list[str]:
                     errs.append(f"{c.get('id')}: clauses for edition {ed!r} are a list")
             if c.get("may_exclude") and not str(c.get("short") or "").strip():
                 errs.append(f"{c.get('id')}: a short name, to say it does not apply")
-            if c.get("rule") in LINKED and not str(c.get("hint") or "").strip():
+            if c.get("switch") and type((sets.get(c["switch"]) or {}).get("value")) is not bool:
+                errs.append(f"{c.get('id')}: its switch {c['switch']!r} is a yes/no setting")
+            if (c.get("rule") in LINKED or c.get("switch")) and not str(c.get("hint") or "").strip():
                 errs.append(f"{c.get('id')}: a hint of what document shows it")
             if not str(c.get("summary") or "").strip():
                 errs.append(f"{c.get('id')}: a summary")

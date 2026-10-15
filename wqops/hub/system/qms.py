@@ -107,6 +107,33 @@ def declare(conn, user: dict, standard: str, control: str, applies: bool, reason
     return out
 
 
+def settings(conn, standard: str, pack: dict) -> dict:
+    """The pack's settings with the company's values: {key: value}."""
+    rows = conn.execute("select distinct on (key) key, value from qms_settings where standard = %s "
+                        "order by key, id desc", (standard,)).fetchall()
+    mine = {r["key"]: r["value"] for r in rows if r["key"] in (pack.get("settings") or {})}
+    return {**R.defaults(pack), **mine}
+
+
+def set_setting(conn, email: str, standard: str, key: str, value, today: dt.date, tz: str = "UTC") -> dict:  # noqa: PLR0917
+    """Change one setting; the next check uses it."""
+    row = enabled(conn, standard)
+    if row is None:
+        raise QmsError("adopt the standard first")
+    spec = (row["content"].get("settings") or {}).get(key)
+    if spec is None:
+        raise KeyError(key)
+    if type(spec["value"]) is bool:
+        if type(value) is not bool:
+            raise QmsError(f"{spec['label']}: yes or no")
+    elif type(value) is not int or not spec.get("min", 0) <= value <= spec.get("max", 3650):
+        raise QmsError(f"{spec['label']}: a whole number from {spec.get('min', 0)} to {spec.get('max', 3650)}")
+    out = conn.execute("insert into qms_settings (standard, key, value, email) values (%s, %s, %s, %s) returning *",
+                       (standard, key, Jsonb(value), email)).fetchone()
+    evaluate(conn, standard, today, "changed", email, tz=tz)
+    return out
+
+
 def evidence(conn, standard: str) -> dict[str, list[dict]]:
     rows = conn.execute(
         "select distinct on (e.control, e.document_id) e.control, e.document_id, e.linked, e.email, e.at, d.status, "
@@ -132,7 +159,7 @@ def link(conn, email: str, standard: str, control: str, document_id: int, linked
     c = controls(row["content"]).get(control)
     if c is None:
         raise KeyError(control)
-    if c["rule"] not in R.LINKED:
+    if c["rule"] not in R.LINKED and not c.get("switch"):
         raise QmsError("this requirement is judged from the records, not from a linked document")
     doc = LIB.get(conn, document_id)
     if linked and doc["status"] in ("rejected", "to_classify", "to_review"):
@@ -151,14 +178,15 @@ def link(conn, email: str, standard: str, control: str, document_id: int, linked
 
 # ---------------------------------------------------------------- facts and evaluations
 
-def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC") -> dict:
+def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # noqa: PLR0917
+          window_days: int | None = None) -> dict:
     """Everything the checks read, in one place, with times turned into the company's days."""
     zone = ZoneInfo(tz)
 
     def day(v):
         return v.astimezone(zone).date() if isinstance(v, dt.datetime) else v
 
-    since = today - dt.timedelta(days=int(pack["settings"]["window_days"]))
+    since = today - dt.timedelta(days=int(window_days or R.defaults(pack)["window_days"]))
     state = LIB.check(conn)
     sig: dict[tuple[str, int], set[str]] = {}
     for s in conn.execute("select kind, ref_id, email from signatures where kind in ('ncr', 'capa', 'document')"):
@@ -208,7 +236,8 @@ def evaluate(conn, standard: str, today: dt.date, trigger: str, email: str | Non
     if row is None:
         return None
     pack = row["content"]
-    results = R.evaluate(pack, row["edition"], facts(conn, pack, standard, today, tz))
+    values = settings(conn, standard, pack)
+    results = R.evaluate(pack, row["edition"], facts(conn, pack, standard, today, tz, values["window_days"]), values)
     return conn.execute("insert into qms_evaluations (pack_id, day, trigger, email, results, counts) values "
                         "(%s, %s, %s, %s, %s, %s) returning *",
                         (row["id"], today, trigger, email, Jsonb(results), Jsonb(R.counts(results)))).fetchone()
@@ -284,7 +313,8 @@ def view(conn, standard: str, eval_id: int | None = None, day: dt.date | None = 
             "shown_pack": {"id": shown["id"], "version": shown["version"], "edition": shown["edition"]},
             "newer_pack": pack_file["version"] != row["content"]["version"]
             or fingerprint(pack_file) != row["fingerprint"],
-            "settings": pack.get("settings") or {},
+            "settings": settings(conn, standard, pack),
+            "setting_specs": pack.get("settings") or {},
             "evaluation": {k: v for k, v in _iso(ev).items() if k != "results"} if ev else None,
             "processes": procs, "applicability": applicability(conn, standard), "evidence": evidence(conn, standard),
             "history": [_iso(h) for h in days]}

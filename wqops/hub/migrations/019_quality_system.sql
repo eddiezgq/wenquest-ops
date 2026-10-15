@@ -77,3 +77,16 @@ create table qms_evaluations (
 create index qms_evaluations_pack on qms_evaluations (pack_id, id);
 create trigger qms_evaluations_append_only before update or delete on qms_evaluations
     for each row execute function wqo_append_only();
+
+-- the company's own values for a pack's settings (days, and its own rules switched on or off); the latest row counts
+create table qms_settings (
+    id       bigserial primary key,
+    standard text not null,
+    key      text not null,
+    value    jsonb not null,
+    email    text not null,
+    at       timestamptz not null default now()
+);
+create index qms_settings_key on qms_settings (standard, key, id);
+create trigger qms_settings_append_only before update or delete on qms_settings
+    for each row execute function wqo_append_only();

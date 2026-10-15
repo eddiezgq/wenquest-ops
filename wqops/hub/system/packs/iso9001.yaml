@@ -8,6 +8,8 @@
 #   linked_document    met when a person linked a document in effect in the library as its evidence
 #   register:<name>    evidence from a quality register (step 16b); unknown until then
 # may_exclude: the company may declare the control point does not apply, with a reason (signed)
+# settings: defaults the company can change on the Quality system page. A control point checked by a rule of our own
+# names its switch; switched off, the company shows how it meets the requirement with a linked document instead.
 standard: iso9001
 label: ISO 9001 quality management system
 version: 1
@@ -15,10 +17,13 @@ editions:
   "2015": {label: "ISO 9001:2015 (with Amendment 1:2024)", ready: true}
   "2026": {label: "ISO 9001:2026", ready: false, note: "clause mapping after review of the published text"}
 settings:
-  window_days: 365            # records looked at: the last year
-  ncr_contain_days: 7         # a nonconformance is contained within this many days of being reported
-  capa_within_days: 14        # a major nonconformance has a corrective action within this many days
-  capa_overdue_days: 0        # days an action may be past its due date before it counts as late
+  window_days: {value: 365, min: 30, max: 3650, label: Days of records looked at}
+  ncr_contain_days: {value: 7, min: 0, max: 365, label: Days to contain a nonconformance}
+  concession_by_other: {value: true, label: A concession is approved by someone other than the person who proposed it}
+  major_needs_capa: {value: true, label: Every major nonconformance gets a corrective action}
+  capa_within_days: {value: 14, min: 0, max: 365, label: Days to open the corrective action for a major nonconformance}
+  actions_on_time: {value: true, label: Planned actions are checked against their due dates}
+  capa_overdue_days: {value: 0, min: 0, max: 365, label: Days an action may be late before it counts}
 processes:
   context:
     label: Context, scope and processes
@@ -147,6 +152,8 @@ processes:
       - id: ncr_concession
         summary: Acceptance under concession is authorized, and the authorization recorded.
         our_rule: The authorization is signed by someone other than the person who proposed the concession.
+        switch: concession_by_other
+        hint: the procedure that says who authorizes concessions
         clauses: {"2015": ["8.7.1", "8.7.2"]}
         rule: ncr_concession_approved
       - id: ncr_records
@@ -174,11 +181,15 @@ processes:
       - id: capa_for_major
         summary: For each nonconformity, the need for action on its cause is evaluated.
         our_rule: Every major nonconformance gets a corrective action within the set number of days.
+        switch: major_needs_capa
+        hint: the procedure that says when a corrective action is needed
         clauses: {"2015": ["10.2.1"]}
         rule: capa_for_major
       - id: capa_on_time
         summary: The actions needed are carried out.
         our_rule: Each planned action is done by its due date.
+        switch: actions_on_time
+        hint: the procedure that says how actions are followed up
         clauses: {"2015": ["10.2.1"]}
         rule: capa_on_time
       - id: capa_effective

@@ -240,6 +240,11 @@ def test_document_checks_and_declarations():
     assert res["ncr_concession"]["clauses"] == ["8.7.1", "8.7.2"] and res["ncr_concession"]["process"] == \
         "nonconforming"
     assert sum(R.counts(res).values()) == len(QMS.controls(pack))
+    # our own rules are settings: switched off, the control point is shown by a linked document instead
+    assert res["capa_on_time"]["rule"] == "capa_on_time"
+    off = R.evaluate(pack, "2015", facts(evidence={"capa_on_time": [policy]}), {"actions_on_time": False})
+    assert off["capa_on_time"]["rule"] == "linked_document" and off["capa_on_time"]["status"] == "met"
+    assert R.defaults(pack)["capa_within_days"] == 14
 
 
 # ---------------------------------------------------------------- in the database
@@ -309,6 +314,24 @@ def test_adopting_declaring_linking_and_evaluating(world):
     QMS.link(world, JORDAN, "iso9001", "policy", docs[0]["id"], False, T)
     assert QMS.latest(world, "iso9001")["results"]["policy"]["status"] == "unknown"
 
+    # settings: days and our own rules, changed and recorded; the next check uses them
+    with pytest.raises(QMS.QmsError, match="a whole number from 0 to 365"):
+        QMS.set_setting(world, JORDAN, "iso9001", "ncr_contain_days", 9999, T)
+    with pytest.raises(QMS.QmsError, match="yes or no"):
+        QMS.set_setting(world, JORDAN, "iso9001", "major_needs_capa", 0, T)
+    with pytest.raises(KeyError):
+        QMS.set_setting(world, JORDAN, "iso9001", "made_up", 1, T)
+    QMS.set_setting(world, JORDAN, "iso9001", "ncr_contain_days", 60, T)
+    assert QMS.latest(world, "iso9001")["results"]["ncr_contained"]["status"] == "met"
+    QMS.set_setting(world, JORDAN, "iso9001", "major_needs_capa", False, T)
+    out = QMS.latest(world, "iso9001")["results"]["capa_for_major"]
+    assert out["rule"] == "linked_document" and out["status"] == "unknown"
+    QMS.link(world, JORDAN, "iso9001", "capa_for_major", docs[0]["id"], True, T)
+    assert QMS.latest(world, "iso9001")["results"]["capa_for_major"]["status"] == "met"
+    assert QMS.settings(world, "iso9001", QMS.load("iso9001"))["major_needs_capa"] is False
+    with pytest.raises(psycopg.errors.RaiseException):
+        world.execute("update qms_settings set value = 'true'")
+
     # once a day; kept as they were
     assert QMS.evaluate_if_due(world, T) == ["iso9001"] and QMS.evaluate_if_due(world, T) == []
     assert QMS.evaluate_if_due(world, T + dt.timedelta(days=1)) == ["iso9001"]
@@ -366,10 +389,14 @@ def test_quality_system_api(db_url):
     assert c.post("/api/qms/iso9001/controls/nope/applies", json={"applies": False, "reason": "x",
                                                                      "password": PW}).status_code == 404
     assert c.post("/api/qms/iso9001/controls/policy/evidence", json={"document_id": True}).status_code == 400
+    r = c.post("/api/qms/iso9001/settings", json={"key": "actions_on_time", "value": False})
+    assert r.status_code == 200 and r.json()["settings"]["actions_on_time"] is False
+    assert c.post("/api/qms/iso9001/settings", json={"key": "window_days", "value": "a year"}).status_code == 409
     assert c.post("/api/qms/iso9001/controls/policy/evidence", json={"document_id": 10**6}).status_code == 404
     login(SAM)
     v = c.post("/api/qms/iso9001/evaluate").json()
     assert v["evaluation"]["trigger"] == "manual" and len(v["history"]) == 1    # one row a day
+    assert c.post("/api/qms/iso9001/settings", json={"key": "window_days", "value": 30}).status_code == 403
     assert v["can_check"] is True
     assert c.get("/api/qms/iso9001?day=yesterday").status_code == 400
     with DB.connect(db_url) as conn:
