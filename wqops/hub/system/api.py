@@ -15,10 +15,14 @@ from wqops.hub.ai import llm as L
 from wqops.hub.docs import library as LIB
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import records as Q
+from wqops.hub.quality import workflow_admin as WA
+from wqops.hub.quality import workflow_proposals as WP
 from wqops.hub.system import draft_ai as DAI
 from wqops.hub.system import gaps as G
 from wqops.hub.system import qms as QMS
 from wqops.hub.system import registers as RG
+from wqops.hub.system import setup as SU
+from wqops.hub.system import setup_ai as SAI
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR0915, PLR0917 - one route per action
@@ -30,7 +34,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
     def run(fn):
         try:
             return fn()
-        except (QMS.QmsError, Q.QualityError, RG.RegisterError, G.TodoError, LIB.DocError) as exc:
+        except (QMS.QmsError, Q.QualityError, RG.RegisterError, G.TodoError, LIB.DocError, SU.SetupError,
+                WA.AdminError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(404, "not found") from exc
@@ -254,4 +259,89 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
                 return {"document_id": doc["id"], "title": doc["title"]}
 
         return await asyncio.to_thread(work)
+
+    # ---------------------------------------------------------------- set-up (16d)
+
+    def company_name() -> str:
+        return (company()[0] or {}).get("company", {}).get("name", "the company")
+
+    def setup_page(c, u, standard: str) -> dict:
+        can = P.allows(u["roles"], "qms:configure")
+        can_ai = can and ai_ready() and all(P.allows(u["roles"], x) for x in ("documents:view", "ai:use"))
+        return {"questions": SU.QUESTIONS, **SU.answers(c, standard),
+                "proposed": run(lambda: SU.proposed_applicability(c, standard)) if QMS.enabled(c, standard) else [],
+                "adopted": QMS.enabled(c, standard) is not None, "can_configure": can, "ai": ai_ready(),
+                "can_write": can and P.allows(u["roles"], "documents:edit"),
+                "can_propose": can_ai, "proposals": SU.listing(c, standard), "generated": SU.generated(c),
+                "procedures": [{k: r[k] for k in ("id", "number", "title", "revision", "status", "original_name")}
+                               for r in WP.procedures(c, "ncr")] if can_ai else []}
+
+    @app.get("/api/qms/{standard}/setup")
+    def setup(standard: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        run(lambda: QMS.load(standard))
+        return setup_page(c, u, standard)
+
+    @app.post("/api/qms/{standard}/setup/answers")
+    async def save_answers(standard: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "qms:configure")
+        run(lambda: QMS.load(standard))
+        d = await body(request)
+        run(lambda: SU.save_answers(c, u["email"], standard, d.get("answers") or {}))
+        return setup_page(c, u, standard)
+
+    @app.post("/api/qms/{standard}/setup/apply")
+    async def apply_answers(standard: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "qms:configure")
+        d = await body(request)
+        run(lambda: SU.apply_answers(c, u, standard, str(d.get("password") or ""), today(), tz()))
+        return setup_page(c, u, standard)
+
+    @app.post("/api/qms/{standard}/setup/proposals", status_code=201)
+    async def propose_setup(standard: str, request: Request, u=Depends(user_dep)):
+        for perm in ("qms:configure", "documents:view", "ai:use"):
+            need(u, perm)
+        if not ai_ready():
+            raise HTTPException(409, "there is no model key; set the system up by hand")
+        d = await body(request)
+        raw = d.get("document_ids")
+        if not isinstance(raw, list) or any(type(x) is not int or not 0 < x < 2**63 for x in raw):
+            raise HTTPException(400, "document_ids is a list of document numbers")
+
+        def work():
+            with DB.connect(db_url) as c:
+                docs = run(lambda: WP.read(c, "ncr", raw))
+                try:
+                    p = run(lambda: SAI.propose(c, {"email": u["email"], "roles": u["roles"]}, standard, docs, model,
+                                                today=today(), company=company_name()))
+                except L.LlmError as exc:
+                    raise HTTPException(502, f"the model could not propose: {exc}") from exc
+                return SU.view(c, p["id"])
+
+        return await asyncio.to_thread(work)
+
+    @app.get("/api/qms-setup/{pid}")
+    def setup_proposal(pid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        if not 0 < pid < 2**63:
+            raise HTTPException(404, "not found")
+        return {**run(lambda: SU.view(c, pid)), "can_decide": P.allows(u["roles"], "qms:configure")}
+
+    @app.post("/api/qms-setup-items/{iid}/{how}")
+    async def decide(iid: int, how: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "qms:configure")
+        if how not in ("accept", "reject") or not 0 < iid < 2**63:
+            raise HTTPException(404, "not found")
+        d = await body(request)
+        it = run(lambda: SU.decide(c, u, iid, how == "accept", password=str(d.get("password") or ""),
+                                   note=str(d.get("note") or ""), today=today(), tz=tz()))
+        return {**SU.view(c, it["proposal_id"]), "can_decide": True}
+
+    @app.post("/api/qms-procedures/{kind}", status_code=201)
+    def write_procedure(kind: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        """Write the procedure for NCRs or CAPAs from the workflow in use, into the library for approval."""
+        need(u, "qms:configure")
+        need(u, "documents:edit")
+        doc = run(lambda: SU.generate(c, u["email"], kind, company_name()))
+        return {"document_id": doc["id"], "title": doc["title"]}
 

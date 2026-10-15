@@ -108,7 +108,7 @@ def roles(b: Browser, people: list[dict]) -> None:
         for path in ["/", "/assistant", "/anomalies", "/objects", "/drafts", "/help", "/documents"] + \
                 (["/quality", "/quality?tab=incoming", "/quality?tab=suppliers", "/quality?tab=spc",
                   "/quality?tab=workflows", "/system", "/system/registers/training", "/system/gaps",
-                  "/system/audit"]
+                  "/system/audit", "/system/setup"]
                  if "quality:view" in perms else []):
             try:
                 s.go(path, "h1, main .help-nav")
@@ -404,6 +404,10 @@ def quality_system(b: Browser) -> None:
           f"quality system: a to-do for every gap ({gaps.get('counts')})")
     q.go("/system/gaps", "article.gap")
     q.go("/system/audit", "section.checklist")
+    q.go("/system/setup", "section.questions")
+    w = q.page.request.post(f"{BASE}/api/qms-procedures/ncr")
+    check(w.ok and "Nonconforming" in w.json().get("title", ""),
+          f"quality system: the nonconformance procedure is written from the workflow ({w.status})")
     check(not q.errors, f"quality system: no script errors ({q.errors[:2]})")
     q.close()
     s = Session(b, "sam@demo.example", PW)
