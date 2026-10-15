@@ -53,7 +53,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         return {"inspections": I.listing(c, status), "waiting": I.awaiting(c), "plans": I.plans(c),
                 "rows": I.rows(c), "levels": I.levels(c), "rules": I.switch_rules(c), "settings": I.settings(c),
                 "setting_labels": {k: v[1] for k, v in I.SETTINGS.items()}, "conditions": S.CONDITIONS,
-                "items": I.items(c), **can(u)}
+                "items": I.items(c), "suppliers": I.suppliers(c), **can(u)}
 
     # ------------------------------------------------ inspections
 
@@ -138,7 +138,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         d = await body(request)
         if action == "enable":
             need(u, "qms:configure")
-            run(lambda: I.enable_plan(c, u, ident(pid), str(d.get("password") or "")))
+            run(lambda: I.enable_plan(c, u, ident(pid), str(d.get("password") or ""),
+                                      str(d["seen"]) if d.get("seen") else None))
         elif action == "discard":
             need(u, "quality:edit")
             run(lambda: I.discard_plan(c, u["email"], ident(pid)))

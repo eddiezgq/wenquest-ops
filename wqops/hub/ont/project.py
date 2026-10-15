@@ -254,6 +254,8 @@ def purchase_receipt(d):
         {
             "item_code": _str,
             "qty": _num,
+            "stock_qty": _num,
+            "stock_uom": _str,
             "rejected_qty": _num,
             "purchase_order": _str,
             "purchase_order_item": _str,

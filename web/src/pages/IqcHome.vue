@@ -95,9 +95,10 @@ function pickSwitch(x) { sw.value[key(x)] = { to: x.suggestion?.to || '', reason
           <label class="wq-field">Item<select v-model="manual.item_code" class="wq-select"><option value="" />
             <option v-for="p in h.plans.filter((p) => p.status === 'enabled')" :key="p.id" :value="p.item_code">{{ p.item_code }}</option></select></label>
           <label class="wq-field">Lot size<input v-model="manual.lot_qty" type="number" min="1" class="wq-input w-28"></label>
-          <label class="wq-field">Supplier<input v-model="manual.supplier" class="wq-input w-44"></label>
+          <label class="wq-field">Supplier<select v-model="manual.supplier" class="wq-select w-48"><option value="" />
+            <option v-for="s in h.suppliers" :key="s.key" :value="s.key">{{ s.name }}</option></select></label>
           <label class="wq-field">Lot number<input v-model="manual.lot_no" class="wq-input w-32"></label>
-          <Button type="submit" label="Start inspection" :disabled="!manual.item_code || !(Number(manual.lot_qty) > 0)" />
+          <Button type="submit" label="Start inspection" :disabled="!manual.item_code || !manual.supplier || !(Number(manual.lot_qty) > 0)" />
         </form>
       </details>
     </section>

@@ -42,7 +42,7 @@ async function call(path, method, body, message) {
 const num = (v) => (v === '' || v === null ? null : Number(v))
 const save = () => call(`/api/iqc/plans/${p.value.id}`, 'PUT', { aql: Number(aql.value), note: note.value,
   characteristics: chars.value.map((c) => ({ ...c, lsl: c.kind === 'measured' ? num(c.lsl) : null, usl: c.kind === 'measured' ? num(c.usl) : null, unit: c.kind === 'measured' ? c.unit : '' })) }, 'Saved.')
-const enable = () => call(`/api/iqc/plans/${p.value.id}/enable`, 'POST', { password: password.value }, 'Enabled: lots of this item are now inspected to this plan.')
+const enable = () => call(`/api/iqc/plans/${p.value.id}/enable`, 'POST', { password: password.value, seen: p.value.updated_at }, 'Enabled: lots of this item are now inspected to this plan.')
 const discard = () => call(`/api/iqc/plans/${p.value.id}/discard`, 'POST', {}, 'Discarded.')
 const newVersion = () => call(`/api/iqc/plans/${p.value.id}/new-version`, 'POST', {}, 'A new draft version: change it, then have it enabled.')
 const add = () => chars.value.push({ name: '', kind: 'measured', lsl: '', usl: '', unit: '', method: '' })

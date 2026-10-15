@@ -248,8 +248,9 @@ def fingerprint(p: dict) -> str:
     return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def enable_plan(conn, user: dict, plan_id: int, password: str) -> dict:
-    """Put a draft plan in use, signed; the plan it replaces is retired. The sampling table must cover its AQL."""
+def enable_plan(conn, user: dict, plan_id: int, password: str, seen: str | None = None) -> dict:
+    """Put a draft plan in use, signed; the plan it replaces is retired. The sampling table must cover its AQL.
+    ``seen``: the plan's last change as the signer saw it; if it changed since, nothing is enabled."""
     p = plan(conn, plan_id)
     if p["status"] != "draft":
         raise IqcError(f"the plan is {p['status']}")
@@ -264,6 +265,11 @@ def enable_plan(conn, user: dict, plan_id: int, password: str) -> dict:
     Q.check_signer(conn, user, password)
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-iqc-plan:{p['item_code']}",))
+        now = conn.execute("select * from iqc_plans where id = %s for update", (plan_id,)).fetchone()
+        if now["status"] != "draft" or now["updated_at"] != p["updated_at"] or (
+                seen and seen != now["updated_at"].isoformat()):
+            raise IqcError("the plan changed since you opened it: look at it again before enabling")
+        p = now
         old = enabled_plan(conn, p["item_code"])
         if old:
             conn.execute("update iqc_plans set status = 'retired', retired_at = now() where id = %s", (old["id"],))
@@ -411,7 +417,9 @@ def _receipt_line(conn, receipt: str, item_code: str) -> dict | None:
     r = conn.execute("select props from ont_objects where type = 'PurchaseReceipt' and key = %s", (receipt,)).fetchone()
     if r is None:
         return None
-    qty = sum(float(ln.get("qty") or 0) for ln in r["props"].get("lines", []) if ln.get("item_code") == item_code)
+    # the lot in stock units (a line of 10 boxes of 100 is a lot of 1000); the purchase quantity if there is no other
+    qty = sum(float(ln.get("stock_qty") if ln.get("stock_qty") is not None else ln.get("qty") or 0)
+              for ln in r["props"].get("lines", []) if ln.get("item_code") == item_code)
     link = conn.execute("select dst_key from ont_links where src_type = 'PurchaseReceipt' and src_key = %s and "
                         "type = 'supplier'", (receipt,)).fetchone()
     return {"qty": qty, "supplier": link["dst_key"] if link else None} if qty else None
@@ -426,6 +434,24 @@ def awaiting(conn) -> list[dict]:
             if (x["receipt"], x["item_code"]) not in started]
 
 
+def _receipt_lot(conn, receipt: str, item_code: str, supplier, lot_qty) -> tuple[str | None, float]:
+    """A lot on a receipt is the receipt's: its supplier and quantity, not what is typed."""
+    line = _receipt_line(conn, receipt, item_code)
+    if line is None:
+        raise IqcError(f"receipt {receipt} has no {item_code}")
+    if supplier and supplier != line["supplier"]:
+        raise IqcError(f"receipt {receipt} is from {line['supplier']}, not {supplier}")
+    if lot_qty not in (None, "") and _num(lot_qty, "the lot size") != line["qty"]:
+        raise IqcError(f"receipt {receipt} has {line['qty']:g} of {item_code}")
+    if not float(line["qty"]).is_integer():
+        raise IqcError(f"receipt {receipt} has {line['qty']:g} of {item_code}, not a whole number of pieces: "
+                       "inspect it as a lot not on a receipt, in pieces")
+    if conn.execute("select 1 from iqc_inspections where receipt = %s and item_code = %s and status <> 'void'",
+                    (receipt, item_code)).fetchone():
+        raise IqcError(f"{item_code} on {receipt} is already being inspected")
+    return line["supplier"], line["qty"]
+
+
 def start(conn, email: str, item_code: str, lot_qty=None, *, receipt: str | None = None,
           supplier: str | None = None, lot_no: str = "") -> dict:
     """Begin the inspection of a lot: n, Ac and Re from the sampling table for the plan's AQL, the lot size and the
@@ -435,15 +461,10 @@ def start(conn, email: str, item_code: str, lot_qty=None, *, receipt: str | None
     if p is None:
         raise IqcError(f"{item_code or 'the item'} has no inspection plan in use: enable one first")
     if receipt:
-        line = _receipt_line(conn, receipt, item_code)
-        if line is None:
-            raise IqcError(f"receipt {receipt} has no {item_code}")
-        supplier = supplier or line["supplier"]
-        if lot_qty in (None, ""):
-            lot_qty = line["qty"]
-        if conn.execute("select 1 from iqc_inspections where receipt = %s and item_code = %s and status <> 'void'",
-                        (receipt, item_code)).fetchone():
-            raise IqcError(f"{item_code} on {receipt} is already being inspected")
+        supplier, lot_qty = _receipt_lot(conn, receipt, item_code, supplier, lot_qty)
+    elif not supplier or supplier not in {x["key"] for x in suppliers(conn)}:
+        # the supplier decides the inspection level, so it must be one ERPNext knows
+        raise IqcError("choose the supplier from the list (a supplier in ERPNext)")
     qty = _int(lot_qty, "the lot size")
     if qty < 1:
         raise IqcError("the lot size is at least 1")
@@ -454,6 +475,11 @@ def start(conn, email: str, item_code: str, lot_qty=None, *, receipt: str | None
         raise IqcError(str(exc)) from exc
     sp = S.plan_for(row, qty)
     with conn.transaction():
+        if receipt:
+            conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-iqc-line:{receipt}:{item_code}",))
+            if conn.execute("select 1 from iqc_inspections where receipt = %s and item_code = %s and "
+                            "status <> 'void'", (receipt, item_code)).fetchone():
+                raise IqcError(f"{item_code} on {receipt} is already being inspected")
         name = Q._next_name(conn, "iqc_inspections", "IQC")
         ins = conn.execute(
             "insert into iqc_inspections (name, plan_id, item_code, receipt, supplier, lot_no, lot_qty, level, "
@@ -498,6 +524,9 @@ def enter(conn, email: str, ins_id: int, values: list[dict]) -> int:
         raise IqcError("readings are a list")
     n = 0
     with conn.transaction():
+        st = conn.execute("select status from iqc_inspections where id = %s for update", (ins_id,)).fetchone()
+        if st["status"] != "in_progress":
+            raise IqcError(f"the inspection is {st['status'].replace('_', ' ')}: readings cannot change")
         for v in values:
             if not isinstance(v, dict) or v.get("characteristic") not in kinds or type(v.get("sample")) is not int:
                 raise IqcError("each reading names its sample and characteristic")
@@ -526,12 +555,16 @@ def sign(conn, user: dict, ins_id: int, password: str) -> dict:
     if ins["status"] != "in_progress":
         raise IqcError(f"the inspection is {ins['status'].replace('_', ' ')}")
     chars = plan(conn, ins["plan_id"])["characteristics"]
-    try:
-        j = S.judge(chars, readings(conn, ins_id), ins["n"], ins["ac"], ins["re"])
-    except S.SamplingError as exc:
-        raise IqcError(str(exc)) from exc
     Q.check_signer(conn, user, password)
     with conn.transaction():
+        # locked, so no reading changes between judging and signing
+        if conn.execute("select status from iqc_inspections where id = %s for update",
+                        (ins_id,)).fetchone()["status"] != "in_progress":
+            raise IqcError("the inspection changed meanwhile: open it again")
+        try:
+            j = S.judge(chars, readings(conn, ins_id), ins["n"], ins["ac"], ins["re"])
+        except S.SamplingError as exc:
+            raise IqcError(str(exc)) from exc
         row = conn.execute("update iqc_inspections set status = 'judged', result = %s, defectives = %s, "
                            "signed_by = %s, signed_at = now() where id = %s and status = 'in_progress' returning *",
                            (j["result"], j["defectives"], user["email"], ins_id)).fetchone()
@@ -594,17 +627,18 @@ def decide(conn, user: dict, ins_id: int, password: str, note: str = "", *, toda
 
 
 def void(conn, email: str, ins_id: int, reason: str) -> dict:
-    """An inspection started or signed by mistake is voided with a reason; a released or rejected lot is not (it
-    has been dealt with: use a nonconformance report)."""
+    """An inspection started by mistake is voided with a reason, before it is signed. A signed one is released or
+    rejected, so a rejected lot is never sampled again to get another result."""
     if not reason.strip():
         raise IqcError("give the reason")
     with conn.transaction():
         row = conn.execute("update iqc_inspections set status = 'void', void_reason = %s, decided_by = %s, "
-                           "decided_at = now() where id = %s and status in ('in_progress', 'judged') returning *",
+                           "decided_at = now() where id = %s and status = 'in_progress' returning *",
                            (reason.strip()[:1000], email, ins_id)).fetchone()
         if row is None:
             ins = get(conn, ins_id)
-            raise IqcError(f"a {ins['status']} inspection cannot be voided")
+            raise IqcError(f"a {ins['status'].replace('_', ' ')} inspection cannot be voided: once signed, the "
+                           "lot is released or rejected")
         log(conn, "inspection", ins_id, email, "voided", reason.strip())
     return row
 
@@ -644,3 +678,12 @@ def items(conn) -> list[dict]:
     """Items there are, for choosing what a plan is for."""
     return [{"item_code": o["key"], "name": o["props"].get("item_name") or o["key"],
              "inspect": bool(o["props"].get("inspection_required"))} for o in M._objs(conn, "Item")]
+
+
+def suppliers(conn) -> list[dict]:
+    """Suppliers ERPNext knows: its supplier records and the suppliers of its purchase receipts."""
+    names = {o["key"]: o["props"].get("supplier_name") or o["key"] for o in M._objs(conn, "Supplier")}
+    for r in conn.execute("select distinct dst_key from ont_links where src_type = 'PurchaseReceipt' and "
+                          "type = 'supplier'"):
+        names.setdefault(r["dst_key"], r["dst_key"])
+    return [{"key": k, "name": v} for k, v in sorted(names.items(), key=lambda x: x[1])]

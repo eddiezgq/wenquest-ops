@@ -91,7 +91,13 @@ create table iqc_inspections (
     draft_id        bigint references erp_drafts (id),
     ncr_id          bigint references ncr_records (id),
     created_by      text not null,
-    created_at      timestamptz not null default now()
+    created_at      timestamptz not null default now(),
+    check (status <> 'released' or result = 'accept'),
+    check (status <> 'rejected' or result = 'reject'),
+    check (status not in ('judged', 'released', 'rejected') or (result is not null and defectives is not null
+                                                               and signed_by is not null and signed_at is not null)),
+    check (status not in ('released', 'rejected') or (decided_by is not null and decided_at is not null)),
+    check (status <> 'void' or void_reason is not null)
 );
 create index iqc_inspections_lot on iqc_inspections (supplier, item_code, id);
 create unique index iqc_inspections_one_per_line on iqc_inspections (receipt, item_code)
@@ -116,8 +122,13 @@ begin
             new.void_reason) is distinct from (old.decided_by, old.decided_at, old.decision_note, old.void_reason)) then
         raise exception 'inspection % is %: the decision cannot change', old.id, old.status;
     end if;
+    if (old.ncr_id is not null and new.ncr_id is distinct from old.ncr_id)
+            or (old.draft_id is not null and new.draft_id is distinct from old.draft_id) then
+        raise exception 'inspection % keeps its nonconformance report and its draft', old.id;
+    end if;
+    -- a signed inspection is decided, never voided: a rejected lot is not sampled again
     if not (old.status = new.status or (old.status = 'in_progress' and new.status in ('judged', 'void'))
-            or (old.status = 'judged' and new.status in ('released', 'rejected', 'void'))) then
+            or (old.status = 'judged' and new.status in ('released', 'rejected'))) then
         raise exception 'inspection % cannot go from % to %', old.id, old.status, new.status;
     end if;
     return new;
@@ -143,7 +154,13 @@ begin
     if tg_op = 'DELETE' then
         raise exception 'readings are kept';
     end if;
-    if (select status from iqc_inspections where id = old.inspection_id) <> 'in_progress' then
+    if tg_op = 'INSERT' then
+        if (select status from iqc_inspections where id = new.inspection_id) <> 'in_progress' then
+            raise exception 'the inspection is signed: no readings can be added';
+        end if;
+        return new;
+    end if;
+    if (select status from iqc_inspections where id = old.inspection_id for share) <> 'in_progress' then
         raise exception 'the inspection is signed: its readings cannot change';
     end if;
     if (new.inspection_id, new.sample, new.characteristic) is distinct from
@@ -152,7 +169,7 @@ begin
     end if;
     return new;
 end $$;
-create trigger iqc_readings_kept before update or delete on iqc_readings
+create trigger iqc_readings_kept before insert or update or delete on iqc_readings
     for each row execute function wqo_iqc_reading_kept();
 
 -- a sampling table row that an inspection used keeps its numbers and its source

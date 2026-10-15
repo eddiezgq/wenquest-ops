@@ -100,8 +100,11 @@ def test_plans_frozen_once_enabled(world):
     with pytest.raises(I.IqcError, match=r"no normal rows for AQL 2\.5"):
         I.update_plan(world, JORDAN, p["id"], aql=2.5)
         I.enable_plan(world, u(world, DANA), p["id"], PW)
-    I.update_plan(world, JORDAN, p["id"], aql=1.0)
-    on = I.enable_plan(world, u(world, DANA), p["id"], PW)
+    seen = I.update_plan(world, JORDAN, p["id"], aql=1.0)["updated_at"].isoformat()
+    I.update_plan(world, JORDAN, p["id"], note="changed after Dana opened it")
+    with pytest.raises(I.IqcError, match="changed since you opened it"):
+        I.enable_plan(world, u(world, DANA), p["id"], PW, seen)
+    on = I.enable_plan(world, u(world, DANA), p["id"], PW, I.plan(world, p["id"])["updated_at"].isoformat())
     assert on["status"] == "enabled" and on["fingerprint"] == I.fingerprint(on)
     with pytest.raises(I.IqcError, match="make a new version"):
         I.update_plan(world, JORDAN, p["id"], aql=2.5)
@@ -128,6 +131,11 @@ def test_inspection_from_receipt_to_erpnext(world):
     assert (ins["supplier"], ins["lot_qty"], ins["level"], ins["n"], ins["ac"], ins["re"], ins["unverified"]) == \
         ("Gulf Fasteners", 100, "normal", 3, 0, 1, True)
     assert "PR-7" not in {x["receipt"] for x in I.awaiting(world)}
+    # a lot on a receipt is the receipt's: no other supplier or lot size
+    with pytest.raises(I.IqcError, match="is from Gulf Fasteners, not Acme Cable"):
+        I.start(world, JORDAN, "BOLT-B", receipt="PR-8", supplier="Acme Cable")
+    with pytest.raises(I.IqcError, match="has 100 of BOLT-B"):
+        I.start(world, JORDAN, "BOLT-B", 10, receipt="PR-8")
     with pytest.raises(I.IqcError, match="already being inspected"):
         I.start(world, JORDAN, "BOLT-B", receipt="PR-7")
     assert len(I.readings(world, ins["id"])) == 6
@@ -146,6 +154,14 @@ def test_inspection_from_receipt_to_erpnext(world):
         I.enter(world, JORDAN, ins["id"], [{"sample": 1, "characteristic": "Length", "value": 11}])
     with pytest.raises(psycopg.errors.RaiseException, match="signed"):
         world.execute("update iqc_readings set value = 11 where inspection_id = %s", (ins["id"],))
+    with pytest.raises(psycopg.errors.RaiseException, match="no readings can be added"):
+        world.execute("insert into iqc_readings (inspection_id, sample, characteristic) values (%s, 9, 'Length')",
+                      (ins["id"],))
+    with pytest.raises(I.IqcError, match="cannot be voided: once signed"):
+        I.void(world, JORDAN, ins["id"], "start again")
+    with pytest.raises(psycopg.errors.CheckViolation):          # an accepted lot is not rejected by hand, nor back
+        world.execute("update iqc_inspections set status = 'rejected', decided_by = 'x', decided_at = now() "
+                      "where id = %s", (ins["id"],))
     with pytest.raises(PermissionError, match="other than the inspector"):
         I.decide(world, u(world, JORDAN), ins["id"], PW, today=AS_OF)
     # the sampling row was not checked: releasing needs a reason
@@ -214,6 +230,8 @@ def test_switching_is_suggested_and_confirmed(world):
 def test_void_and_rules(world):
     table(world)
     plan(world)
+    with pytest.raises(I.IqcError, match="choose the supplier"):
+        I.start(world, JORDAN, "BOLT-B", 40, supplier="Gulf Fastners", lot_no="L-9")
     ins = I.start(world, JORDAN, "BOLT-B", 40, supplier="Gulf Fasteners", lot_no="L-9")
     assert (ins["receipt"], ins["n"], ins["lot_qty"]) == (None, 5, 40)
     with pytest.raises(I.IqcError, match="give the reason"):

@@ -47,7 +47,7 @@ function changed() {
       const before = r.passed === true ? 'pass' : r.passed === false ? 'fail' : r.value ?? ''
       if (String(x ?? '') === String(before)) continue
       out.push(c.kind === 'attribute' ? { sample: s, characteristic: c.name, passed: x === '' ? null : x === 'pass' }
-        : { sample: s, characteristic: c.name, value: x === '' ? null : Number(x) })
+        : { sample: s, characteristic: c.name, value: String(x ?? '').trim() || null })   // the server checks the number
     }
   }
   return out
