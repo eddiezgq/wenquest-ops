@@ -60,6 +60,9 @@ def test_planned_effect_and_reading(world):
     a = LIB.approve(world, u(world, SAM), doc["id"], PW, T, T + D(days=7))
     assert (a["status"], a["effective_date"], a["fingerprint"]) == ("approved", T + D(days=7), a["sha256"])
     assert LIB.take_effect_due(world, T + D(days=6)) == [] and CTL.training(world, today=T) == []
+    # what must be read was signed with the approval
+    with pytest.raises(CTL.ControlError, match="set before approval"):
+        CTL.set_training(world, JORDAN, doc["id"], doc["trainees"], False)
     assert LIB.take_effect_due(world, T + D(days=7)) == [doc["id"]]
     assert LIB.get(world, doc["id"])["status"] == "effective"
     recs = CTL.training(world, document_id=doc["id"], today=T + D(days=7))
@@ -82,6 +85,27 @@ def test_planned_effect_and_reading(world):
     assert CTL.waive(world, JORDAN, dana["id"], "not in the warehouse any more")["status"] == "waived"
     with pytest.raises(psycopg.errors.RaiseException, match="kept"):
         world.execute("delete from doc_training")
+    # someone added to a revision in effect is asked at once
+    CTL.set_training(world, JORDAN, doc["id"], {"roles": ["warehouse"], "people": [DANA, SAM]}, True, today=T)
+    assert {r["email"] for r in CTL.training(world, document_id=doc["id"], today=T)} == {DANA, LEE, SAM}
+    # made obsolete with nobody replacing it: its open reading is no longer asked for
+    LIB.obsolete(world, JORDAN, doc["id"], "process retired")
+    assert {r["status"] for r in CTL.training(world, document_id=doc["id"], today=T)} == {
+        "acknowledged", "waived", "superseded"}
+
+
+def test_planned_revision_can_be_withdrawn_and_does_not_clash(world):
+    doc = in_review(world)
+    LIB.approve(world, u(world, SAM), doc["id"], PW, T, T + D(days=10))
+    # another revision of the same number, not uploaded as a new revision of it, cannot go ahead meanwhile
+    imp, (x,) = imported(world, ["QP-04"])
+    AIC.run(world, {"email": JORDAN, "roles": ["quality"]}, imp["id"], None, today=T)
+    LIB.confirm(world, JORDAN, x["id"])
+    LIB.edit(world, JORDAN, x["id"], {"number": "QP-08", "revision": "E"})
+    with pytest.raises(LIB.DocError, match="rev C is approved"):
+        LIB.submit(world, JORDAN, x["id"])
+    assert LIB.obsolete(world, JORDAN, doc["id"], "approved by mistake")["status"] == "obsolete"
+    assert LIB.take_effect_due(world, T + D(days=10)) == []
 
 
 def test_new_revision_supersedes_reading(world):
@@ -98,7 +122,7 @@ def test_new_revision_supersedes_reading(world):
     old = {r["email"]: r for r in CTL.training(world, document_id=doc["id"], today=T)}
     assert {r["status"] for r in old.values()} == {"superseded"} and "revision D" in old[LEE]["note"]
     assert {r["email"] for r in CTL.training(world, document_id=rev["id"], today=T)} == {DANA, LEE}
-    with pytest.raises(CTL.ControlError, match="set before it takes effect"):
+    with pytest.raises(CTL.ControlError, match="set before approval"):
         CTL.set_training(world, JORDAN, rev["id"], rev["trainees"], False)
 
 
@@ -143,8 +167,10 @@ def test_iso_training_check_reads_reading(world):
     for rec in CTL.training(world, document_id=doc["id"], today=T):
         CTL.acknowledge(world, u(world, rec["email"]), rec["id"], PW)
     facts["doc_training"] = CTL.training_facts(world)
-    assert R.training_current(facts, R.defaults(QMS.load("iso13485")))["detail"] == (
-        "2 readings of controlled documents confirmed, none overdue.")
+    r = R.training_current(facts, R.defaults(QMS.load("iso13485")))
+    # reading alone is not evidence of competence: with an empty register it stays unknown
+    assert (r["status"], r["detail"]) == ("unknown", "Nothing in the training register yet; 2 readings of controlled "
+                                                     "documents confirmed, none overdue.")
 
 
 def test_doc_control_api(db_url):

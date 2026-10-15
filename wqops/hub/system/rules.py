@@ -338,6 +338,9 @@ def training_current(facts: dict, settings: dict) -> dict:
     if bad:
         return result(NOT_MET, f"{_plural(len(bad), 'training record')} out of date.", bad)
     done = [r for r in reading if r["status"] == "acknowledged"]
+    if not latest:          # reading alone does not show people are competent: the register is still empty
+        return result(UNKNOWN, f"Nothing in the training register yet; {_plural(len(done), 'reading')} of "
+                               "controlled documents confirmed, none overdue.")
     parts = ([f"{_plural(len(latest), 'person and skill')} with current training records"] if latest else []) + (
         [f"{_plural(len(done), 'reading')} of controlled documents confirmed, none overdue"] if reading else [])
     return result(MET, "; ".join(parts) + ".",

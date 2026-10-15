@@ -138,6 +138,9 @@ def decide_review(conn, user: dict, review_id: int, approve: bool, *, password: 
     if approve:
         Q.check_signer(conn, user, password)
     with conn.transaction():
+        if approve and conn.execute("select status from documents where id = %s for update",
+                                    (r["document_id"],)).fetchone()["status"] != "effective":
+            raise ControlError("the document is no longer in effect: send the review back")
         row = conn.execute("update doc_reviews set status = %s, approved_by = %s, approved_at = now(), "
                            "decision_note = %s where id = %s and status = 'submitted' returning *",
                            ("approved" if approve else "rejected", user["email"], note.strip()[:2000],
@@ -188,23 +191,26 @@ def clean_trainees(conn, raw) -> dict:
     return {"roles": sorted({str(r).strip() for r in roles if str(r).strip()}), "people": people}
 
 
-def set_training(conn, email: str, doc_id: int, trainees, needs_training: bool) -> dict:
-    """Who must read the document, and whether this revision needs it; set before the revision takes effect (the
-    list carries to later revisions)."""
+def set_training(conn, email: str, doc_id: int, trainees, needs_training: bool, *,
+                 today: dt.date | None = None) -> dict:
+    """Who must read the document, and whether this revision needs it (fixed once it is approved). The list carries
+    to later revisions; people added to a revision in effect that needs reading are asked to read it at once."""
     doc = _doc(conn, doc_id)
     if doc["status"] not in ("draft", "in_review", "approved", "effective", "confirmed"):
         raise ControlError("not a document in the library")
     t = clean_trainees(conn, trainees)
     if type(needs_training) is not bool:
         raise ControlError("needs training is yes or no")
-    if doc["status"] == "effective" and needs_training != doc["needs_training"]:
-        raise ControlError("this revision is in effect: whether it needs reading is set before it takes effect")
+    if doc["status"] in ("approved", "effective") and needs_training != doc["needs_training"]:
+        raise ControlError("this revision is approved: whether it needs reading was set before approval")
     with conn.transaction():
         row = conn.execute("update documents set trainees = %s, needs_training = %s, updated_at = now() where id = %s "
                            "returning *", (Jsonb(t), needs_training, doc_id)).fetchone()
         _log(conn, doc_id, email, "readers set", f"roles: {', '.join(t['roles']) or '-'}; people: "
              f"{', '.join(t['people']) or '-'}; this revision {'needs' if needs_training else 'does not need'} "
              "reading")
+        if row["status"] == "effective" and row["needs_training"]:
+            _assign(conn, row, email, today or dt.datetime.now(dt.UTC).date())
     return row
 
 
@@ -228,15 +234,21 @@ def on_effective(conn, doc: dict, email: str, today: dt.date) -> int:
                                                    doc["supersedes"]))
     if not doc.get("needs_training"):
         return 0
+    return _assign(conn, doc, email, today)
+
+
+def _assign(conn, doc: dict, email: str, today: dt.date) -> int:
+    """A record for each reader who has none for this revision yet."""
     days = (type_settings(conn).get(doc.get("doc_type") or "") or {}).get("training_days") or 30
     due = today + dt.timedelta(days=days)
     people = readers(conn, doc.get("trainees") or {})
+    added = 0
     for p in people:
-        conn.execute("insert into doc_training (document_id, email, due) values (%s, %s, %s) on conflict do nothing",
-                     (doc["id"], p, due))
-    if people:
-        _log(conn, doc["id"], email, "reading assigned", f"{len(people)} people, due {due}")
-    return len(people)
+        added += conn.execute("insert into doc_training (document_id, email, due) values (%s, %s, %s) on conflict do "
+                              "nothing", (doc["id"], p, due)).rowcount
+    if added:
+        _log(conn, doc["id"], email, "reading assigned", f"{added} people, due {due}")
+    return added
 
 
 def acknowledge(conn, user: dict, record_id: int, password: str) -> dict:

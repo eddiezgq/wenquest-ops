@@ -284,6 +284,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
             "process_name": LIB.processes(c).get(doc["process"] or "", None),
             "suggest": LIB.suggestions(c, doc),
             "next_review": nxt.isoformat() if nxt else None,
+            "review_overdue": bool(nxt and nxt < OA.today(company()[0])),
             "reviews": CTL.reviews(c, doc["id"]), "review_outcomes": CTL.OUTCOMES,
             "training": CTL.training(c, document_id=doc["id"], today=OA.today(company()[0])),
             "readers_now": CTL.readers(c, doc["trainees"]),
@@ -404,7 +405,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         if not isinstance(d, dict):
             raise HTTPException(400, "send the readers")
         doc = run(lambda: CTL.set_training(c, u["email"], ident(doc_id), d.get("trainees"),
-                                           d.get("needs_training", False)))
+                                           d.get("needs_training", False), today=today_()))
         return doc_view(c, doc)
 
     @app.post("/api/docs/{doc_id}/reviews", status_code=201)

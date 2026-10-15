@@ -24,7 +24,7 @@ const TR = { pending: 'amber', acknowledged: 'green', waived: 'gray', superseded
 watch(() => props.d, (d) => { roles.value = [...d.trainees.roles]; people.value = [...d.trainees.people]; needs.value = d.needs_training }, { immediate: true })
 const drafts = computed(() => props.d.revisions.filter((r) => ['draft', 'in_review', 'approved'].includes(r.status) && r.id !== props.d.id))
 const waiting = computed(() => props.d.reviews.find((r) => r.status === 'submitted'))
-const overdue = computed(() => props.d.next_review && props.d.next_review < new Date().toISOString().slice(0, 10))
+const overdue = computed(() => props.d.review_overdue)
 
 async function call(path, method, body, message) {
   error.value = ''; done.value = ''

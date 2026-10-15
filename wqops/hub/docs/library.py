@@ -300,11 +300,12 @@ def _no_clash(conn, doc: dict) -> None:
                         (doc["number"], doc["revision"], doc["id"])).fetchone()
     if same:
         raise DocError(f"{doc['number']} rev {doc['revision']} already exists (document {same['id']})")
-    other = conn.execute("select id, revision from documents where number = %s and status = 'effective' and id <> %s "
-                         "and id is distinct from %s", (doc["number"], doc["id"], doc["supersedes"])).fetchone()
+    other = conn.execute("select id, revision, status from documents where number = %s and status in ('approved', "
+                         "'effective') and id <> %s and id is distinct from %s and supersedes is distinct from %s",
+                         (doc["number"], doc["id"], doc["supersedes"], doc["id"])).fetchone()
     if other:
-        raise DocError(f"{doc['number']} rev {other['revision']} is effective (document {other['id']}): upload this "
-                       "as a new revision of it, or make that one obsolete first")
+        raise DocError(f"{doc['number']} rev {other['revision']} is {other['status']} (document {other['id']}): upload "
+                       "this as a new revision of it, or make that one obsolete first")
 
 
 def involved(conn, doc: dict) -> set[str]:
@@ -380,7 +381,10 @@ def approve(conn, user: dict, doc_id: int, password: str, today: dt.date,  # noq
 
     if effective_on is not None and effective_on < today:
         raise DocError("it cannot take effect before the day it is approved")
-    allowed(get(conn, doc_id))
+    first = get(conn, doc_id)
+    allowed(first)
+    if effective_on is None and first["effective_date"] and first["effective_date"] > today:
+        effective_on = first["effective_date"]          # a later day written on the draft is a planned day
     Q.check_signer(conn, user, password)              # outside the transaction: a failed attempt stays recorded
     with conn.transaction():
         doc = _lock(conn, doc_id)
@@ -422,6 +426,11 @@ def take_effect_due(conn, today: dt.date) -> list[int]:
                                (d["id"],)).fetchone()
             if doc is None:
                 continue
+            try:
+                _no_clash(conn, doc)
+            except DocError as exc:          # another revision took effect meanwhile: a person sorts it out
+                log(conn, doc["id"], "WenQuest Ops", "not made effective", str(exc))
+                continue
             row = conn.execute("update documents set status = 'effective', updated_at = now() where id = %s "
                                "returning *", (doc["id"],)).fetchone()
             log(conn, doc["id"], "WenQuest Ops", "effective", f"planned for {doc['effective_date']}")
@@ -435,11 +444,14 @@ def obsolete(conn, email: str, doc_id: int, reason: str) -> dict:
         raise DocError("say why the document is obsolete")
     with conn.transaction():
         doc = _lock(conn, doc_id)
-        if doc["status"] not in ("effective", "confirmed"):
-            raise DocError("only an effective or kept document can be made obsolete")
+        if doc["status"] not in ("effective", "confirmed", "approved"):
+            raise DocError("only an effective, approved or kept document can be made obsolete")
         row = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, updated_at = now() "
                            "where id = %s returning *", (reason.strip(), doc_id)).fetchone()
-        log(conn, doc_id, email, "obsolete", reason.strip())
+        log(conn, doc_id, email, "obsolete" if doc["status"] != "approved" else "withdrawn before taking effect",
+            reason.strip())
+        conn.execute("update doc_training set status = 'superseded', done_at = now(), note = %s where document_id = "
+                     "%s and status = 'pending'", (f"document made obsolete: {reason.strip()}"[:1000], doc_id))
     return row
 
 

@@ -220,7 +220,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
   <!-- overview -->
   <template v-if="tab === 'overview' && overview && meta">
     <section class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <article v-for="(n, k) in { 'In the library': overview.totals.library, 'To review': overview.totals.to_review, 'Waiting for approval': overview.totals.in_review, 'Problems to look at': overview.issues.high + overview.issues.medium }"
+      <article v-for="(n, k) in { 'In the library': overview.totals.library, 'To review': overview.totals.to_review, 'Waiting for approval': overview.totals.in_review + overview.totals.approved, 'Problems to look at': overview.issues.high + overview.issues.medium }"
                :key="k" class="rounded-5 border border-outline-gray-2 bg-surface-base p-4">
         <h3 class="text-sm font-medium text-ink-gray-5">{{ k }}</h3>
         <p class="mt-1 text-3xl font-semibold tracking-tight text-ink-gray-9">{{ n }}</p>
@@ -346,7 +346,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
       <input v-model="f.q" class="wq-input w-64 sm:hidden" type="search" placeholder="Search">
       <select v-model="f.status" class="wq-select" aria-label="Status">
         <option value="library">In the library</option><option value="effective">Effective</option><option value="confirmed">Kept records</option>
-        <option value="in_review">Waiting for approval</option><option value="draft">Drafts</option><option value="obsolete">Obsolete</option>
+        <option value="in_review">Waiting for approval</option><option value="approved">Approved, not yet in effect</option><option value="draft">Drafts</option><option value="obsolete">Obsolete</option>
         <option value="all">All files</option></select>
       <select v-model="f.process" class="wq-select" aria-label="Process"><option value="">Every process</option>
         <option v-for="(n, p) in meta.processes" :key="p" :value="p">{{ n }}</option></select>
