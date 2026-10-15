@@ -16,9 +16,12 @@ from wqops.hub.docs import ledger as LG
 from wqops.hub.docs import library as LIB
 from wqops.hub.docs import store as F
 from wqops.hub.quality import records as Q
+from wqops.hub.system import registers as RG
 
 SHEETS = (".xlsx", ".xlsm", ".csv")
 PREVIEW = 200
+
+LG.add_registers(RG.specs())             # the quality registers can be brought in from old spreadsheets
 
 
 class LedgerError(ValueError):
@@ -259,6 +262,16 @@ def _supplier(conn, user: dict, doc: dict, n: int, v: dict) -> tuple[str, str, s
     return "drafted", f"draft {d['id']}", ""
 
 
+def _register(conn, email: str, name: str, doc: dict, n: int, v: dict) -> tuple[str, str, str]:  # noqa: PLR0917
+    """One row into a quality register (ADR-0016, 16b)."""
+    vals = {f: (x.isoformat() if isinstance(x, dt.date) else x) for f, x in v.items()}
+    try:
+        row = RG.create(conn, email, name, vals, source_doc=doc["id"], source_row=n, note=_source(doc, n))
+    except RG.RegisterError as exc:
+        return "skipped", "", str(exc)
+    return "imported", f"entry {row['id']}", ""
+
+
 def run_import(conn, user: dict, lid: int, password: str) -> dict:
     """Signed import of every ready row not imported before. The import itself is signed with the person's
     password; each row's outcome is recorded (append-only)."""
@@ -286,8 +299,10 @@ def run_import(conn, user: dict, lid: int, password: str) -> dict:
                 outcome, ref, note = _ncr(conn, user["email"], doc, r["row"], r["values"], r["raw"])
             elif imp["target"] == "capa":
                 outcome, ref, note = _capa(conn, user["email"], doc, r["row"], r["values"], r["raw"])
-            else:
+            elif imp["target"] == "supplier":
                 outcome, ref, note = _supplier(conn, user, doc, r["row"], r["values"])
+            else:
+                outcome, ref, note = _register(conn, user["email"], imp["target"][4:], doc, r["row"], r["values"])
             if outcome != "skipped" and r["problems"]:
                 note = "; ".join(r["problems"])
             counts[outcome] += 1

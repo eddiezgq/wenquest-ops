@@ -45,8 +45,25 @@ effect: approved, for procedures, work instructions and forms; confirmed and not
 a policy kept as a record. The scope is met when the scope statement is linked and every requirement that may not
 apply has been declared one way or the other.
 
+## Registers
+
+The standard also asks for records that are not nonconformances or documents. *Quality system* has a register for
+each: training and competence, measuring equipment and calibration, internal audits, management reviews, quality
+objectives, risks and opportunities, customer feedback and complaints, and supplier approval. Open one from the
+*Registers* box, record entries with the form, and change them while they are open. Internal audits and management
+reviews are approved with your password and then locked. A wrong entry is voided with a reason; nothing is deleted
+and every change is kept.
+
+The checks read the registers: training not expired or followed up, equipment calibrated and not due, an approved
+internal audit and management review within the set number of days, each objective and risk reviewed in time,
+complaints answered in time, and every supplier you bought from in the last year approved. The numbers of days are
+under *Settings*. An empty register gives "unknown" until you start using it.
+
+An old spreadsheet, such as a training matrix or a calibration log, comes in like a nonconformance log: upload it
+under *Documents*, open it and import it as "Register: …". The columns are matched to the register's fields for you
+to check before the signed import.
+
 ## Coming next
 
-Registers for training, measuring equipment, internal audits, management reviews, quality objectives, risks and
-opportunities, customer feedback and supplier approval, so that the remaining control points can be judged; then a
-gap report, an internal audit checklist and set-up from your own procedures.
+A gap report and an internal audit checklist made from the records, and setting the system up from your own
+procedures.

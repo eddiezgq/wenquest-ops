@@ -28,6 +28,7 @@ const can = computed(() => v.value?.can_configure)
 const canDocs = computed(() => ws.value?.user.permissions.includes('documents:view'))
 const latest = computed(() => !route.query.evaluation && !route.query.day)
 const pickDay = ref('')
+const regs = ref([])
 const LINKED = ['linked_document', 'scope_declared']
 const counts = computed(() => v.value?.evaluation?.counts || {})
 
@@ -36,6 +37,7 @@ async function load() {
   try {
     const q = route.query.evaluation ? `?evaluation=${route.query.evaluation}` : route.query.day ? `?day=${route.query.day}` : ''
     v.value = await api(`/api/qms/iso9001${q}`)
+    regs.value = await api('/api/registers')
   } catch (e) { error.value = e.message }
 }
 watch(() => [route.query.evaluation, route.query.day], load, { immediate: true })
@@ -63,11 +65,13 @@ const link = (c, id, linked) => post(`/controls/${c.id}/evidence`, { document_id
 const docName = (d) => [d.number, d.title].filter(Boolean).join(' ') || d.original_name
 const shown = (c) => filter.value === 'all' || c.result?.status === filter.value
 const sorted = (cs) => [...cs].sort((a, b) => ORDER.indexOf(a.result?.status) - ORDER.indexOf(b.result?.status))
-function to(p) {
+function to(p, c) {
   if (p.kind === 'ncr') return `/quality/ncr/${p.id}`
   if (p.kind === 'capa') return `/quality/capa/${p.id}`
   if (p.kind === 'document') return `/documents/${p.id}`
   if (p.kind === 'inspection') return objectPath('QualityInspection', p.id)
+  if (p.kind === 'supplier') return objectPath('Supplier', p.id)
+  if (p.kind === 'entry') return `/system/registers/${c?.register}#e${p.id}`
   return null
 }
 </script>
@@ -107,6 +111,11 @@ function to(p) {
           · fingerprint {{ v.enabled.fingerprint.slice(0, 12) }}…</span>
         <Badge v-if="v.newer_pack" theme="amber" label="a newer pack is available" />
       </div>
+      <div v-if="v.newer_pack && can && latest" class="mb-3 flex flex-wrap items-end gap-2 text-sm">
+        <span class="pb-2 text-ink-gray-7">Pack version {{ v.pack_version }} adds checks; adopting it keeps everything you recorded.</span>
+        <label class="wq-field">Your password<input v-model="password" type="password" class="wq-input w-44" autocomplete="current-password"></label>
+        <Button label="Adopt the newer pack (sign)" :disabled="!password" :loading="busy" @click="edition = v.enabled.edition; adopt()" />
+      </div>
       <p v-if="v.evaluation" class="mb-3 text-sm text-ink-gray-6">
         <template v-if="!latest">Showing the check of {{ v.evaluation.day }} ({{ v.evaluation.trigger }}){{ v.shown_pack.id !== v.enabled.id ? `, made under pack version ${v.shown_pack.version}` : '' }}.
           <RouterLink to="/system" class="wq-link">Show the latest</RouterLink></template>
@@ -118,6 +127,18 @@ function to(p) {
       </div>
     </section>
 
+    <section class="registers wq-panel mb-5 p-5">
+      <h2 class="wq-h2">Registers</h2>
+      <p class="wq-muted mb-3">The records the standard asks for that are not nonconformances or documents. The checks read them.</p>
+      <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <RouterLink v-for="g in regs" :key="g.name" :to="`/system/registers/${g.name}`"
+                    class="rounded-4 border border-outline-gray-2 p-3 hover:bg-surface-gray-1">
+          <p class="text-base font-medium text-ink-gray-9">{{ g.label }}</p>
+          <p class="text-sm text-ink-gray-5">{{ (g.counts.open || 0) + (g.counts.signed || 0) }} entries<template v-if="g.signed && g.counts.open"> · {{ g.counts.open }} to approve</template></p>
+        </RouterLink>
+      </div>
+    </section>
+
     <section v-for="p in v.processes" v-show="p.controls.some(shown)" :key="p.id" class="process wq-panel mb-4 p-5">
       <h2 class="wq-h2">{{ p.label }}</h2>
       <article v-for="c in sorted(p.controls).filter(shown)" :key="c.id" class="control border-t border-outline-gray-1 py-3 first:border-t-0">
@@ -126,17 +147,18 @@ function to(p) {
           <div class="min-w-0 flex-1">
             <p class="text-base text-ink-gray-9">{{ c.summary }}</p>
             <p class="text-sm text-ink-gray-5">ISO 9001 {{ c.clauses.join(', ') }}<template v-if="c.hint"> · evidence: {{ c.hint }}</template></p>
+            <p v-if="c.register" class="text-sm"><RouterLink :to="`/system/registers/${c.register}`" class="wq-link">Open the register</RouterLink></p>
             <p v-if="c.our_rule && ruleOn(c)" class="text-sm text-ink-gray-6">Checked by the WenQuest Ops rule: {{ c.our_rule }} (can be switched off in the settings below)</p>
             <p v-else-if="c.our_rule" class="text-sm text-ink-gray-6">Our rule is switched off: link the document that shows how you meet this.</p>
             <p v-if="c.result" class="mt-1 text-sm text-ink-gray-7">{{ c.result.detail }}</p>
             <ul v-if="c.result?.problems.length" class="mt-1 flex flex-col gap-0.5 text-sm">
               <li v-for="x in c.result.problems" :key="`${x.kind}${x.id}${x.why}`">
-                <RouterLink v-if="to(x)" :to="to(x)" class="wq-link">{{ x.label }}</RouterLink><span v-else>{{ x.label }}</span>
+                <RouterLink v-if="to(x, c)" :to="to(x, c)" class="wq-link">{{ x.label }}</RouterLink><span v-else>{{ x.label }}</span>
                 <span class="text-ink-gray-6"> — {{ x.why }}</span></li>
               <li v-if="c.result.problem_count > c.result.problems.length" class="text-ink-gray-5">and {{ c.result.problem_count - c.result.problems.length }} more</li>
             </ul>
             <p v-if="c.result?.evidence.length && c.result.status === 'met' && c.rule !== 'linked_document'" class="mt-1 text-sm text-ink-gray-6">Records:
-              <template v-for="(x, i) in c.result.evidence" :key="x.id"><RouterLink :to="to(x)" class="wq-link">{{ x.label }}</RouterLink>{{ i < c.result.evidence.length - 1 ? ', ' : '' }}</template>
+              <template v-for="(x, i) in c.result.evidence" :key="x.id"><RouterLink :to="to(x, c)" class="wq-link">{{ x.label }}</RouterLink>{{ i < c.result.evidence.length - 1 ? ', ' : '' }}</template>
               <span v-if="c.result.evidence_count > c.result.evidence.length"> and {{ c.result.evidence_count - c.result.evidence.length }} more</span></p>
           </div>
           <Button v-if="can && latest && (LINKED.includes(ruleOf(c)) || c.may_exclude)" size="sm" variant="ghost"

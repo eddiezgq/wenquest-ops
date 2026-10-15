@@ -72,11 +72,15 @@ def _proposal(inp: dict) -> tuple[str, dict]:
 
 
 def rules_target(t: LG.Table, targets: dict[str, dict[str, LG.Field]]) -> str:
-    """The target whose fields the column names fill best (required fields count double)."""
+    """The target whose fields the column names fill best (required fields count double). The records of the
+    quality modules come first; a quality register is guessed only when none of them fits at all (the person can
+    always choose the register)."""
     def score(tg):
         m = LG.rules_mapping(tg, t, targets[tg])["mapping"]
         return sum(2 if targets[tg][f].required else 1 for f in m)
-    return max(targets, key=score)
+    base = [tg for tg in targets if not tg.startswith("reg_")]
+    best = max(base, key=score) if base else None
+    return best if best and score(best) > 0 else max(targets, key=score)
 
 
 def propose(conn, user: dict, t: LG.Table, targets: dict[str, dict[str, LG.Field]], model: L.Anthropic | None, *,
