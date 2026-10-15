@@ -4,18 +4,24 @@ saying what does not apply and linking evidence need qms:configure; adopting and
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops.hub import db as DB
 from wqops.hub import permissions as P
+from wqops.hub.ai import llm as L
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import records as Q
+from wqops.hub.system import draft_ai as DAI
+from wqops.hub.system import gaps as G
 from wqops.hub.system import qms as QMS
 from wqops.hub.system import registers as RG
 
 
-def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per action
+def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR0915, PLR0917 - one route per action
+          db_url: str | None = None) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
             raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
@@ -23,7 +29,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     def run(fn):
         try:
             return fn()
-        except (QMS.QmsError, Q.QualityError, RG.RegisterError) as exc:
+        except (QMS.QmsError, Q.QualityError, RG.RegisterError, G.TodoError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(404, "not found") from exc
@@ -171,3 +177,80 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         run(lambda: RG.void(c, u, eid, str(d.get("reason") or ""), str(d.get("password") or "")))
         QMS.evaluate_changed(c, today(), u["email"], tz())
         return register_page(c, u, e["register"])
+
+    # ---------------------------------------------------------------- gaps, to-dos, audit checklist (16c)
+
+    def day(v) -> dt.date | None:
+        if v in (None, ""):
+            return None
+        try:
+            return dt.date.fromisoformat(str(v))
+        except ValueError as exc:
+            raise HTTPException(400, "due is a date like 2026-11-30") from exc
+
+    def ai_ready() -> bool:
+        return model is not None and model.configured()
+
+    def gaps_page(c, u, standard: str) -> dict:
+        out = run(lambda: G.report(c, standard))
+        can_draft = ai_ready() and all(P.allows(u["roles"], x) for x in ("qms:configure", "documents:edit", "ai:use"))
+        return {**out, "can_edit": P.allows(u["roles"], "quality:edit"), "ai": ai_ready(),
+                "draftable": sorted(DAI.draftable(c, standard)) if can_draft else []}
+
+    @app.get("/api/qms/{standard}/gaps")
+    def gap_report(standard: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        return gaps_page(c, u, standard)
+
+    @app.post("/api/qms/{standard}/todos", status_code=201)
+    async def add_todo(standard: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:edit")
+        d = await body(request)
+        run(lambda: G.add(c, u["email"], standard, str(d.get("control") or ""), title=str(d.get("title") or ""),
+                          owner=str(d.get("owner") or ""), due=day(d.get("due"))))
+        return gaps_page(c, u, standard)
+
+    @app.post("/api/qms/{standard}/todos/all")
+    async def add_all_todos(standard: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:edit")
+        d = await body(request)
+        run(lambda: G.add_all(c, u["email"], standard, day(d.get("due"))))
+        return gaps_page(c, u, standard)
+
+    @app.put("/api/qms-todos/{tid}")
+    async def change_todo(tid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:edit")
+        if not 0 < tid < 2**63:
+            raise HTTPException(404, "not found")
+        d = await body(request)
+        row = run(lambda: G.change(c, u["email"], tid, owner=d.get("owner") if isinstance(d.get("owner"), str)
+                                   else None, due=day(d.get("due")), clear_due=d.get("due") == "",
+                                   status=d.get("status"), note=str(d.get("note") or "")))
+        return gaps_page(c, u, row["standard"])
+
+    @app.get("/api/qms/{standard}/checklist")
+    def audit_checklist(standard: str, process: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "quality:view")
+        return run(lambda: G.checklist(c, standard, process))
+
+    @app.post("/api/qms/{standard}/controls/{control}/draft", status_code=201)
+    async def draft(standard: str, control: str, u=Depends(user_dep)):
+        """The model drafts the missing document into the library, for review and approval."""
+        for perm in ("qms:configure", "documents:edit", "ai:use"):
+            need(u, perm)
+        if not ai_ready():
+            raise HTTPException(409, "there is no model key; write the document yourself and link it")
+
+        def work():
+            with DB.connect(db_url) as c:
+                m = company()[0]
+                try:
+                    doc = run(lambda: DAI.draft(c, {"email": u["email"], "roles": u["roles"]}, standard, control,
+                                                model, today=OA.today(m),
+                                                company=(m or {}).get("company", {}).get("name", "the company")))
+                except L.LlmError as exc:
+                    raise HTTPException(502, f"the model could not write the draft: {exc}") from exc
+                return {"document_id": doc["id"], "title": doc["title"]}
+
+        return await asyncio.to_thread(work)
+

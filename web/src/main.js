@@ -21,6 +21,8 @@ import WorkflowEditor from './pages/WorkflowEditor.vue'
 import WorkflowProposal from './pages/WorkflowProposal.vue'
 import QualitySystem from './pages/QualitySystem.vue'
 import RegisterPage from './pages/RegisterPage.vue'
+import QualityGaps from './pages/QualityGaps.vue'
+import AuditChecklist from './pages/AuditChecklist.vue'
 import './style.css'
 
 const router = createRouter({
@@ -40,6 +42,8 @@ const router = createRouter({
     { path: '/quality/workflows/:id', component: WorkflowEditor, meta: { title: 'Workflow' } },
     { path: '/system', component: QualitySystem, meta: { title: 'Quality system' } },
     { path: '/system/registers/:name', component: RegisterPage, meta: { title: 'Register' } },
+    { path: '/system/gaps', component: QualityGaps, meta: { title: 'Gap report' } },
+    { path: '/system/audit', component: AuditChecklist, meta: { title: 'Audit checklist' } },
     { path: '/help/:topic?', component: Help, meta: { title: 'Help' } },
     { path: '/account', component: Account, meta: { title: 'My account' } },
     { path: '/people', component: People, meta: { title: 'People' } },
