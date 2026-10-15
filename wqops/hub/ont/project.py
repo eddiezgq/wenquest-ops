@@ -195,7 +195,8 @@ def sales_order(d):
 
 
 def delivery_note(d):
-    lines = _lines(d, {"item_code": _str, "qty": _num, "against_sales_order": _str, "warehouse": _str})
+    lines = _lines(d, {"item_code": _str, "qty": _num, "against_sales_order": _str, "warehouse": _str,
+                       "batch_no": _str, "serial_no": _str, "serial_and_batch_bundle": _str})
     return Obj(
         "DeliveryNote",
         d["name"],
@@ -260,6 +261,7 @@ def purchase_receipt(d):
             "purchase_order": _str,
             "purchase_order_item": _str,
             "warehouse": _str,
+            "batch_no": _str,
         },
     )
     return Obj(

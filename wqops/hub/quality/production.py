@@ -623,6 +623,8 @@ def view(conn, rid: int) -> dict:
             if r["status"] == "in_production" else [],
             "to_release": PR.to_release(ss, ncr, hold) if r["status"] == "qa_review" else [],
             "intact": None if not r["fingerprint"] else PR.record_print(r, ss, mm) == r["fingerprint"],
+            "recalls": [_iso(x) for x in conn.execute("select id, name, status from recalls where status in "
+                                                      "('draft', 'open') and scope @> %s::jsonb", (f"[{rid}]",))],
             "history": _history(conn, "record", rid), "signatures": Q.signatures(conn, "prod_record", rid)}
 
 
