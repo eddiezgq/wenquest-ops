@@ -386,7 +386,9 @@ def quality_system(b: Browser) -> None:
     check(v["enabled"]["edition"] == "2015" and len(answers) == total and "met" in answers,
           f"quality system: ISO 9001:2015 adopted, {len(answers)} of {total} control points answered")
     r = q.page.request.post(f"{BASE}/api/registers/management_reviews", data={"values": {
-        "review_date": time.strftime("%Y-%m-%d"), "attendees": "Dana Owner, Jordan Quality",
+        # yesterday: the runner's clock is UTC, the demo company's day may still be the day before
+        "review_date": time.strftime("%Y-%m-%d", time.gmtime(time.time() - 86400)),
+        "attendees": "Dana Owner, Jordan Quality",
         "decisions": "Smoke test"}})
     entry = r.json()["entries"][0]["id"] if r.ok else 0
     s2 = q.page.request.post(f"{BASE}/api/register-entries/{entry}/sign", data={"password": PW})
