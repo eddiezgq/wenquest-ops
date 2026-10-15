@@ -26,6 +26,7 @@ import AuditChecklist from './pages/AuditChecklist.vue'
 import QualitySetup from './pages/QualitySetup.vue'
 import IqcHome from './pages/IqcHome.vue'
 import AslPage from './pages/AslPage.vue'
+import DocControlPage from './pages/DocControlPage.vue'
 import IqcPlan from './pages/IqcPlan.vue'
 import IqcInspection from './pages/IqcInspection.vue'
 import './style.css'
@@ -58,6 +59,7 @@ const router = createRouter({
     { path: '/account', component: Account, meta: { title: 'My account' } },
     { path: '/people', component: People, meta: { title: 'People' } },
     { path: '/documents', component: Documents, meta: { title: 'Documents' } },
+    { path: '/documents/control', component: DocControlPage, meta: { title: 'Reading and review' } },
     { path: '/documents/ledger/:id', component: LedgerPage, meta: { title: 'Import a ledger' } },
     { path: '/documents/:id', component: DocumentPage, meta: { title: 'Document' } },
   ],

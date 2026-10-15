@@ -18,7 +18,7 @@ from collections import Counter, defaultdict
 from wqops.hub.docs import classify as K
 
 NUMBERED = K.CONTROLLED | {"spec"}            # one number = one document with revisions
-LIVE = ("to_classify", "to_review", "draft", "in_review", "effective", "confirmed")
+LIVE = ("to_classify", "to_review", "draft", "in_review", "approved", "effective", "confirmed")
 DEFAULT_RULES = {"procedure": ("QP-{seq}", 2), "work_instruction": ("WI-{process}-{seq}", 2),
                  "form": ("F-{process}-{seq}", 3), "spec": ("SP-{seq}", 3)}
 SEVERITY = {"high": 0, "medium": 1, "info": 2}
@@ -209,7 +209,8 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
     for no, everything in by_no.items():
         ids = {d["id"] for d in everything}
         # a new revision uploaded on purpose (it replaces one of these) is work in progress, not a problem
-        group = [d for d in everything if not (d.get("supersedes") in ids and d["status"] in ("draft", "in_review"))]
+        group = [d for d in everything
+                 if not (d.get("supersedes") in ids and d["status"] in ("draft", "in_review", "approved"))]
         if len(group) < 2:
             continue
         types = {d["doc_type"] for d in group}

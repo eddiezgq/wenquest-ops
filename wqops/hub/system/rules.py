@@ -314,8 +314,11 @@ def _empty(name: str) -> dict:
 
 
 def training_current(facts: dict, settings: dict) -> dict:
+    """The training register, and (17d) the reading of controlled documents: nothing expired or left to follow up,
+    and no reading of a revision in effect overdue."""
     rows = _entries(facts, "training")
-    if not rows:
+    reading = facts.get("doc_training") or []
+    if not rows and not reading:
         return _empty("training")
     follow = int(settings["training_followup_days"])
     bad, latest = [], _latest(rows, ["person", "topic"], "trained_on")
@@ -326,9 +329,21 @@ def training_current(facts: dict, settings: dict) -> dict:
             bad.append(_entry(e, label, f"expired on {until}"))
         elif v.get("result") == "needs follow-up" and on and (facts["today"] - on).days > follow:
             bad.append(_entry(e, label, f"needs follow-up since {on}"))
+    for r in reading:
+        due = _d(r.get("due"))
+        if r["status"] == "pending" and due and due < facts["today"]:
+            doc = " ".join(str(x) for x in (r.get("number"), r.get("title"), f"rev {r.get('revision')}") if x)
+            bad.append({"kind": "reading", "id": r["id"], "label": f"{r['email']}: {doc}",
+                        "why": f"reading was due on {due}"})
     if bad:
         return result(NOT_MET, f"{_plural(len(bad), 'training record')} out of date.", bad)
-    return result(MET, f"{_plural(len(latest), 'person and skill')} with current training records.",
+    done = [r for r in reading if r["status"] == "acknowledged"]
+    if not latest:          # reading alone does not show people are competent: the register is still empty
+        return result(UNKNOWN, f"Nothing in the training register yet; {_plural(len(done), 'reading')} of "
+                               "controlled documents confirmed, none overdue.")
+    parts = ([f"{_plural(len(latest), 'person and skill')} with current training records"] if latest else []) + (
+        [f"{_plural(len(done), 'reading')} of controlled documents confirmed, none overdue"] if reading else [])
+    return result(MET, "; ".join(parts) + ".",
                   evidence=[_entry(e, f"{e['values'].get('person')}: {e['values'].get('topic')}") for e in latest])
 
 

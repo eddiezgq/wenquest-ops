@@ -138,10 +138,13 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 log.info("daily brief for %s made", day)
 
     def qms_if_due() -> None:
+        from wqops.hub.docs import library as LIB  # noqa: PLC0415
         from wqops.hub.system import qms as QMS  # noqa: PLC0415
 
         with DB.connect(db_url) as c:
             m = company()[0]
+            if LIB.take_effect_due(c, OA.today(m)):          # revisions planned for today take effect first (17d)
+                log.info("planned document revisions took effect")
             done = QMS.evaluate_if_due(c, OA.today(m), m["company"]["timezone"] if m else "UTC")
             if done:
                 log.info("quality system evaluated: %s", ", ".join(done))

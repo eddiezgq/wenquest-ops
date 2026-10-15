@@ -20,11 +20,12 @@ from psycopg.types.json import Jsonb
 
 from wqops.hub.docs import checks as CK
 from wqops.hub.docs import classify as K
+from wqops.hub.docs import control as CTL
 from wqops.hub.docs import extract as X
 from wqops.hub.docs import store as F
 from wqops.hub.quality import records as Q
 
-KEPT = ("draft", "in_review", "effective", "confirmed")      # in the library
+KEPT = ("draft", "in_review", "approved", "effective", "confirmed")      # in the library
 CHARS_PER_TOKEN = 4
 TOKENS_PER_FILE = 1500                                      # instructions and the reply, per file
 
@@ -295,15 +296,16 @@ def _no_clash(conn, doc: dict) -> None:
     """One revision of a number at a time: not the same revision twice, and no second effective revision unless this
     one was uploaded as the new revision of it."""
     same = conn.execute("select id from documents where number = %s and revision = %s and id <> %s and status in "
-                        "('in_review', 'effective', 'obsolete')",
+                        "('in_review', 'approved', 'effective', 'obsolete')",
                         (doc["number"], doc["revision"], doc["id"])).fetchone()
     if same:
         raise DocError(f"{doc['number']} rev {doc['revision']} already exists (document {same['id']})")
-    other = conn.execute("select id, revision from documents where number = %s and status = 'effective' and id <> %s "
-                         "and id is distinct from %s", (doc["number"], doc["id"], doc["supersedes"])).fetchone()
+    other = conn.execute("select id, revision, status from documents where number = %s and status in ('approved', "
+                         "'effective') and id <> %s and id is distinct from %s and supersedes is distinct from %s",
+                         (doc["number"], doc["id"], doc["supersedes"], doc["id"])).fetchone()
     if other:
-        raise DocError(f"{doc['number']} rev {other['revision']} is effective (document {other['id']}): upload this "
-                       "as a new revision of it, or make that one obsolete first")
+        raise DocError(f"{doc['number']} rev {other['revision']} is {other['status']} (document {other['id']}): upload "
+                       "this as a new revision of it, or make that one obsolete first")
 
 
 def involved(conn, doc: dict) -> set[str]:
@@ -366,35 +368,75 @@ def send_back(conn, email: str, doc_id: int, reason: str) -> dict:
     return row
 
 
-def approve(conn, user: dict, doc_id: int, password: str, today: dt.date) -> dict:
-    """Signed approval by someone other than the uploader, the confirmer and the submitter. The fingerprint is frozen
-    and an earlier revision this one replaces becomes obsolete."""
+def approve(conn, user: dict, doc_id: int, password: str, today: dt.date,  # noqa: PLR0917
+            effective_on: dt.date | None = None) -> dict:
+    """Signed approval by someone other than the uploader, the confirmer and the submitter. The fingerprint is frozen.
+    It takes effect today, or on a later day the approver sets (to leave time for reading it); then an earlier
+    revision it replaces becomes obsolete and the people who must read it are asked to."""
     def allowed(doc):
         if doc["status"] != "in_review":
             raise DocError("only a document waiting for approval can be approved")
         if user["email"] in involved(conn, doc):
             raise PermissionError("approval must come from someone who did not upload, confirm or submit it")
 
-    allowed(get(conn, doc_id))
+    if effective_on is not None and effective_on < today:
+        raise DocError("it cannot take effect before the day it is approved")
+    first = get(conn, doc_id)
+    allowed(first)
+    if effective_on is None and first["effective_date"] and first["effective_date"] > today:
+        effective_on = first["effective_date"]          # a later day written on the draft is a planned day
     Q.check_signer(conn, user, password)              # outside the transaction: a failed attempt stays recorded
     with conn.transaction():
         doc = _lock(conn, doc_id)
         allowed(doc)
         _no_clash(conn, doc)
         Q._sign(conn, user, "Document approved", "document", doc_id, name_of(doc))
+        later = effective_on is not None and effective_on > today
         row = conn.execute(
-            "update documents set status = 'effective', approved_by = %s, approved_at = now(), fingerprint = sha256, "
-            "effective_date = coalesce(effective_date, %s), updated_at = now() where id = %s returning *",
-            (user["email"], today, doc_id)).fetchone()
-        log(conn, doc_id, user["email"], "approved, effective", f"fingerprint {doc['sha256'][:12]}")
-        if doc["supersedes"]:
-            old = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, updated_at = now() "
-                               "where id = %s and status = 'effective' returning id",
-                               (f"replaced by revision {doc['revision']}", doc["supersedes"])).fetchone()
-            if old:
-                log(conn, old["id"], user["email"], "obsolete", f"replaced by revision {doc['revision']} "
-                                                                f"(document {doc_id})")
+            "update documents set status = %s, approved_by = %s, approved_at = now(), fingerprint = sha256, "
+            "effective_date = %s, updated_at = now() where id = %s returning *",
+            ("approved" if later else "effective", user["email"],
+             effective_on if later else (doc["effective_date"] or today), doc_id)).fetchone()
+        if later:
+            log(conn, doc_id, user["email"], "approved", f"takes effect on {effective_on}; fingerprint "
+                                                           f"{doc['sha256'][:12]}")
+        else:
+            log(conn, doc_id, user["email"], "approved, effective", f"fingerprint {doc['sha256'][:12]}")
+            _took_effect(conn, row, user["email"], today)
     return row
+
+
+def _took_effect(conn, doc: dict, email: str, today: dt.date) -> None:
+    if doc["supersedes"]:
+        old = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, updated_at = now() "
+                           "where id = %s and status = 'effective' returning id",
+                           (f"replaced by revision {doc['revision']}", doc["supersedes"])).fetchone()
+        if old:
+            log(conn, old["id"], email, "obsolete", f"replaced by revision {doc['revision']} (document {doc['id']})")
+    CTL.on_effective(conn, doc, email, today)
+
+
+def take_effect_due(conn, today: dt.date) -> list[int]:
+    """Approved revisions whose day has come take effect (the daily job; also when the library is opened)."""
+    done = []
+    for d in conn.execute("select id from documents where status = 'approved' and effective_date <= %s order by id",
+                          (today,)).fetchall():
+        with conn.transaction():
+            doc = conn.execute("select * from documents where id = %s and status = 'approved' for update",
+                               (d["id"],)).fetchone()
+            if doc is None:
+                continue
+            try:
+                _no_clash(conn, doc)
+            except DocError as exc:          # another revision took effect meanwhile: a person sorts it out
+                log(conn, doc["id"], "WenQuest Ops", "not made effective", str(exc))
+                continue
+            row = conn.execute("update documents set status = 'effective', updated_at = now() where id = %s "
+                               "returning *", (doc["id"],)).fetchone()
+            log(conn, doc["id"], "WenQuest Ops", "effective", f"planned for {doc['effective_date']}")
+            _took_effect(conn, row, "WenQuest Ops", today)
+            done.append(doc["id"])
+    return done
 
 
 def obsolete(conn, email: str, doc_id: int, reason: str) -> dict:
@@ -402,11 +444,14 @@ def obsolete(conn, email: str, doc_id: int, reason: str) -> dict:
         raise DocError("say why the document is obsolete")
     with conn.transaction():
         doc = _lock(conn, doc_id)
-        if doc["status"] not in ("effective", "confirmed"):
-            raise DocError("only an effective or kept document can be made obsolete")
+        if doc["status"] not in ("effective", "confirmed", "approved"):
+            raise DocError("only an effective, approved or kept document can be made obsolete")
         row = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, updated_at = now() "
                            "where id = %s returning *", (reason.strip(), doc_id)).fetchone()
-        log(conn, doc_id, email, "obsolete", reason.strip())
+        log(conn, doc_id, email, "obsolete" if doc["status"] != "approved" else "withdrawn before taking effect",
+            reason.strip())
+        conn.execute("update doc_training set status = 'superseded', done_at = now(), note = %s where document_id = "
+                     "%s and status = 'pending'", (f"document made obsolete: {reason.strip()}"[:1000], doc_id))
     return row
 
 
@@ -420,7 +465,8 @@ def new_revision(conn, email: str, doc_id: int, *, name: str, data: bytes, revis
             raise DocError("a new revision starts from an effective procedure, work instruction or form")
         if not revision or revision == old["revision"]:
             raise DocError("give the new revision a name different from the current one")
-        if conn.execute("select 1 from documents where supersedes = %s and status in ('draft', 'in_review')",
+        if conn.execute("select 1 from documents where supersedes = %s and status in ('draft', 'in_review', "
+                        "'approved')",
                         (doc_id,)).fetchone():
             raise DocError("a new revision of this document is already in progress")
         imp = new_import(conn, email, f"New revision of {old['number'] or old['title']}")
@@ -432,10 +478,10 @@ def new_revision(conn, email: str, doc_id: int, *, name: str, data: bytes, revis
         row = conn.execute(
             "update documents set status = 'draft', engine = 'person', confidence = null, doc_type = %s, "
             "process = %s, number = %s, title = %s, revision = %s, owner = %s, language = %s, summary = %s, "
-            "supersedes = %s, confirmed_by = %s, confirmed_at = now(), duplicate_of = null, updated_at = now() "
-            "where id = %s returning *",
+            "supersedes = %s, confirmed_by = %s, confirmed_at = now(), duplicate_of = null, trainees = %s, "
+            "updated_at = now() where id = %s returning *",
             (old["doc_type"], old["process"], old["number"], old["title"], revision, old["owner"], old["language"],
-             old["summary"], doc_id, email, doc["id"])).fetchone()
+             old["summary"], doc_id, email, Jsonb(old["trainees"]), doc["id"])).fetchone()
         log(conn, row["id"], email, "new revision", f"revision {revision} of document {doc_id}")
         log(conn, doc_id, email, "new revision started", f"revision {revision} (document {row['id']})")
     return row
@@ -488,7 +534,8 @@ def overview(conn) -> dict:
     rows = conn.execute("select process, doc_type, status, count(*) as n from documents where status <> 'rejected' "
                         "group by 1, 2, 3").fetchall()
     grid: dict[str, dict[str, int]] = {}
-    totals = {"library": 0, "to_review": 0, "to_classify": 0, "in_review": 0, "draft": 0, "obsolete": 0}
+    totals = {"library": 0, "to_review": 0, "to_classify": 0, "in_review": 0, "approved": 0, "draft": 0,
+              "obsolete": 0}
     for r in rows:
         if r["status"] in KEPT:
             cell = grid.setdefault(r["process"] or "other", {})

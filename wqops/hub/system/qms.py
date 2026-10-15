@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 import yaml
 from psycopg.types.json import Json, Jsonb
 
+from wqops.hub.docs import control as CTL
 from wqops.hub.docs import library as LIB
 from wqops.hub.ont import metrics as M
 from wqops.hub.quality import records as Q
@@ -259,6 +260,7 @@ def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # n
         "approval_dispositions": {k for k, t in Q.disposition_types(conn, active_only=False).items()
                                   if t["requires_approval"]},
         "incoming_inspections": lots,
+        "doc_training": CTL.training_facts(conn),
         "asl": [{"id": r["id"], "supplier": r["supplier"], "item_code": r["item_code"], "status": r["status"],
                  "review_due": r["review_due"]} for r in conn.execute("select * from asl_entries order by id")],
         "ncr_inspections": {n["inspection"] for n in ncrs if n["inspection"] and n["status"] != "cancelled"},
