@@ -50,6 +50,7 @@ create table complaints (
     report_ref        text not null default '',
     reported_on       date,
     response          text not null default '',
+    responded_on      date,                                          -- the day the reply was recorded
     ncr_id            bigint references ncr_records (id),
     capa_id           bigint references capas (id),
     closed_by         text,
@@ -66,7 +67,11 @@ create table complaints (
                                   and closed_by is distinct from owner and assessed_by is distinct from owner
                                   and (not reportable or (report_ref <> '' and reported_on is not null))
                                   and (investigation <> '' or (not investigate and no_investigation_reason <> '')))),
-    check (status <> 'cancelled' or cancel_reason is not null)
+    check (status <> 'cancelled' or cancel_reason is not null),
+    check (aware_on <= received_on),
+    check (status not in ('assessed', 'closed') or assessed_by is distinct from owner),
+    check (not (reportable or coalesce(q_harm = 'yes' or q_malfunction = 'yes' or q_recall = 'yes', false))
+           or status not in ('assessed', 'closed') or deadline_on is not null)
 );
 
 create or replace function wqo_complaint_kept() returns trigger language plpgsql as $$
@@ -80,20 +85,24 @@ begin
     if (new.name, new.created_by, new.created_at) is distinct from (old.name, old.created_by, old.created_at) then
         raise exception 'complaint % keeps its number and origin', old.name;
     end if;
+    if (old.ncr_id is not null and new.ncr_id is distinct from old.ncr_id)
+            or (old.capa_id is not null and new.capa_id is distinct from old.capa_id) then
+        raise exception 'complaint % keeps its nonconformance report and corrective action', old.name;
+    end if;
     -- once assessed, what the decision rests on is fixed
-    if old.status = 'assessed' and (new.received_on, new.aware_on, new.description, new.injury, new.malfunction,
-            new.item_code, new.investigate, new.no_investigation_reason, new.root_cause, new.investigation,
+    if old.status = 'assessed' and (new.owner, new.received_on, new.aware_on, new.description, new.injury,
+            new.malfunction, new.item_code, new.investigate, new.no_investigation_reason, new.root_cause, new.investigation,
             new.q_harm, new.q_malfunction, new.q_recall, new.reportable, new.reportable_reason, new.exception,
             new.deadline_label, new.deadline_days, new.deadline_on, new.assessed_by, new.assessed_at)
-            is distinct from (old.received_on, old.aware_on, old.description, old.injury, old.malfunction,
-            old.item_code, old.investigate, old.no_investigation_reason, old.root_cause, old.investigation,
+            is distinct from (old.owner, old.received_on, old.aware_on, old.description, old.injury,
+            old.malfunction, old.item_code, old.investigate, old.no_investigation_reason, old.root_cause, old.investigation,
             old.q_harm, old.q_malfunction, old.q_recall, old.reportable, old.reportable_reason, old.exception,
             old.deadline_label, old.deadline_days, old.deadline_on, old.assessed_by, old.assessed_at) then
         raise exception 'complaint % is assessed: the investigation and the decision are fixed', old.name;
     end if;
     if not (old.status = new.status or (old.status = 'new' and new.status in ('investigation', 'cancelled'))
             or (old.status = 'investigation' and new.status in ('assessed', 'cancelled'))
-            or (old.status = 'assessed' and new.status in ('closed', 'cancelled'))) then
+            or (old.status = 'assessed' and new.status = 'closed')) then
         raise exception 'complaint % cannot go from % to %', old.name, old.status, new.status;
     end if;
     return new;

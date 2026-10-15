@@ -57,6 +57,8 @@ def test_rules():
 def test_from_receipt_to_close(world):
     with pytest.raises(C.ComplaintError, match="cannot be after today"):
         received(world, aware_on=str(T + dt.timedelta(days=1)))
+    with pytest.raises(C.ComplaintError, match="on or before the day it was received"):
+        received(world, aware_on=str(T - dt.timedelta(days=1)))
     c = received(world, injury="unknown")
     assert c["name"] == "CMP-00001" and c["aware_on"] == c["received_on"]
     with pytest.raises(C.ComplaintError, match=r"an owner.*whether anyone was hurt"):
@@ -66,6 +68,10 @@ def test_from_receipt_to_close(world):
     # once investigating, only Quality changes the owner
     with pytest.raises(PermissionError, match="Quality changes the owner"):
         C.update(world, u(world, LEE), c["id"], {"owner": LEE}, today=T)
+    with pytest.raises(PermissionError, match="someone other than the owner reassigns"):
+        C.update(world, u(world, JORDAN), c["id"], {"owner": SAM}, today=T)
+    with pytest.raises(C.ComplaintError, match="customer cannot be emptied"):
+        C.update(world, u(world, LEE), c["id"], {"customer": ""}, today=T)
     with pytest.raises(C.ComplaintError, match="investigation's conclusion first"):
         C.assess(world, u(world, SAM), c["id"], PW, answers=NO, reportable=False, reason="x")
     C.update(world, u(world, JORDAN), c["id"], {"investigation": "Alarm speaker failed; lot 7 affected",
@@ -84,6 +90,12 @@ def test_from_receipt_to_close(world):
     # what the decision rests on is fixed now, in code and in the database
     with pytest.raises(C.ComplaintError, match="is assessed"):
         C.update(world, u(world, JORDAN), c["id"], {"investigation": "changed"}, today=T)
+    with pytest.raises(C.ComplaintError, match="its owner"):
+        C.update(world, u(world, DANA), c["id"], {"owner": SAM}, today=T)
+    with pytest.raises(psycopg.errors.RaiseException, match="fixed"):
+        world.execute("update complaints set owner = %s where id = %s", (SAM, c["id"]))
+    with pytest.raises(C.ComplaintError, match="cannot be cancelled"):
+        C.cancel(world, LEE, c["id"], "duplicate")
     with pytest.raises(psycopg.errors.RaiseException, match="fixed"):
         world.execute("update complaints set reportable = false where id = %s", (c["id"],))
     with pytest.raises(C.ComplaintError, match=r"report.s reference.*reply to the customer"):
@@ -129,11 +141,20 @@ def test_iso_checks_read_complaints(world):
     r = QMS.latest(world, "iso13485")["results"]["complaints_assessed"]
     # received 3 days ago: still within the days to decide, nothing decided yet
     assert r["status"] == "unknown"
-    C.update(world, u(world, JORDAN), c["id"], {"investigation": "User error"}, today=T)
-    C.assess(world, u(world, SAM), c["id"], PW, answers=NO, reportable=False, reason="No harm possible")
+    C.update(world, u(world, JORDAN), c["id"], {"investigation": "User error", "response": "Shown how to use it"},
+             today=T)
+    a = C.assess(world, u(world, SAM), c["id"], PW, answers=NO, reportable=True, reason="Customer's regulator "
+                                                                                       "asked for a report")
+    assert a["deadline_on"] is not None                 # reportable with every answer no still has a deadline
     QMS.evaluate(world, "iso13485", T, "manual", JORDAN)
-    r = QMS.latest(world, "iso13485")["results"]["complaints_assessed"]
-    assert r["status"] == "met" and r["evidence"][0]["id"] == f"c{c['id']}"
+    # to be reported, not reported yet, still within the days: nothing decided to judge
+    assert QMS.latest(world, "iso13485")["results"]["complaints_assessed"]["status"] == "unknown"
+    C.update(world, u(world, JORDAN), c["id"], {"report_ref": "R-1", "reported_on": str(T)}, today=T)
+    QMS.evaluate(world, "iso13485", T, "manual", JORDAN)
+    res = QMS.latest(world, "iso13485")["results"]
+    assert res["complaints_assessed"]["status"] == "met" and res["complaints_assessed"]["evidence"][0]["id"] == \
+        f"c{c['id']}"
+    assert res["complaints_handled"]["status"] == "met"         # the reply was recorded, though not closed yet
 
 
 def test_complaints_api(db_url):

@@ -14,7 +14,7 @@ const error = ref('')
 const done = ref('')
 const f = ref({})
 const a = ref({ answers: {}, reportable: null, reason: '', deadline_id: null, password: '' })
-const x = ref({ reason: '', password: '' })
+const x = ref({ reason: '', cancel: '', password: '' })
 const ST = { new: 'gray', investigation: 'amber', assessed: 'blue', closed: 'green', cancelled: 'gray' }
 const EDIT = ['owner', 'item_code', 'lot_no', 'quantity', 'injury', 'malfunction', 'description', 'root_cause', 'investigation', 'response', 'report_ref', 'reported_on']
 const open = computed(() => c.value && !['closed', 'cancelled'].includes(c.value.status))
@@ -33,7 +33,7 @@ async function load() {
 watch(() => route.params.id, load, { immediate: true })
 async function call(path, method, body, message) {
   error.value = ''; done.value = ''
-  try { set(await api(path, { method, body })); done.value = message; a.value.password = ''; x.value.password = '' } catch (e) { error.value = e.message }
+  try { set(await api(path, { method, body })); done.value = message; a.value.password = ''; x.value = { reason: '', cancel: '', password: '' } } catch (e) { error.value = e.message }
 }
 function changes() {
   const out = {}
@@ -43,7 +43,7 @@ function changes() {
 const save = () => call(`/api/complaints/${c.value.id}`, 'PUT', changes(), 'Saved.')
 const act = (what, body, msg) => call(`/api/complaints/${c.value.id}/${what}`, 'POST', body, msg)
 const assess = () => act('assess', { answers: a.value.answers, reportable: a.value.reportable, reason: a.value.reason,
-  deadline_id: anyYes.value ? (a.value.deadline_id || c.value.deadlines.find((d) => d.active)?.id) : null, password: a.value.password }, 'Assessed and signed.')
+  deadline_id: a.value.deadline_id || null, password: a.value.password }, 'Assessed and signed.')
 const editable = (k) => open.value && c.value.can_edit && !(fixed.value && ['item_code', 'injury', 'malfunction', 'description', 'root_cause', 'investigation'].includes(k))
 </script>
 
@@ -94,14 +94,15 @@ const editable = (k) => open.value && c.value.can_edit && !(fixed.value && ['ite
         <template v-if="c.can_configure">
           <div v-for="(q, k) in c.questions" :key="k" class="mb-2 text-sm"><p class="text-ink-gray-8">{{ q }}</p>
             <label class="me-4"><input v-model="a.answers[k]" type="radio" value="yes"> yes</label><label><input v-model="a.answers[k]" type="radio" value="no"> no</label></div>
-          <p v-if="anyYes" class="mb-2 rounded-3 bg-surface-amber-1 px-3 py-2 text-sm text-ink-amber-8">A question is answered yes: this usually means it must be reported.
-            <select v-model="a.deadline_id" class="wq-select ms-2 inline w-auto"><option v-for="d in c.deadlines.filter((d) => d.active)" :key="d.id" :value="d.id">{{ d.label }}: {{ d.days }} days</option></select></p>
+          <p v-if="anyYes" class="mb-2 rounded-3 bg-surface-amber-1 px-3 py-2 text-sm text-ink-amber-8">A question is answered yes: this usually means it must be reported.</p>
+          <label v-if="anyYes || a.reportable === true" class="wq-field mb-2 w-fit">Reporting deadline that applies<select v-model="a.deadline_id" class="wq-select"><option :value="null">Choose…</option>
+            <option v-for="d in c.deadlines.filter((d) => d.active)" :key="d.id" :value="d.id">{{ d.label }}: {{ d.days }} days</option></select></label>
           <div class="flex flex-wrap items-end gap-2 text-sm">
             <label class="me-2"><input v-model="a.reportable" type="radio" :value="true"> must be reported</label>
             <label class="me-2"><input v-model="a.reportable" type="radio" :value="false"> need not be reported</label>
             <label class="wq-field grow">Reason<input v-model="a.reason" class="wq-input"></label>
             <input v-model="a.password" type="password" class="wq-input w-44" placeholder="Your password" autocomplete="current-password">
-            <Button variant="solid" label="Decide (sign)" :disabled="!a.password || a.reportable === null || !a.reason.trim()" @click="assess" />
+            <Button variant="solid" label="Decide (sign)" :disabled="!a.password || a.reportable === null || !a.reason.trim() || ((anyYes || a.reportable) && !a.deadline_id)" @click="assess" />
           </div>
           <p v-if="anyYes && a.reportable === false" class="mt-2 text-sm text-ink-amber-7">A yes with a decision not to report is allowed, with the reason, and counted as an exception.</p>
         </template>
@@ -127,9 +128,9 @@ const editable = (k) => open.value && c.value.can_edit && !(fixed.value && ['ite
         <Button variant="solid" label="Close (sign)" :disabled="!x.password || !!c.to_close.length" @click="act('close', { password: x.password }, 'Closed.')" /></div>
       <p class="mt-1 text-sm text-ink-gray-5">Someone other than the owner closes it.</p>
     </section>
-    <section v-if="open && c.can_edit" class="wq-panel mb-5 p-5">
+    <section v-if="['new', 'investigation'].includes(c.status) && c.can_edit" class="wq-panel mb-5 p-5">
       <details><summary class="cursor-pointer text-sm text-ink-gray-7">Cancel (a duplicate, or not a complaint)</summary>
-        <div class="mt-2 flex gap-2"><input v-model="x.reason" class="wq-input w-96" placeholder="Why"><Button label="Cancel the complaint" :disabled="!x.reason.trim()" @click="act('cancel', { reason: x.reason }, 'Cancelled.')" /></div></details>
+        <div class="mt-2 flex gap-2"><input v-model="x.cancel" class="wq-input w-96" placeholder="Why"><Button label="Cancel the complaint" :disabled="!x.cancel.trim()" @click="act('cancel', { reason: x.cancel }, 'Cancelled.')" /></div></details>
     </section>
     <h2 class="wq-h2 mt-6">Signatures</h2>
     <Trail :items="c.signatures" kind="signatures" />

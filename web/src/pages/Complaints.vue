@@ -12,7 +12,8 @@ const v = ref(null)
 const error = ref('')
 const status = ref('open')
 const show = ref(false)
-const today = new Date().toISOString().slice(0, 10)
+const n = new Date()
+const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`   // the local day
 const form = ref({ received_on: today, aware_on: today, source: 'customer', customer: '', contact: '', item_code: '', lot_no: '', quantity: '', description: '', injury: 'unknown', malfunction: 'unknown' })
 const ST = { new: 'gray', investigation: 'amber', assessed: 'blue', closed: 'green', cancelled: 'gray' }
 async function load() {
