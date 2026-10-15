@@ -24,6 +24,9 @@ import RegisterPage from './pages/RegisterPage.vue'
 import QualityGaps from './pages/QualityGaps.vue'
 import AuditChecklist from './pages/AuditChecklist.vue'
 import QualitySetup from './pages/QualitySetup.vue'
+import IqcHome from './pages/IqcHome.vue'
+import IqcPlan from './pages/IqcPlan.vue'
+import IqcInspection from './pages/IqcInspection.vue'
 import './style.css'
 
 const router = createRouter({
@@ -37,6 +40,9 @@ const router = createRouter({
     { path: '/drafts', component: Drafts, meta: { title: 'Drafts' } },
     { path: '/assistant', component: Assistant, meta: { title: 'Assistant' } },
     { path: '/quality', component: Quality, meta: { title: 'Quality' } },
+    { path: '/quality/iqc', component: IqcHome, meta: { title: 'Incoming inspection' } },
+    { path: '/quality/iqc/plans/:id', component: IqcPlan, meta: { title: 'Inspection plan' } },
+    { path: '/quality/iqc/:id', component: IqcInspection, meta: { title: 'Incoming inspection' } },
     { path: '/quality/ncr/:id', component: NcrPage, meta: { title: 'Nonconformance' } },
     { path: '/quality/capa/:id', component: CapaPage, meta: { title: 'Corrective action' } },
     { path: '/quality/workflows/proposals/:id', component: WorkflowProposal, meta: { title: 'Suggested changes' } },

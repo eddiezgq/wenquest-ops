@@ -25,11 +25,19 @@ def open_for_rejected(conn, today: dt.date) -> list[str]:
     start = since(conn, today)
     have = {r["inspection"] for r in conn.execute(
         "select inspection from ncr_records where inspection is not null and status <> 'cancelled'").fetchall()}
+    # an inspection drafted from a lot rejected in WenQuest Ops already has its report (17b): link it, do not add one
+    from_iqc = {r["erp_name"]: r["ncr_id"] for r in conn.execute(
+        "select d.erp_name, i.ncr_id from iqc_inspections i join erp_drafts d on d.id = i.draft_id "
+        "where i.ncr_id is not null and d.erp_name is not null").fetchall()}
     made = []
     for q in M._objs(conn, "QualityInspection"):
         p = q["props"]
         d = M._d(p.get("report_date"))
         if not (M._submitted(p) and p.get("status") == "Rejected" and d and d >= start) or q["key"] in have:
+            continue
+        if q["key"] in from_iqc:
+            conn.execute("update ncr_records set inspection = %s where id = %s and inspection is null",
+                         (q["key"], from_iqc[q["key"]]))
             continue
         item, rt, rn = p.get("item_code"), p.get("reference_type"), p.get("reference_name")
         receipt = rn if rt == "Purchase Receipt" else None
