@@ -4,6 +4,8 @@ saying what does not apply and linking evidence need qms:configure; adopting and
 
 from __future__ import annotations
 
+import datetime as dt
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 
 from wqops.hub import permissions as P
@@ -35,27 +37,39 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
     def today():
         return OA.today(company()[0])
 
-    def page(c, u, standard: str, eval_id: int | None = None) -> dict:
-        return {**run(lambda: QMS.view(c, standard, eval_id)), "can_configure": P.allows(u["roles"], "qms:configure")}
+    def tz() -> str:
+        m = company()[0]
+        return m["company"]["timezone"] if m else "UTC"
+
+    def page(c, u, standard: str, eval_id: int | None = None, day: dt.date | None = None) -> dict:
+        return {**run(lambda: QMS.view(c, standard, eval_id, day)),
+                "can_configure": P.allows(u["roles"], "qms:configure"),
+                "can_check": P.allows(u["roles"], "quality:edit")}
 
     @app.get("/api/qms/{standard}")
-    def show(standard: str, evaluation: int = 0, u=Depends(user_dep), c=Depends(conn_dep)):
+    def show(standard: str, evaluation: int = 0, day: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
+        """The latest check, or one asked for by its number or by day."""
         need(u, "quality:view")
         if not 0 <= evaluation < 2**63:
             raise HTTPException(404, "not found")
-        return page(c, u, standard, evaluation or None)
+        try:
+            when = dt.date.fromisoformat(day) if day else None
+        except ValueError as exc:
+            raise HTTPException(400, "day is a date like 2026-10-14") from exc
+        return page(c, u, standard, evaluation or None, when)
 
     @app.post("/api/qms/{standard}/enable")
     async def enable(standard: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "qms:configure")
         d = await body(request)
-        run(lambda: QMS.enable(c, u, standard, str(d.get("edition") or ""), str(d.get("password") or ""), today()))
+        run(lambda: QMS.enable(c, u, standard, str(d.get("edition") or ""), str(d.get("password") or ""), today(),
+                               tz()))
         return page(c, u, standard)
 
     @app.post("/api/qms/{standard}/evaluate")
     def evaluate(standard: str, u=Depends(user_dep), c=Depends(conn_dep)):
-        need(u, "quality:view")
-        if run(lambda: QMS.evaluate(c, standard, today(), "manual", u["email"])) is None:
+        need(u, "quality:edit")
+        if run(lambda: QMS.evaluate(c, standard, today(), "manual", u["email"], tz=tz())) is None:
             raise HTTPException(409, "adopt the standard first")
         return page(c, u, standard)
 
@@ -66,7 +80,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         if not isinstance(d.get("applies"), bool):
             raise HTTPException(400, "applies is true or false")
         run(lambda: QMS.declare(c, u, standard, control, d["applies"], str(d.get("reason") or ""),
-                                str(d.get("password") or ""), today()))
+                                str(d.get("password") or ""), today(), tz()))
         return page(c, u, standard)
 
     @app.post("/api/qms/{standard}/controls/{control}/evidence")
@@ -77,5 +91,5 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         if type(doc) is not int or not 0 < doc < 2**63 or not isinstance(d.get("linked", True), bool):
             raise HTTPException(400, "document_id is a document number and linked is true or false")
         run(lambda: QMS.link(c, u["email"], standard, control, doc, d.get("linked", True), today(),
-                             str(d.get("note") or "")))
+                             str(d.get("note") or ""), tz()))
         return page(c, u, standard)

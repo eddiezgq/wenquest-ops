@@ -5,7 +5,7 @@ import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
-import { api } from '../api'
+import { api, objectPath } from '../api'
 import { ago } from '../format'
 
 const ws = inject('workspace')
@@ -26,17 +26,25 @@ const S = { met: { theme: 'green', label: 'met' }, not_met: { theme: 'red', labe
 const ORDER = ['not_met', 'unknown', 'met', 'not_applicable']
 const can = computed(() => v.value?.can_configure)
 const canDocs = computed(() => ws.value?.user.permissions.includes('documents:view'))
-const latest = computed(() => !route.query.evaluation)
+const latest = computed(() => !route.query.evaluation && !route.query.day)
+const pickDay = ref('')
+const LINKED = ['linked_document', 'scope_declared']
 const counts = computed(() => v.value?.evaluation?.counts || {})
 
 async function load() {
   error.value = ''
   try {
-    v.value = await api(`/api/qms/iso9001${route.query.evaluation ? `?evaluation=${route.query.evaluation}` : ''}`)
-    if (can.value && canDocs.value && !docs.value.length) docs.value = (await api('/api/docs?status=library')).filter((d) => d.status !== 'obsolete')
+    const q = route.query.evaluation ? `?evaluation=${route.query.evaluation}` : route.query.day ? `?day=${route.query.day}` : ''
+    v.value = await api(`/api/qms/iso9001${q}`)
   } catch (e) { error.value = e.message }
 }
-watch(() => route.query.evaluation, load, { immediate: true })
+watch(() => [route.query.evaluation, route.query.day], load, { immediate: true })
+async function toggle(c) {
+  open.value = open.value === c.id ? null : c.id
+  if (open.value && LINKED.includes(c.rule) && canDocs.value) {
+    try { docs.value = (await api('/api/docs?status=library')).filter((d) => d.status !== 'obsolete') } catch (e) { error.value = e.message }
+  }
+}
 
 async function post(path, body, message) {
   error.value = ''; done.value = ''; busy.value = true
@@ -56,7 +64,7 @@ function to(p) {
   if (p.kind === 'ncr') return `/quality/ncr/${p.id}`
   if (p.kind === 'capa') return `/quality/capa/${p.id}`
   if (p.kind === 'document') return `/documents/${p.id}`
-  if (p.kind === 'inspection') return `/o/QualityInspection/${p.id}`
+  if (p.kind === 'inspection') return objectPath('QualityInspection', p.id)
   return null
 }
 </script>
@@ -64,7 +72,7 @@ function to(p) {
 <template>
   <PageTop>
     <template #title>Quality system</template>
-    <Button v-if="v?.enabled && latest" icon-left="lucide-refresh-cw" label="Check now" :loading="busy" @click="evaluate" />
+    <Button v-if="v?.enabled && latest && v.can_check" icon-left="lucide-refresh-cw" label="Check now" :loading="busy" @click="evaluate" />
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
@@ -97,7 +105,7 @@ function to(p) {
         <Badge v-if="v.newer_pack" theme="amber" label="a newer pack is available" />
       </div>
       <p v-if="v.evaluation" class="mb-3 text-sm text-ink-gray-6">
-        <template v-if="!latest">Showing the check of {{ v.evaluation.day }} ({{ v.evaluation.trigger }}).
+        <template v-if="!latest">Showing the check of {{ v.evaluation.day }} ({{ v.evaluation.trigger }}){{ v.shown_pack.id !== v.enabled.id ? `, made under pack version ${v.shown_pack.version}` : '' }}.
           <RouterLink to="/system" class="wq-link">Show the latest</RouterLink></template>
         <template v-else>Checked {{ ago(v.evaluation.at) }} ({{ v.evaluation.trigger }}). Looks at the last {{ v.settings.window_days }} days; checked again every day.</template></p>
       <div class="flex flex-wrap gap-2">
@@ -115,6 +123,7 @@ function to(p) {
           <div class="min-w-0 flex-1">
             <p class="text-base text-ink-gray-9">{{ c.summary }}</p>
             <p class="text-sm text-ink-gray-5">ISO 9001 {{ c.clauses.join(', ') }}<template v-if="c.hint"> · evidence: {{ c.hint }}</template></p>
+            <p v-if="c.our_rule" class="text-sm text-ink-gray-6">Checked by the WenQuest Ops rule: {{ c.our_rule }}</p>
             <p v-if="c.result" class="mt-1 text-sm text-ink-gray-7">{{ c.result.detail }}</p>
             <ul v-if="c.result?.problems.length" class="mt-1 flex flex-col gap-0.5 text-sm">
               <li v-for="x in c.result.problems" :key="`${x.kind}${x.id}${x.why}`">
@@ -126,11 +135,11 @@ function to(p) {
               <template v-for="(x, i) in c.result.evidence" :key="x.id"><RouterLink :to="to(x)" class="wq-link">{{ x.label }}</RouterLink>{{ i < c.result.evidence.length - 1 ? ', ' : '' }}</template>
               <span v-if="c.result.evidence_count > c.result.evidence.length"> and {{ c.result.evidence_count - c.result.evidence.length }} more</span></p>
           </div>
-          <Button v-if="can && latest && (c.rule === 'linked_document' || c.may_exclude)" size="sm" variant="ghost"
-                  :label="open === c.id ? 'Close' : 'Change'" @click="open = open === c.id ? null : c.id" />
+          <Button v-if="can && latest && (LINKED.includes(c.rule) || c.may_exclude)" size="sm" variant="ghost"
+                  :label="open === c.id ? 'Close' : 'Change'" @click="toggle(c)" />
         </div>
         <div v-if="open === c.id" class="mt-3 flex flex-col gap-3 rounded-4 bg-surface-gray-1 p-4 text-sm">
-          <div v-if="c.rule === 'linked_document'">
+          <div v-if="LINKED.includes(c.rule)">
             <p class="mb-1 text-ink-gray-7">Documents linked as evidence:</p>
             <ul class="mb-2"><li v-for="d in v.evidence[c.id] || []" :key="d.id">
               <RouterLink :to="`/documents/${d.id}`" class="wq-link">{{ d.name }}</RouterLink> <span class="text-ink-gray-5">{{ d.status.replace('_', ' ') }}, by {{ d.email }}</span>
@@ -158,8 +167,12 @@ function to(p) {
 
     <section class="wq-panel p-5">
       <h2 class="wq-h2">Earlier checks</h2>
+      <div class="mb-3 flex flex-wrap items-end gap-2 text-sm">
+        <label class="wq-field">Show the check of a day<input v-model="pickDay" type="date" class="wq-input w-44"></label>
+        <Button label="Show" :disabled="!pickDay" @click="router.push(`/system?day=${pickDay}`)" />
+      </div>
       <table class="wq-table text-sm"><thead><tr><th>Day</th><th>Why</th><th>Met</th><th>Not met</th><th>Unknown</th><th>Does not apply</th></tr></thead>
-        <tbody><tr v-for="h in v.history" :key="h.id" class="cursor-pointer" @click="router.push(`/system?evaluation=${h.id}`)">
+        <tbody><tr v-for="h in v.history.slice(0, 30)" :key="h.id" class="cursor-pointer" @click="router.push(`/system?evaluation=${h.id}`)">
           <td><RouterLink :to="`/system?evaluation=${h.id}`" class="wq-link">{{ h.day }}</RouterLink> <span class="text-ink-gray-5">{{ ago(h.at) }}</span></td>
           <td>{{ h.trigger }}<span v-if="h.email" class="text-ink-gray-5"> by {{ h.email }}</span></td>
           <td>{{ h.counts.met }}</td><td>{{ h.counts.not_met }}</td><td>{{ h.counts.unknown }}</td><td>{{ h.counts.not_applicable }}</td></tr></tbody></table>

@@ -24,7 +24,9 @@ begin
     if (new.standard, new.edition, new.version, new.content::text, new.fingerprint, new.enabled_by, new.enabled_at)
             is distinct from
        (old.standard, old.edition, old.version, old.content::text, old.fingerprint, old.enabled_by, old.enabled_at)
-       or not (old.status = new.status or (old.status = 'enabled' and new.status = 'retired')) then
+       or not (old.status = new.status or (old.status = 'enabled' and new.status = 'retired'))
+       or (new.retired_at is distinct from old.retired_at and not (old.status = 'enabled' and new.status = 'retired'))
+       then
         raise exception 'pack % is frozen: enable a new one', old.id;
     end if;
     return new;

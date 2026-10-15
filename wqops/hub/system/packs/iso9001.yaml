@@ -16,16 +16,19 @@ editions:
   "2026": {label: "ISO 9001:2026", ready: false, note: "clause mapping after review of the published text"}
 settings:
   window_days: 365            # records looked at: the last year
-  ncr_contain_days: 7         # an open nonconformance is contained within this many days
+  ncr_contain_days: 7         # a nonconformance is contained within this many days of being reported
+  capa_within_days: 14        # a major nonconformance has a corrective action within this many days
   capa_overdue_days: 0        # days an action may be past its due date before it counts as late
 processes:
   context:
     label: Context, scope and processes
     controls:
       - id: scope
-        summary: The scope of the system is stated, with a reason for every requirement that does not apply.
+        summary: The scope of the system is stated as documented information, covering the products and services and
+          giving a reason for every requirement that does not apply.
         clauses: {"2015": ["4.3"]}
         rule: scope_declared
+        hint: the scope statement or quality manual
       - id: processes
         summary: The processes of the system, their sequence, owners, inputs and outputs are determined.
         clauses: {"2015": ["4.4"]}
@@ -114,12 +117,14 @@ processes:
         summary: Property belonging to customers or external providers is identified, protected and reported if lost or damaged.
         clauses: {"2015": ["8.5.3"]}
         rule: linked_document
+        hint: the procedure for customer or supplier property
         may_exclude: true
       - id: post_delivery
         short: post-delivery activities
         summary: Post-delivery activities such as warranty and service are defined and carried out.
         clauses: {"2015": ["8.5.5"]}
         rule: linked_document
+        hint: the warranty, returns or service procedure
         may_exclude: true
   suppliers:
     label: Externally provided products and services
@@ -130,7 +135,7 @@ processes:
         rule: register:suppliers
       - id: rejected_lots
         summary: Incoming lots that fail inspection are recorded as nonconforming and kept from use.
-        clauses: {"2015": ["8.4.2", "8.7.1"]}
+        clauses: {"2015": ["8.4.2", "8.6", "8.7.1"]}
         rule: rejected_lots_have_ncr
   nonconforming:
     label: Control of nonconforming outputs
@@ -140,18 +145,19 @@ processes:
         clauses: {"2015": ["8.7.1"]}
         rule: ncr_contained
       - id: ncr_concession
-        summary: Acceptance under concession is authorized by someone other than the person who proposed it.
-        clauses: {"2015": ["8.7.1"]}
+        summary: Acceptance under concession is authorized, and the authorization recorded.
+        our_rule: The authorization is signed by someone other than the person who proposed the concession.
+        clauses: {"2015": ["8.7.1", "8.7.2"]}
         rule: ncr_concession_approved
       - id: ncr_records
-        summary: Each nonconformity is recorded with its description, the action taken and who decided it.
+        summary: Each nonconformity is recorded with its description, the action taken, any concession and who decided.
         clauses: {"2015": ["8.7.2"]}
         rule: ncr_recorded
   evaluation:
     label: Performance evaluation
     controls:
       - id: satisfaction
-        summary: Customers' perception of how well their needs are met is monitored.
+        summary: The company finds out how satisfied its customers are, and uses what it learns.
         clauses: {"2015": ["9.1.2"]}
         rule: register:complaints
       - id: audit
@@ -166,11 +172,13 @@ processes:
     label: Corrective action and improvement
     controls:
       - id: capa_for_major
-        summary: Major nonconformities get a corrective action that looks for the cause.
+        summary: For each nonconformity, the need for action on its cause is evaluated.
+        our_rule: Every major nonconformance gets a corrective action within the set number of days.
         clauses: {"2015": ["10.2.1"]}
         rule: capa_for_major
       - id: capa_on_time
-        summary: Corrective actions are carried out by their due dates.
+        summary: The actions needed are carried out.
+        our_rule: Each planned action is done by its due date.
         clauses: {"2015": ["10.2.1"]}
         rule: capa_on_time
       - id: capa_effective

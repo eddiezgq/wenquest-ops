@@ -1,15 +1,19 @@
 """The checks behind a process pack's control points (ADR-0016): plain functions of the facts read from the records
-(quality/system/qms.py) that say whether a control point is met.
+(system/qms.py) that say whether a control point is met.
 
 Every check answers "met", "not_met" or "unknown". Missing data is unknown, never met: a check with nothing to look
 at (no reports in the period, no documents) says so and stays unknown. Each answer names the records it rests on, so a
-person can open them. Records imported from old ledgers are history: they are counted, not judged, because they
-were not made under these rules. Plain code: no AI, no network, no database (tests/test_isolation.py).
+person can open them.
+
+Which records a check judges: those not cancelled that are still open, or that were closed within the period (a
+record opened long ago and closed yesterday is judged). Records imported from old ledgers that were already closed
+are history: counted, not judged, because they were not made under these rules; imported records still open are
+worked in WenQuest Ops and judged from the day they were imported. Dates are the company's days, prepared by
+system/qms.py (``opened``, ``closed_on``, ``contained_on``, ``when``). Plain code: no AI, no network, no database
+(tests/test_isolation.py).
 """
 
 from __future__ import annotations
-
-import datetime as dt
 
 MET, NOT_MET, UNKNOWN, NA = "met", "not_met", "unknown", "not_applicable"
 SHOW = 25                                       # records listed per answer; the count says how many there are
@@ -25,24 +29,27 @@ def ref(kind: str, row: dict, why: str = "") -> dict:
     return {"kind": kind, "id": row["id"], "label": row.get("name") or row.get("label") or str(row["id"]), "why": why}
 
 
-def _day(v) -> dt.date | None:
-    if v is None:
-        return None
-    return v.date() if isinstance(v, dt.datetime) else v
-
-
-def _when(row: dict) -> dt.date | None:
-    """When a record happened: the date written on an imported one, else when it was made."""
-    return _day(row.get("reported_on")) or _day(row.get("created_at"))
-
-
-def _in_window(row: dict, facts: dict) -> bool:
-    d = _when(row)
-    return d is not None and d >= facts["since"]
-
-
 def _plural(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def judged(rows: list[dict], facts: dict) -> tuple[list[dict], list[dict]]:
+    """(records judged, imported history) of the period."""
+    out, history = [], []
+    for r in rows:
+        if r["status"] == "cancelled":
+            continue
+        closed = r["status"] == "closed"
+        if r.get("imported") and closed:
+            if (r.get("when") or r["opened"]) >= facts["since"]:
+                history.append(r)
+        elif not closed or (r.get("closed_on") and r["closed_on"] >= facts["since"]):
+            out.append(r)
+    return out, history
+
+
+def _history(rows: list[dict], what: str = "report") -> str:
+    return f" {_plural(len(rows), 'imported ' + what)} counted as history, not judged." if rows else ""
 
 
 # ---------------------------------------------------------------- documents
@@ -72,16 +79,22 @@ def documents_approved(facts: dict, settings: dict) -> dict:
 CLASHES = ("number_conflict", "same_revision", "revisions", "duplicate")
 
 
+def _controlled(facts: dict) -> list[dict]:
+    return [d for d in facts["documents"] if d["doc_type"] in CONTROLLED and d["status"] not in ("rejected",
+                                                                                                    "obsolete")]
+
+
 def documents_current(facts: dict, settings: dict) -> dict:
-    live = [d for d in facts["documents"] if d["status"] not in ("rejected", "obsolete")]
+    live = _controlled(facts)
     if not live:
-        return result(UNKNOWN, "No documents in the library yet.")
-    bad = [i for i in facts["document_issues"] if i["kind"] in CLASHES]
+        return result(UNKNOWN, "No procedures, work instructions or forms in the library yet.")
+    ids = {d["id"] for d in live}
+    bad = [i for i in facts["document_issues"] if i["kind"] in CLASHES and ids & set(i["docs"])]
     if bad:
         return result(NOT_MET, f"{_plural(len(bad), 'problem')} with revisions, numbers or copies.",
                       [{"kind": "document", "id": i["docs"][0], "label": i["title"], "why": i["detail"]} for i in bad])
-    return result(MET, f"{_plural(len(live), 'document')} checked: one current revision each, no clashing numbers "
-                       "or copies.")
+    return result(MET, f"{_plural(len(live), 'controlled document')} checked: one current revision each, no clashing "
+                       "numbers or copies.")
 
 
 def documents_referenced(facts: dict, settings: dict) -> dict:
@@ -98,37 +111,37 @@ def documents_referenced(facts: dict, settings: dict) -> dict:
 
 # ---------------------------------------------------------------- nonconformances
 
-def _ncrs(facts: dict) -> tuple[list[dict], list[dict]]:
-    """Reports of the period made in WenQuest Ops, and those imported from old ledgers."""
-    rows = [n for n in facts["ncrs"] if _in_window(n, facts)]
-    return [n for n in rows if not n.get("source_doc")], [n for n in rows if n.get("source_doc")]
-
-
-def _history(imported: list[dict]) -> str:
-    return f" {_plural(len(imported), 'imported report')} counted as history, not judged." if imported else ""
-
-
 def ncr_contained(facts: dict, settings: dict) -> dict:
-    own, imported = _ncrs(facts)
-    if not own:
-        return result(UNKNOWN, f"No nonconformance reports in the last {settings['window_days']} days to judge."
-                      + _history(imported))
+    own, history = judged(facts["ncrs"], facts)
     limit = int(settings["ncr_contain_days"])
-    late = [ref("ncr", n, f"open for {(facts['today'] - _day(n['created_at'])).days} days without containment")
-            for n in own if n["status"] == "open" and (facts["today"] - _day(n["created_at"])).days > limit]
+    seen, late = 0, []
+    for n in own:
+        if n["status"] == "open":
+            seen += 1
+            age = (facts["today"] - n["opened"]).days
+            if age > limit:
+                late.append(ref("ncr", n, f"open for {age} days without containment"))
+        elif n.get("contained_on"):
+            seen += 1
+            took = (n["contained_on"] - n["opened"]).days
+            if took > limit:
+                late.append(ref("ncr", n, f"contained after {took} days"))
+    if not seen:
+        return result(UNKNOWN, f"No nonconformance reports of the last {settings['window_days']} days to judge."
+                      + _history(history))
     if late:
         return result(NOT_MET, f"{_plural(len(late), 'report')} not contained within {limit} days.", late)
-    return result(MET, f"{_plural(len(own), 'report')}: none left uncontained for more than {limit} days."
-                  + _history(imported))
+    return result(MET, f"{_plural(seen, 'report')}: each contained within {limit} days, or still within them."
+                  + _history(history))
 
 
 def ncr_concession_approved(facts: dict, settings: dict) -> dict:
-    own, imported = _ncrs(facts)
-    needs = facts["approval_dispositions"]
-    conc = [n for n in own if n.get("disposition") in needs and n["status"] in ("dispositioned", "closed")]
+    own, history = judged(facts["ncrs"], facts)
+    conc = [n for n in own if n.get("disposition") in facts["approval_dispositions"]
+            and n["status"] in ("dispositioned", "closed")]
     if not conc:
         return result(UNKNOWN, f"No dispositions needing approval in the last {settings['window_days']} days."
-                      + _history(imported))
+                      + _history(history))
     bad = []
     for n in conc:
         signed = facts["signatures"].get(("ncr", n["id"]), set())
@@ -145,15 +158,16 @@ def ncr_concession_approved(facts: dict, settings: dict) -> dict:
 
 
 def ncr_recorded(facts: dict, settings: dict) -> dict:
-    own, imported = _ncrs(facts)
+    own, history = judged(facts["ncrs"], facts)
     closed = [n for n in own if n["status"] == "closed"]
     if not closed:
         return result(UNKNOWN, f"No reports closed in WenQuest Ops in the last {settings['window_days']} days."
-                      + _history(imported))
+                      + _history(history))
     bad = []
     for n in closed:
         gaps = [w for w, ok in (("description", n.get("description")), ("disposition", n.get("disposition")),
                                 ("reason for the disposition", n.get("disposition_reason")),
+                                ("who decided the disposition", n.get("disposition_by")),
                                 ("who closed it", n.get("closed_by"))) if not (ok or "").strip()]
         if n.get("closed_by") and n["closed_by"] not in facts["signatures"].get(("ncr", n["id"]), set()):
             gaps.append("the closing signature")
@@ -161,8 +175,9 @@ def ncr_recorded(facts: dict, settings: dict) -> dict:
             bad.append(ref("ncr", n, "missing: " + ", ".join(gaps)))
     if bad:
         return result(NOT_MET, f"{_plural(len(bad), 'closed report')} with something missing.", bad)
-    return result(MET, f"{_plural(len(closed), 'closed report')}, each with description, disposition, reason and the "
-                       "closing signature." + _history(imported), evidence=[ref("ncr", n) for n in closed])
+    return result(MET, f"{_plural(len(closed), 'closed report')}, each with description, disposition, reason, who "
+                       "decided and the closing signature." + _history(history),
+                  evidence=[ref("ncr", n) for n in closed])
 
 
 def rejected_lots_have_ncr(facts: dict, settings: dict) -> dict:
@@ -170,8 +185,8 @@ def rejected_lots_have_ncr(facts: dict, settings: dict) -> dict:
     if not lots:
         return result(UNKNOWN, f"No incoming inspections in the last {settings['window_days']} days.")
     rejected = [q for q in lots if q["rejected"]]
-    missing = [{"kind": "inspection", "id": q["key"], "label": q["key"], "why": f"rejected {q.get('item_code') or ''} "
-                "without a nonconformance report".replace("  ", " ")}
+    missing = [{"kind": "inspection", "id": q["key"], "label": q["key"],
+                "why": " ".join(x for x in ("rejected", q.get("item_code"), "without a nonconformance report") if x)}
                for q in rejected if q["key"] not in facts["ncr_inspections"]]
     if missing:
         return result(NOT_MET, f"{_plural(len(missing), 'rejected lot')} without a nonconformance report.", missing)
@@ -181,59 +196,49 @@ def rejected_lots_have_ncr(facts: dict, settings: dict) -> dict:
 
 # ---------------------------------------------------------------- corrective actions
 
-def _capas(facts: dict) -> tuple[list[dict], list[dict]]:
-    rows = [c for c in facts["capas"] if c["status"] != "cancelled" and (_in_window(c, facts)
-                                                                          or c["status"] != "closed")]
-    return [c for c in rows if not c.get("source_doc")], [c for c in rows if c.get("source_doc")]
-
-
 def capa_for_major(facts: dict, settings: dict) -> dict:
-    own, imported = _ncrs(facts)
-    limit = int(settings["ncr_contain_days"])
-    major = [n for n in own if n["severity"] == "major" and n["status"] != "cancelled"]
+    own, history = judged(facts["ncrs"], facts)
+    within = int(settings["capa_within_days"])
+    major = [n for n in own if n["severity"] == "major"]
     if not major:
-        return result(UNKNOWN, f"No major nonconformance reports in the last {settings['window_days']} days."
-                      + _history(imported))
-    linked = facts["ncr_capas"]
+        return result(UNKNOWN, f"No major nonconformance reports of the last {settings['window_days']} days."
+                      + _history(history))
     bad = [ref("ncr", n, "major, no corrective action") for n in major
-           if n["id"] not in linked and (facts["today"] - _day(n["created_at"])).days > limit]
+           if n["id"] not in facts["ncr_capas"] and (facts["today"] - n["opened"]).days > within]
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'major report')} without a corrective action.", bad)
+        return result(NOT_MET, f"{_plural(len(bad), 'major report')} without a corrective action after {within} "
+                               "days.", bad)
     return result(MET, f"{_plural(len(major), 'major report')}: each has a corrective action (or was opened in the "
-                       f"last {limit} days)." + _history(imported), evidence=[ref("ncr", n) for n in major])
+                       f"last {within} days)." + _history(history), evidence=[ref("ncr", n) for n in major])
 
 
 def capa_on_time(facts: dict, settings: dict) -> dict:
-    own, _ = _capas(facts)
+    own, _ = judged(facts["capas"], facts)
     ids = {c["id"]: c for c in own}
-    actions = [a for a in facts["capa_actions"] if a["capa_id"] in ids]
-    if not actions:
-        return result(UNKNOWN, "No corrective or preventive actions with planned steps to judge.")
     grace = int(settings["capa_overdue_days"])
-    late = []
-    for a in actions:
-        due = _day(a.get("due"))
-        if due is None:
-            continue
-        done_on = _day(a.get("done_at"))
-        if (a["done"] and done_on and (done_on - due).days > grace) or \
-                (not a["done"] and (facts["today"] - due).days > grace):
-            c = ids[a["capa_id"]]
+    seen, late = 0, []
+    for a in facts["capa_actions"]:
+        due, c = a.get("due"), ids.get(a["capa_id"])
+        if c is None or due is None or (a["done"] and a.get("done_on") is None):
+            continue                                # nothing to judge it by
+        seen += 1
+        if (a["done"] and (a["done_on"] - due).days > grace) or (not a["done"] and (facts["today"] - due).days > grace):
             late.append({"kind": "capa", "id": c["id"], "label": c["name"],
-                         "why": f"{a['text'][:80]}: due {due}" + (f", done {done_on}" if a["done"] else
-                                                                       ", not done")})
+                         "why": f"{a['text'][:80]}: due {due}" + (f", done {a['done_on']}" if a["done"] else
+                                                                ", not done")})
+    if not seen:
+        return result(UNKNOWN, "No actions with due dates to judge.")
     if late:
         return result(NOT_MET, f"{_plural(len(late), 'action')} late.", late)
-    return result(MET, f"{_plural(len(actions), 'action')} with due dates: none late.")
+    return result(MET, f"{_plural(seen, 'action')} with due dates: none late.")
 
 
 def capa_effective(facts: dict, settings: dict) -> dict:
-    own, imported = _capas(facts)
+    own, history = judged(facts["capas"], facts)
     closed = [c for c in own if c["status"] == "closed"]
     if not closed:
-        note = f" {_plural(len(imported), 'imported action')} counted as history." if imported else ""
         return result(UNKNOWN, f"No corrective actions closed in WenQuest Ops in the last {settings['window_days']} "
-                               "days." + note)
+                               "days." + _history(history, "action"))
     bad = []
     for c in closed:
         gaps = []
@@ -250,35 +255,45 @@ def capa_effective(facts: dict, settings: dict) -> dict:
     if bad:
         return result(NOT_MET, f"{_plural(len(bad), 'closed action')} without a recorded effectiveness review.", bad)
     return result(MET, f"{_plural(len(closed), 'closed action')}, each with its effectiveness evidence, signed by "
-                       "someone other than the owner.", evidence=[ref("capa", c) for c in closed])
+                       "someone other than the owner." + _history(history, "action"),
+                  evidence=[ref("capa", c) for c in closed])
 
 
 # ---------------------------------------------------------------- what people declare and link
 
-def scope_declared(facts: dict, settings: dict) -> dict:
-    """The scope: met once every control point that may be excluded has been declared, one way or the other."""
-    names = facts["excludable"]
-    open_ = [names[c] for c in names if c not in facts["applicability"]]
-    excluded = {c: a for c, a in facts["applicability"].items() if not a["applies"] and c in names}
-    if open_:
-        return result(UNKNOWN, f"Say whether these apply: {', '.join(open_)}.")
-    if not excluded:
-        return result(MET, "Every requirement applies; nothing is excluded.")
-    return result(MET, "Excluded, with reasons: " + "; ".join(f"{names[c]} ({a['reason']})"
-                                                             for c, a in excluded.items()))
+def _usable(d: dict) -> bool:
+    """A linked document counts while it is in effect: approved, for the kinds the library approves; confirmed and
+    not obsolete, for the others (a policy or an organization chart kept as a record)."""
+    return d["status"] == "effective" or (d["status"] == "confirmed" and d.get("doc_type") not in CONTROLLED)
 
 
 def linked_document(facts: dict, settings: dict, control: str) -> dict:
     docs = facts["evidence"].get(control, [])
     if not docs:
         return result(UNKNOWN, "No document linked as evidence yet.")
-    live = [d for d in docs if d["status"] == "effective"]
-    gone = [ref("document", d, f"linked but {d['status'].replace('_', ' ')}") for d in docs if d["status"] !=
-            "effective"]
+    live = [d for d in docs if _usable(d)]
+    gone = [ref("document", d, f"linked but {d['status'].replace('_', ' ')}") for d in docs if not _usable(d)]
     if not live:
         return result(NOT_MET, "The linked documents are not in effect.", gone)
     return result(MET, "Evidence: " + ", ".join(d["name"] for d in live) + ".", gone,
                   [ref("document", d) for d in live])
+
+
+def scope_declared(facts: dict, settings: dict, control: str = "scope") -> dict:
+    """The scope: a scope statement linked as evidence, and every control point that may be excluded declared."""
+    names = facts["excludable"]
+    open_ = [names[c] for c in names if c not in facts["applicability"]]
+    excluded = {c: a for c, a in facts["applicability"].items() if not a["applies"] and c in names}
+    doc = linked_document(facts, settings, control)
+    if doc["status"] == NOT_MET:
+        return doc
+    if doc["status"] == UNKNOWN or open_:
+        need = (["link the scope statement"] if doc["status"] == UNKNOWN else []) + \
+               ([f"say whether these apply: {', '.join(open_)}"] if open_ else [])
+        return result(UNKNOWN, "To do: " + "; ".join(need) + ".", evidence=doc["evidence"])
+    why = "Every requirement applies." if not excluded else \
+        "Excluded, with reasons: " + "; ".join(f"{names[c]} ({a['reason']})" for c, a in excluded.items()) + "."
+    return result(MET, doc["detail"] + " " + why, evidence=doc["evidence"])
 
 
 def register(facts: dict, settings: dict, name: str) -> dict:
@@ -289,6 +304,7 @@ def register(facts: dict, settings: dict, name: str) -> dict:
 CHECKS = {f.__name__: f for f in (documents_approved, documents_current, documents_referenced, ncr_contained,
                                   ncr_concession_approved, ncr_recorded, rejected_lots_have_ncr, capa_for_major,
                                   capa_on_time, capa_effective, scope_declared)}
+LINKED = ("linked_document", "scope_declared")          # rules that take documents linked as evidence
 
 
 def evaluate(pack: dict, edition: str, facts: dict) -> dict:
@@ -301,8 +317,8 @@ def evaluate(pack: dict, edition: str, facts: dict) -> dict:
             decl = facts["applicability"].get(c["id"])
             if c.get("may_exclude") and decl and not decl["applies"]:
                 r = result(NA, f"Does not apply: {decl['reason']} (declared by {decl['email']})")
-            elif rule == "linked_document":
-                r = linked_document(facts, settings, c["id"])
+            elif rule in ("linked_document", "scope_declared"):
+                r = (linked_document if rule == "linked_document" else scope_declared)(facts, settings, c["id"])
             elif rule.startswith("register:"):
                 r = register(facts, settings, rule.split(":", 1)[1])
             else:
@@ -322,7 +338,7 @@ def counts(results: dict) -> dict:
 def check_pack(pack: dict) -> list[str]:
     """What is wrong with a pack file: unknown rules, duplicate control points, settings the checks need."""
     errs, seen = [], set()
-    for need in ("window_days", "ncr_contain_days", "capa_overdue_days"):
+    for need in ("window_days", "ncr_contain_days", "capa_within_days", "capa_overdue_days"):
         if not isinstance((pack.get("settings") or {}).get(need), int):
             errs.append(f"setting {need} is a whole number")
     for proc in (pack.get("processes") or {}).values():
@@ -338,6 +354,8 @@ def check_pack(pack: dict) -> list[str]:
                     errs.append(f"{c.get('id')}: clauses for edition {ed!r} are a list")
             if c.get("may_exclude") and not str(c.get("short") or "").strip():
                 errs.append(f"{c.get('id')}: a short name, to say it does not apply")
+            if c.get("rule") in LINKED and not str(c.get("hint") or "").strip():
+                errs.append(f"{c.get('id')}: a hint of what document shows it")
             if not str(c.get("summary") or "").strip():
                 errs.append(f"{c.get('id')}: a summary")
     return errs

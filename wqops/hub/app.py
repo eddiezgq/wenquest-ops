@@ -141,7 +141,8 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         from wqops.hub.system import qms as QMS  # noqa: PLC0415
 
         with DB.connect(db_url) as c:
-            done = QMS.evaluate_if_due(c, OA.today(company()[0]))
+            m = company()[0]
+            done = QMS.evaluate_if_due(c, OA.today(m), m["company"]["timezone"] if m else "UTC")
             if done:
                 log.info("quality system evaluated: %s", ", ".join(done))
 

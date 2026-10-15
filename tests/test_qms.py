@@ -28,9 +28,10 @@ from wqops.hub.system import rules as R
 
 PW = "Demo pass 2026"
 JORDAN, SAM, DANA = "jordan@demo.example", "sam@demo.example", "dana@demo.example"
-SET = {"window_days": 365, "ncr_contain_days": 7, "capa_overdue_days": 0}
+SET = {"window_days": 365, "ncr_contain_days": 7, "capa_within_days": 14, "capa_overdue_days": 0}
 T = AS_OF
 OLD = dt.datetime(2026, 9, 1, tzinfo=dt.UTC)
+D = dt.date
 
 
 @pytest.fixture(autouse=True)
@@ -58,9 +59,17 @@ def facts(**kw):
 
 
 def ncr(i, **kw):
+    """A report as system/qms.py prepares it: dates are company days."""
     return {"id": i, "name": f"NCR-{i:05d}", "status": "open", "severity": "minor", "description": "d",
             "disposition": None, "disposition_reason": None, "disposition_by": None, "approved_by": None,
-            "closed_by": None, "inspection": None, "created_at": OLD, "reported_on": None, "source_doc": None} | kw
+            "closed_by": None, "inspection": None, "opened": D(2026, 9, 1), "closed_on": None, "contained_on": None,
+            "when": D(2026, 9, 1), "imported": False} | kw
+
+
+def capa(i, **kw):
+    return {"id": i, "name": f"CAPA-{i:05d}", "status": "implementation", "owner": JORDAN, "opened": D(2026, 9, 1),
+            "closed_on": None, "when": D(2026, 9, 1), "imported": False, "verification_result": None,
+            "verification_method": None, "closed_by": None} | kw
 
 
 # ---------------------------------------------------------------- the pack
@@ -88,41 +97,66 @@ def test_the_pack_file():
 
 # ---------------------------------------------------------------- the checks, on facts
 
+def test_which_records_are_judged():
+    f = facts()
+    rows = [ncr(1), ncr(2, status="cancelled"), ncr(3, status="closed", closed_on=D(2026, 10, 1)),
+            ncr(4, status="closed", opened=D(2024, 1, 1), closed_on=D(2026, 10, 11)),       # old, closed yesterday
+            ncr(5, status="closed", opened=D(2024, 1, 1), closed_on=D(2024, 3, 1)),         # closed long ago
+            ncr(6, status="contained", opened=D(2024, 1, 1)),                              # old but still open
+            ncr(7, status="closed", imported=True, when=D(2026, 2, 1)),                    # imported history
+            ncr(8, status="closed", imported=True, when=D(2020, 2, 1)),                    # imported, out of period
+            ncr(9, status="open", imported=True, opened=D(2026, 10, 1))]                   # imported, still open
+    own, history = R.judged(rows, f)
+    assert [n["id"] for n in own] == [1, 3, 4, 6, 9] and [n["id"] for n in history] == [7]
+
+
 def test_nonconformance_checks():
     f = facts()
     for rule in (R.ncr_contained, R.ncr_concession_approved, R.ncr_recorded, R.capa_for_major):
         assert rule(f, SET)["status"] == "unknown"                     # nothing to judge is not "met"
-    imported_only = facts(ncrs=[ncr(1, source_doc=5, status="closed", disposition=None)])
-    out = R.ncr_recorded(imported_only, SET)
+    out = R.ncr_recorded(facts(ncrs=[ncr(1, status="closed", imported=True)]), SET)
     assert out["status"] == "unknown" and "1 imported report counted as history" in out["detail"]
-    late = facts(ncrs=[ncr(1), ncr(2, created_at=dt.datetime(2026, 10, 10, tzinfo=dt.UTC)),
-                       ncr(3, status="contained")])
+    # only cancelled reports: nothing to judge
+    assert R.ncr_contained(facts(ncrs=[ncr(1, status="cancelled")]), SET)["status"] == "unknown"
+    late = facts(ncrs=[ncr(1), ncr(2, opened=D(2026, 10, 10)), ncr(3, status="contained", contained_on=D(2026, 9, 3)),
+                       ncr(4, status="contained", contained_on=D(2026, 10, 11)),
+                       ncr(5, status="contained", opened=D(2025, 1, 1), contained_on=D(2025, 1, 2))])
     out = R.ncr_contained(late, SET)
-    assert out["status"] == "not_met" and [p["id"] for p in out["problems"]] == [1]
-    assert "open for 41 days" in out["problems"][0]["why"]
-    assert R.ncr_contained(facts(ncrs=[ncr(3, status="contained")]), SET)["status"] == "met"
-    # older than the window: not looked at
-    assert R.ncr_contained(facts(ncrs=[ncr(4, created_at=dt.datetime(2024, 1, 1, tzinfo=dt.UTC))]),
-                           SET)["status"] == "unknown"
-    conc = [ncr(1, status="closed", disposition="use_as_is", disposition_by=JORDAN, approved_by=SAM),
+    assert out["status"] == "not_met" and {p["id"]: p["why"] for p in out["problems"]} == {
+        1: "open for 41 days without containment", 4: "contained after 40 days"}
+    assert R.ncr_contained(facts(ncrs=[ncr(3, status="contained", contained_on=D(2026, 9, 3))]), SET)["status"] == "met"
+    # an old report still open is judged even when a newer one is fine
+    old_open = facts(ncrs=[ncr(1, opened=D(2025, 1, 1)), ncr(2, status="contained", contained_on=D(2026, 9, 2))])
+    assert [p["id"] for p in R.ncr_contained(old_open, SET)["problems"]] == [1]
+    # an imported report contained before it was imported has no containment time: not judged
+    assert R.ncr_contained(facts(ncrs=[ncr(1, status="contained", imported=True)]), SET)["status"] == "unknown"
+    conc = [ncr(1, status="closed", disposition="use_as_is", disposition_by=JORDAN, approved_by=SAM,
+                closed_on=D(2026, 10, 1)),
             ncr(2, status="dispositioned", disposition="use_as_is", disposition_by=JORDAN, approved_by=JORDAN),
             ncr(3, status="dispositioned", disposition="use_as_is", disposition_by=JORDAN),
-            ncr(4, status="closed", disposition="use_as_is", disposition_by=JORDAN, approved_by=DANA),
-            ncr(5, status="closed", disposition="scrap")]
+            ncr(4, status="closed", disposition="use_as_is", disposition_by=JORDAN, approved_by=DANA,
+                closed_on=D(2026, 10, 1)),
+            ncr(5, status="closed", disposition="scrap", closed_on=D(2026, 10, 1))]
     out = R.ncr_concession_approved(facts(ncrs=conc, signatures={("ncr", 1): {SAM}, ("ncr", 4): {JORDAN}}), SET)
     assert out["status"] == "not_met" and {p["id"]: p["why"] for p in out["problems"]} == {
         2: "approved by the person who proposed it", 3: "no approval recorded", 4: "the approval has no signature"}
     assert R.ncr_concession_approved(facts(ncrs=conc[:1], signatures={("ncr", 1): {SAM}}), SET)["status"] == "met"
-    closed = [ncr(1, status="closed", disposition="scrap", disposition_reason="bent", closed_by=JORDAN),
-              ncr(2, status="closed", disposition="scrap", disposition_reason="", closed_by=JORDAN)]
-    out = R.ncr_recorded(facts(ncrs=closed, signatures={("ncr", 1): {JORDAN}}), SET)
-    assert out["problems"] == [{"kind": "ncr", "id": 2, "label": "NCR-00002",
-                                "why": "missing: reason for the disposition, the closing signature"}]
-    major = [ncr(1, severity="major"), ncr(2, severity="major", created_at=dt.datetime(2026, 10, 9, tzinfo=dt.UTC)),
-             ncr(3, severity="major", status="cancelled"), ncr(4, severity="major")]
+    closed = [ncr(1, status="closed", disposition="scrap", disposition_reason="bent", disposition_by=JORDAN,
+                  closed_by=JORDAN, closed_on=D(2026, 10, 1)),
+              ncr(2, status="closed", disposition="scrap", disposition_reason="", disposition_by=JORDAN,
+                  closed_by=JORDAN, closed_on=D(2026, 10, 1)),
+              ncr(3, status="closed", opened=D(2024, 1, 1), closed_on=D(2026, 10, 11), disposition="scrap",
+                  disposition_reason="x", closed_by=JORDAN)]
+    out = R.ncr_recorded(facts(ncrs=closed, signatures={("ncr", 1): {JORDAN}, ("ncr", 3): {JORDAN}}), SET)
+    assert {p["id"]: p["why"] for p in out["problems"]} == {
+        2: "missing: reason for the disposition, the closing signature",
+        3: "missing: who decided the disposition"}                     # opened long ago, closed yesterday: judged
+    major = [ncr(1, severity="major"), ncr(2, severity="major", opened=D(2026, 10, 1)),
+             ncr(3, severity="major", status="cancelled"), ncr(4, severity="major"),
+             ncr(5, severity="major", opened=D(2025, 1, 1))]
     out = R.capa_for_major(facts(ncrs=major, ncr_capas={4}), SET)
-    assert out["status"] == "not_met" and [p["id"] for p in out["problems"]] == [1]   # 2 is new, 3 cancelled
-    assert R.capa_for_major(facts(ncrs=major[1:], ncr_capas={4}), SET)["status"] == "met"
+    assert out["status"] == "not_met" and [p["id"] for p in out["problems"]] == [1, 5]   # 2 is new, 3 cancelled
+    assert R.capa_for_major(facts(ncrs=major[1:4], ncr_capas={4}), SET)["status"] == "met"
 
 
 def test_incoming_and_corrective_action_checks():
@@ -133,27 +167,34 @@ def test_incoming_and_corrective_action_checks():
     assert out["status"] == "not_met" and out["problems"][0]["why"] == "rejected BOLT without a nonconformance report"
     assert R.rejected_lots_have_ncr(facts(incoming_inspections=lots[1:]), SET)["detail"].startswith(
         "1 incoming inspection, 0 rejected")
-    capa = {"id": 1, "name": "CAPA-00001", "status": "implementation", "owner": JORDAN, "created_at": OLD,
-            "reported_on": None, "source_doc": None, "verification_result": None, "verification_method": None,
-            "closed_by": None}
-    acts = [{"capa_id": 1, "text": "Scan check", "due": dt.date(2026, 10, 1), "done": False, "done_at": None},
-            {"capa_id": 1, "text": "Train", "due": dt.date(2026, 10, 1), "done": True,
-             "done_at": dt.datetime(2026, 10, 3, tzinfo=dt.UTC)},
-            {"capa_id": 1, "text": "Later", "due": dt.date(2026, 12, 1), "done": False, "done_at": None},
-            {"capa_id": 1, "text": "No date", "due": None, "done": False, "done_at": None}]
-    assert R.capa_on_time(facts(capas=[capa]), SET)["status"] == "unknown"
-    out = R.capa_on_time(facts(capas=[capa], capa_actions=acts), SET)
+    c = capa(1)
+    acts = [{"capa_id": 1, "text": "Scan check", "due": D(2026, 10, 1), "done": False, "done_on": None},
+            {"capa_id": 1, "text": "Train", "due": D(2026, 10, 1), "done": True, "done_on": D(2026, 10, 3)},
+            {"capa_id": 1, "text": "Later", "due": D(2026, 12, 1), "done": False, "done_on": None},
+            {"capa_id": 1, "text": "No date", "due": None, "done": False, "done_on": None}]
+    assert R.capa_on_time(facts(capas=[c]), SET)["status"] == "unknown"
+    # actions without due dates give nothing to judge: unknown, not met
+    assert R.capa_on_time(facts(capas=[c], capa_actions=acts[3:]), SET)["status"] == "unknown"
+    out = R.capa_on_time(facts(capas=[c], capa_actions=acts), SET)
     assert [p["why"] for p in out["problems"]] == ["Scan check: due 2026-10-01, not done",
                                                     "Train: due 2026-10-01, done 2026-10-03"]
-    assert R.capa_on_time(facts(capas=[capa], capa_actions=acts), dict(SET, capa_overdue_days=30))["status"] == "met"
-    shut = [dict(capa, status="closed", verification_result="effective", verification_method="0 swaps", closed_by=SAM),
-            dict(capa, id=2, name="CAPA-00002", status="closed", verification_result="effective",
+    out = R.capa_on_time(facts(capas=[c], capa_actions=acts), dict(SET, capa_overdue_days=30))
+    assert out["status"] == "met" and out["detail"] == "3 actions with due dates: none late."
+    # actions of an imported corrective action still open are judged too
+    assert R.capa_on_time(facts(capas=[capa(1, imported=True)], capa_actions=acts[:1]), SET)["status"] == "not_met"
+    shut = [capa(1, status="closed", closed_on=D(2026, 10, 1), verification_result="effective",
+                 verification_method="0 swaps", closed_by=SAM),
+            capa(2, status="closed", closed_on=D(2026, 10, 1), verification_result="effective",
                  verification_method="", closed_by=JORDAN),
-            dict(capa, id=3, name="CAPA-00003", status="closed", source_doc=9)]
+            capa(3, status="closed", imported=True),
+            capa(4, status="closed", opened=D(2024, 1, 1), closed_on=D(2026, 10, 11), verification_result="effective",
+                 verification_method="ok", closed_by=SAM)]
     out = R.capa_effective(facts(capas=shut, signatures={("capa", 1): {SAM}, ("capa", 2): {JORDAN}}), SET)
-    assert out["problems"] == [{"kind": "capa", "id": 2, "label": "CAPA-00002", "why": "missing: the evidence of "
-                                "effectiveness, someone other than the owner to close it"}]
-    assert R.capa_effective(facts(capas=shut[2:]), SET)["status"] == "unknown"
+    assert out["problems"] == [
+        {"kind": "capa", "id": 2, "label": "CAPA-00002", "why": "missing: the evidence of effectiveness, someone "
+         "other than the owner to close it"},
+        {"kind": "capa", "id": 4, "label": "CAPA-00004", "why": "missing: the closing signature"}]
+    assert R.capa_effective(facts(capas=shut[2:3]), SET)["status"] == "unknown"
 
 
 def test_document_checks_and_declarations():
@@ -170,21 +211,34 @@ def test_document_checks_and_declarations():
     assert R.documents_current(facts(documents=docs, document_issues=[issue]), SET)["status"] == "not_met"
     assert R.documents_current(facts(documents=docs, document_issues=[dict(issue, kind="no_date")]),
                                SET)["status"] == "met"
+    # records alone are not controlled documents: nothing to judge
+    assert R.documents_current(facts(documents=docs[2:]), SET)["status"] == "unknown"
     ref = dict(issue, kind="missing_ref")
     assert R.documents_referenced(facts(documents=docs, document_issues=[ref]), SET)["status"] == "not_met"
-    # scope: met once every excludable point is declared
-    assert R.scope_declared(facts(), SET)["status"] == "unknown"
-    decl = {"design": {"applies": False, "reason": "we resell only", "email": DANA}}
-    assert R.scope_declared(facts(applicability=decl), SET)["detail"] == \
-        "Excluded, with reasons: design and development (we resell only)"
-    ev = {"policy": [{"id": 7, "name": "Quality policy", "status": "obsolete"}]}
-    assert R.linked_document(facts(evidence=ev), SET, "policy")["status"] == "not_met"
+    # linked documents: in effect, or confirmed for the kinds the library does not approve
+    policy = {"id": 7, "name": "Quality policy", "status": "confirmed", "doc_type": "other"}
+    assert R.linked_document(facts(evidence={"policy": [policy]}), SET, "policy")["status"] == "met"
+    assert R.linked_document(facts(evidence={"policy": [dict(policy, doc_type="procedure")]}), SET,
+                             "policy")["status"] == "not_met"
+    assert R.linked_document(facts(evidence={"policy": [dict(policy, status="obsolete")]}), SET,
+                             "policy")["status"] == "not_met"
     assert R.linked_document(facts(), SET, "policy")["status"] == "unknown"
+    # scope: the scope statement linked and every excludable point declared
+    decl = {"design": {"applies": False, "reason": "we resell only", "email": DANA}}
+    scope = {"scope": [dict(policy, id=8, name="Scope statement")]}
+    assert R.scope_declared(facts(), SET)["detail"] == \
+        "To do: link the scope statement; say whether these apply: design and development."
+    assert R.scope_declared(facts(applicability=decl), SET)["status"] == "unknown"
+    assert R.scope_declared(facts(evidence=scope), SET)["status"] == "unknown"
+    out = R.scope_declared(facts(applicability=decl, evidence=scope), SET)
+    assert out["status"] == "met" and out["detail"] == \
+        "Evidence: Scope statement. Excluded, with reasons: design and development (we resell only)."
     pack = QMS.load("iso9001")
     res = R.evaluate(pack, "2015", facts(applicability=decl, documents=docs, document_approvals={1}))
     assert res["design"]["status"] == "not_applicable" and res["doc_approved"]["status"] == "met"
     assert res["audit"]["status"] == "unknown" and "register" in res["audit"]["detail"]
-    assert res["ncr_concession"]["clauses"] == ["8.7.1"] and res["ncr_concession"]["process"] == "nonconforming"
+    assert res["ncr_concession"]["clauses"] == ["8.7.1", "8.7.2"] and res["ncr_concession"]["process"] == \
+        "nonconforming"
     assert sum(R.counts(res).values()) == len(QMS.controls(pack))
 
 
@@ -228,7 +282,8 @@ def test_adopting_declaring_linking_and_evaluating(world):
     QMS.declare(world, dana, "iso9001", "measuring", True, "we gauge incoming bolts", PW, T)
     ev = QMS.latest(world, "iso9001")
     assert ev["trigger"] == "changed" and ev["results"]["design"]["status"] == "not_applicable"
-    assert ev["results"]["scope"]["status"] == "met" and ev["counts"]["not_applicable"] == 3
+    assert ev["counts"]["not_applicable"] == 3
+    assert ev["results"]["scope"]["detail"] == "To do: link the scope statement."
     signed = world.execute("select meaning, email from signatures where kind = 'qms_applicability' "
                            "order by id").fetchall()
     assert [s["meaning"] for s in signed] == ["Does not apply"] * 3 + ["Applies"] and signed[0]["email"] == DANA
@@ -247,6 +302,8 @@ def test_adopting_declaring_linking_and_evaluating(world):
     LIB.approve(world, Acc.get(world, SAM), docs[0]["id"], PW, T)
     out = QMS.evaluate(world, "iso9001", T, "manual")["results"]
     assert out["policy"]["status"] == "met" and out["doc_approved"]["status"] == "met"
+    QMS.link(world, JORDAN, "iso9001", "scope", docs[0]["id"], True, T)
+    assert QMS.latest(world, "iso9001")["results"]["scope"]["status"] == "met"
     with pytest.raises(QMS.QmsError, match="already linked"):
         QMS.link(world, JORDAN, "iso9001", "policy", docs[0]["id"], True, T)
     QMS.link(world, JORDAN, "iso9001", "policy", docs[0]["id"], False, T)
@@ -257,6 +314,22 @@ def test_adopting_declaring_linking_and_evaluating(world):
     assert QMS.evaluate_if_due(world, T + dt.timedelta(days=1)) == ["iso9001"]
     first = world.execute("select id from qms_evaluations order by id limit 1").fetchone()["id"]
     assert QMS.view(world, "iso9001", first)["evaluation"]["trigger"] == "enabled"
+    v = QMS.view(world, "iso9001", day=T)
+    assert v["evaluation"]["day"] == T.isoformat() and v["evaluation"]["trigger"] == "daily"
+    assert [h["day"] for h in v["history"]] == [(T + dt.timedelta(days=1)).isoformat(), T.isoformat()]
+    with pytest.raises(KeyError):
+        QMS.view(world, "iso9001", day=T - dt.timedelta(days=30))
+    # a newer pack: the old check is still shown with the pack it was made under
+    world.execute("update qms_packs set status = 'retired', retired_at = now() where id = %s", (p["id"],))
+    world.execute("insert into qms_packs (standard, edition, version, content, fingerprint, enabled_by) values "
+                  "('iso9001', '2015', 2, %s, 'f2', %s)", (psycopg.types.json.Json(dict(QMS.load("iso9001"),
+                                                                                         version=2)), DANA))
+    old = QMS.view(world, "iso9001", first)
+    assert old["shown_pack"]["id"] == p["id"] and old["enabled"]["version"] == 2 and old["newer_pack"] is True
+    with pytest.raises(psycopg.errors.RaiseException, match="frozen"):
+        world.execute("update qms_packs set status = 'enabled' where id = %s", (p["id"],))
+    with pytest.raises(psycopg.errors.RaiseException, match="frozen"):
+        world.execute("update qms_packs set retired_at = now() where id = %s", (p["id"],))
     for sql in ("update qms_evaluations set counts = '{}' where id = %s", "delete from qms_evaluations where id = %s",
                 "update qms_packs set fingerprint = 'x' where id = %s", "delete from qms_packs where id = %s"):
         with pytest.raises(psycopg.errors.RaiseException):
@@ -296,7 +369,12 @@ def test_quality_system_api(db_url):
     assert c.post("/api/qms/iso9001/controls/policy/evidence", json={"document_id": 10**6}).status_code == 404
     login(SAM)
     v = c.post("/api/qms/iso9001/evaluate").json()
-    assert v["evaluation"]["trigger"] == "manual" and len(v["history"]) == 3
-    assert c.get(f"/api/qms/iso9001?evaluation={v['history'][-1]['id']}").json()["evaluation"]["trigger"] == "enabled"
+    assert v["evaluation"]["trigger"] == "manual" and len(v["history"]) == 1    # one row a day
+    assert v["can_check"] is True
+    assert c.get("/api/qms/iso9001?day=yesterday").status_code == 400
+    with DB.connect(db_url) as conn:
+        first = conn.execute("select min(id) as i from qms_evaluations").fetchone()["i"]
+    assert c.get(f"/api/qms/iso9001?evaluation={first}").json()["evaluation"]["trigger"] == "enabled"
+    assert c.get(f"/api/qms/iso9001?day={v['evaluation']['day']}").json()["evaluation"]["trigger"] == "manual"
     assert c.get("/api/qms/iso9001?evaluation=999999").status_code == 404
     c.__exit__(None, None, None)

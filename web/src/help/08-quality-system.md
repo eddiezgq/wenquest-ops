@@ -24,17 +24,25 @@ Each control point shows one of:
   register that is not there yet. Unknown is never counted as met;
 - **does not apply**: the company declared it, with a reason.
 
-The check looks at the last year of records. It runs again every day, and whenever you choose *Check now*, declare
-something or link a document. Every check is kept: *Earlier checks* shows what the system looked like on a given day.
-Records imported from old spreadsheets are counted as history, not judged, because they were not made under these
-rules.
+The check looks at records still open and at those closed in the last year. It runs again every day (with the
+background job that also pulls changes from ERPNext), whenever someone who edits quality records chooses *Check now*,
+and when you declare something or link a document. Every check is kept: *Earlier checks* shows what the system looked
+like on a given day. Records imported from old spreadsheets that were already closed are counted as history, not
+judged, because they were not made under these rules; imported records still open are judged like any other.
+
+Where WenQuest Ops checks a requirement with a rule of its own, for example "every major nonconformance gets a
+corrective action within 14 days" or "a concession is approved by someone other than the person who proposed it",
+the control point says so. These rules are how the system shows the requirement is met; the standard itself may
+allow other ways.
 
 ## Say what does not apply, link documents
 
 Some requirements may not apply to your company, such as design and development when you only distribute. Choose
 *Change* on the control point, give the reason and sign with your password. Others are shown by a document, such as
-the quality policy or a process map: link a document from the library. It counts while it is in effect (approved and
-not obsolete).
+the scope statement, the quality policy or a process map: link a document from the library. It counts while it is in
+effect: approved, for procedures, work instructions and forms; confirmed and not obsolete, for other documents such as
+a policy kept as a record. The scope is met when the scope statement is linked and every requirement that may not
+apply has been declared one way or the other.
 
 ## Coming next
 
