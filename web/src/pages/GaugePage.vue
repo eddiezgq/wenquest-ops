@@ -49,6 +49,8 @@ const assess = (i) => call(`/api/gauge-impacts/${i.id}/assess`, 'POST', { passwo
       <h2 class="wq-h2">Found out of tolerance: what it measured</h2>
       <p class="mb-2 text-ink-gray-8">{{ i.inspections.length }} incoming inspections since {{ i.since || 'it was registered' }}:
         <RouterLink v-for="x in i.inspections" :key="x.id" :to="`/quality/iqc/${x.id}`" class="wq-link me-2">{{ x.name }} ({{ x.item_code }}, {{ x.result }})</RouterLink></p>
+      <p v-if="i.production?.length" class="mb-2 text-ink-gray-8">{{ i.production.length }} production lots (held until this is signed):
+        <RouterLink v-for="x in i.production" :key="x.id" :to="`/quality/production/${x.id}`" class="wq-link me-2">{{ x.name }} ({{ x.item_code }} lot {{ x.lot_no }})</RouterLink></p>
       <template v-if="g.can_configure">
         <label class="wq-field">Were those results still valid? Conclusion<textarea v-model="(imp[i.id] ||= {}).text" rows="2" class="wq-input" /></label>
         <div class="mt-2 flex flex-wrap items-center gap-2">

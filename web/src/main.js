@@ -29,6 +29,9 @@ import AslPage from './pages/AslPage.vue'
 import Changes from './pages/Changes.vue'
 import Risk from './pages/Risk.vue'
 import RiskFilePage from './pages/RiskFilePage.vue'
+import Production from './pages/Production.vue'
+import ProductionTemplate from './pages/ProductionTemplate.vue'
+import ProductionRecord from './pages/ProductionRecord.vue'
 import ChangePage from './pages/ChangePage.vue'
 import Gauges from './pages/Gauges.vue'
 import GaugePage from './pages/GaugePage.vue'
@@ -58,6 +61,9 @@ const router = createRouter({
     { path: '/quality/changes/:id', component: ChangePage, meta: { title: 'Change' } },
     { path: '/quality/risk', component: Risk, meta: { title: 'Risk management' } },
     { path: '/quality/risk/:id', component: RiskFilePage, meta: { title: 'Risk file' } },
+    { path: '/quality/production', component: Production, meta: { title: 'Production records' } },
+    { path: '/quality/production/templates/:id', component: ProductionTemplate, meta: { title: 'Production template' } },
+    { path: '/quality/production/:id', component: ProductionRecord, meta: { title: 'Production record' } },
     { path: '/quality/suppliers', component: AslPage, meta: { title: 'Approved suppliers' } },
     { path: '/quality/iqc', component: IqcHome, meta: { title: 'Incoming inspection' } },
     { path: '/quality/iqc/plans/:id', component: IqcPlan, meta: { title: 'Inspection plan' } },

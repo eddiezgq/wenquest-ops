@@ -211,11 +211,15 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
                                 "'approved' and result = 'pass' and done_on < %s", (g["id"], c["done_on"])).fetchone()
             since = prev["d"]
             hit = measured_since(conn, g["id"], since)
+            from wqops.hub.quality import production as PRD  # noqa: PLC0415 - production imports this module
+
+            lots = PRD.measured_since(conn, g["id"], since)
             conn.execute("update gauges set status = 'out_of_service', updated_at = now() where id = %s", (g["id"],))
-            conn.execute("insert into gauge_impacts (gauge_id, calibration_id, since, inspections) values "
-                         "(%s, %s, %s, %s)", (g["id"], cid, since, Jsonb(hit)))
+            conn.execute("insert into gauge_impacts (gauge_id, calibration_id, since, inspections, production) values "
+                         "(%s, %s, %s, %s, %s)", (g["id"], cid, since, Jsonb(hit), Jsonb(lots)))
             log(conn, g["id"], user["email"], "out of tolerance", f"on {c['done_on']}: out of service; "
-                f"{len(hit)} inspections measured since {since or 'it was registered'} to assess")
+                f"{len(hit)} inspections and {len(lots)} production lots measured since "
+                f"{since or 'it was registered'} to assess")
     return get(conn, g["id"])
 
 
@@ -254,6 +258,9 @@ def assess(conn, user: dict, impact_id: int, password: str, conclusion: str, *, 
                                            f"{len(imp['inspections'])} incoming inspections measured with it since "
                                            f"{imp['since'] or 'it was registered'}: "
                                            + ", ".join(x["name"] for x in imp["inspections"][:30])
+                                           + (". Production lots: " + ", ".join(
+                                               f"{x['item_code']} lot {x['lot_no']}" for x in imp["production"][:30])
+                                              if imp.get("production") else "")
                                            + f". Assessment: {conclusion.strip()}")
         Q._sign(conn, user, "Out-of-tolerance assessment", "calibration_impact", impact_id, g["code"])
         conn.execute("update gauge_impacts set status = 'assessed', conclusion = %s, ncr_id = %s, assessed_by = %s, "
