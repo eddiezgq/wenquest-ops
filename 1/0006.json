@@ -1,0 +1,20 @@
+{
+ "method": "GET",
+ "path": "/api/resource/Sales Order",
+ "params": {
+  "filters": "[]",
+  "fields": "[\"name\", \"modified\"]",
+  "order_by": "modified asc, name asc",
+  "limit_start": "0",
+  "limit_page_length": "20"
+ },
+ "status": 200,
+ "body": {
+  "data": [
+   {
+    "name": "SAL-ORD-2026-00001",
+    "modified": "2026-10-16 14:07:19.251545"
+   }
+  ]
+ }
+}

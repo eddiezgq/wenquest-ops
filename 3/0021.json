@@ -1,0 +1,15 @@
+{
+ "method": "GET",
+ "path": "/api/resource/Deleted Document",
+ "params": {
+  "filters": "[[\"deleted_doctype\", \"in\", [\"Item\", \"Warehouse\", \"Customer\", \"Supplier\", \"Stock Ledger Entry\", \"Sales Order\", \"Delivery Note\", \"Purchase Order\", \"Purchase Receipt\", \"Quality Inspection\", \"Sales Invoice\", \"Purchase Invoice\", \"Serial and Batch Bundle\"]], [\"modified\", \"=\", \"2026-10-16 14:07:21.193080\"], [\"name\", \">\", \"3jr1ddapqc\"]]",
+  "fields": "[\"name\", \"modified\", \"creation\", \"deleted_doctype\", \"deleted_name\"]",
+  "order_by": "name asc",
+  "limit_start": "0",
+  "limit_page_length": "20"
+ },
+ "status": 200,
+ "body": {
+  "data": []
+ }
+}

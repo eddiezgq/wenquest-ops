@@ -1,0 +1,53 @@
+{
+ "runs": [
+  {
+   "Item": 1,
+   "Warehouse": 9,
+   "Customer": 2,
+   "Supplier": 1,
+   "Stock Ledger Entry": 1,
+   "Sales Order": 1,
+   "Delivery Note": 0,
+   "Purchase Order": 1,
+   "Purchase Receipt": 0,
+   "Quality Inspection": 0,
+   "Sales Invoice": 0,
+   "Purchase Invoice": 0,
+   "Serial and Batch Bundle": 0,
+   "deleted": 0
+  },
+  {
+   "Item": 1,
+   "Warehouse": 0,
+   "Customer": 0,
+   "Supplier": 0,
+   "Stock Ledger Entry": 0,
+   "Sales Order": 0,
+   "Delivery Note": 0,
+   "Purchase Order": 1,
+   "Purchase Receipt": 0,
+   "Quality Inspection": 0,
+   "Sales Invoice": 0,
+   "Purchase Invoice": 0,
+   "Serial and Batch Bundle": 0,
+   "deleted": 1
+  },
+  {
+   "Item": 0,
+   "Warehouse": 0,
+   "Customer": 0,
+   "Supplier": 0,
+   "Stock Ledger Entry": 0,
+   "Sales Order": 0,
+   "Delivery Note": 0,
+   "Purchase Order": 0,
+   "Purchase Receipt": 0,
+   "Quality Inspection": 0,
+   "Sales Invoice": 0,
+   "Purchase Invoice": 0,
+   "Serial and Batch Bundle": 0,
+   "deleted": 0
+  }
+ ],
+ "page": 20
+}
