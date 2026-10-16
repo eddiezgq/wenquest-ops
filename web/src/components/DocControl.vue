@@ -45,7 +45,7 @@ async function doWaive(t) {
     <p v-if="error" class="wq-error mb-3">{{ error }}</p>
     <p v-if="done" class="mb-3 text-sm text-ink-green-7">{{ done }}</p>
 
-    <h3 class="mb-1 text-sm font-semibold text-ink-gray-8">Who must read it</h3>
+    <h3 data-help="doc-readers" class="mb-1 text-sm font-semibold text-ink-gray-8">Who must read it</h3>
     <template v-if="canEdit">
       <div class="mb-2 flex flex-wrap gap-3 text-sm">
         <label v-for="r in d.roles" :key="r" class="inline-flex items-center gap-1.5"><input v-model="roles" type="checkbox" class="form-checkbox" :value="r">{{ r.replace('_', ' ') }}</label>
@@ -60,7 +60,7 @@ async function doWaive(t) {
     <p class="mt-1 text-sm text-ink-gray-5">Now that is {{ d.readers_now.length }} people.</p>
 
     <template v-if="d.training.length">
-      <h3 class="mb-1 mt-4 text-sm font-semibold text-ink-gray-8">Reading of this revision</h3>
+      <h3 data-help="doc-reading" class="mb-1 mt-4 text-sm font-semibold text-ink-gray-8">Reading of this revision</h3>
       <table class="wq-table text-sm"><thead><tr><th>Person</th><th>Due</th><th>Status</th><th /></tr></thead>
         <tbody><tr v-for="t in d.training" :key="t.id"><td>{{ t.email }}</td><td :class="t.overdue ? 'text-ink-red-7' : ''">{{ t.due }}</td>
           <td><Badge :theme="t.overdue ? 'red' : TR[t.status]" :label="t.overdue ? 'overdue' : t.status" /> <span class="text-ink-gray-5">{{ t.done_at ? ago(t.done_at) : '' }} {{ t.note }}</span></td>
@@ -70,7 +70,7 @@ async function doWaive(t) {
     </template>
 
     <template v-if="d.status === 'effective'">
-      <h3 class="mb-1 mt-5 text-sm font-semibold text-ink-gray-8">Periodic review</h3>
+      <h3 data-help="doc-periodic-review" class="mb-1 mt-5 text-sm font-semibold text-ink-gray-8">Periodic review</h3>
       <p class="text-sm" :class="overdue ? 'text-ink-red-7' : 'text-ink-gray-7'">{{ d.next_review ? `Next review due ${d.next_review}${overdue ? ' (overdue)' : ''}.` : 'Its type is not reviewed periodically.' }}</p>
       <div v-if="waiting" class="mt-2 rounded-3 border border-outline-gray-2 p-3 text-sm">
         <p><b>{{ d.review_outcomes[waiting.outcome] }}</b> · reviewed by {{ waiting.reviewed_by }} on {{ waiting.reviewed_on }}<template v-if="waiting.next_due"> · new date {{ waiting.next_due }}</template></p>

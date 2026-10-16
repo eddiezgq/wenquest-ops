@@ -57,7 +57,7 @@ function columns(lines) {
     <Badge v-if="o?.deleted" theme="red" label="deleted in ERPNext" />
     <template v-if="o && DRAFT[o.type] && !o.deleted">
       <span v-if="drafting" class="wq-muted max-w-xs truncate">{{ drafting }}</span>
-      <Button variant="solid" icon-left="lucide-sparkles" :label="DRAFT[o.type][1]" @click="draft" />
+      <Button data-help="object-draft" variant="solid" icon-left="lucide-sparkles" :label="DRAFT[o.type][1]" @click="draft" />
     </template>
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>

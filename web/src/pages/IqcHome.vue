@@ -66,7 +66,7 @@ function pickSwitch(x) { sw.value[key(x)] = { to: x.suggestion?.to || '', reason
   <PageTop :crumbs="[{ label: 'Quality', to: '/quality' }]">
     <template #title>Incoming inspection</template>
   </PageTop>
-  <nav class="tabs -mt-2 mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
+  <nav data-help="iqc-tabs" class="tabs -mt-2 mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
     <a v-for="(l, k) in TABS" :key="k" href="#" class="-mb-px whitespace-nowrap border-b-2 pb-2 text-base"
        :class="tab === k ? 'border-outline-gray-9 font-medium text-ink-gray-9' : 'border-transparent text-ink-gray-5 hover:text-ink-gray-8'" @click.prevent="tab = k">{{ l }}</a>
   </nav>
@@ -74,7 +74,7 @@ function pickSwitch(x) { sw.value[key(x)] = { to: x.suggestion?.to || '', reason
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
 
   <template v-if="h && tab === 'inspections'">
-    <section class="waiting wq-panel mb-5 p-5">
+    <section data-help="iqc-waiting" class="waiting wq-panel mb-5 p-5">
       <h2 class="wq-h2">Lots waiting</h2>
       <p class="wq-muted mb-3">Receipt lines of items to inspect on receipt. Items with a plan in use are sampled here: the sampling table gives n, Ac and Re
         for the lot size and the supplier's inspection level, and the result goes to ERPNext as a draft to confirm.</p>
@@ -102,7 +102,7 @@ function pickSwitch(x) { sw.value[key(x)] = { to: x.suggestion?.to || '', reason
         </form>
       </details>
     </section>
-    <section class="wq-panel p-5">
+    <section data-help="iqc-inspections" class="wq-panel p-5">
       <div class="mb-3 flex flex-wrap items-center gap-3"><h2 class="wq-h2 m-0">Inspections</h2>
         <select v-model="status" class="wq-select w-44"><option value="open">Open</option><option value="done">Released or rejected</option>
           <option value="void">Void</option><option value="all">All</option></select></div>
@@ -129,7 +129,7 @@ function pickSwitch(x) { sw.value[key(x)] = { to: x.suggestion?.to || '', reason
         <Button type="submit" variant="solid" label="Draft the plan" :disabled="!plan.item_code || !(Number(plan.aql) > 0)" :loading="busy === 'plan'" />
       </form>
     </section>
-    <section class="wq-panel p-5">
+    <section data-help="iqc-plans" class="wq-panel p-5">
       <p v-if="!h.plans.length" class="wq-muted">No plans yet.</p>
       <table v-else class="wq-table text-sm"><thead><tr><th>Item</th><th>Version</th><th>AQL</th><th>Characteristics</th><th>Status</th><th>Enabled</th></tr></thead>
         <tbody><tr v-for="p in h.plans" :key="p.id">
@@ -141,7 +141,7 @@ function pickSwitch(x) { sw.value[key(x)] = { to: x.suggestion?.to || '', reason
   </template>
 
   <template v-if="h && tab === 'table'">
-    <section class="wq-panel mb-5 p-5">
+    <section data-help="iqc-table" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">The company's sampling table</h2>
       <p class="wq-muted mb-3">Enter the rows from your own controlled copy of the sampling standard you use. WenQuest Ops does not supply the numbers.
         A row is marked as checked once someone has compared it with the source; lots sampled with an unchecked row are flagged and need a reason to release.
@@ -174,7 +174,7 @@ function pickSwitch(x) { sw.value[key(x)] = { to: x.suggestion?.to || '', reason
   </template>
 
   <template v-if="h && tab === 'levels'">
-    <section class="wq-panel mb-5 p-5">
+    <section data-help="iqc-levels" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">Inspection level by supplier and item</h2>
       <p class="wq-muted mb-3">The rules below suggest a switch from the lots decided at the current level. A person switches, with a reason; the suggestion and the lots are kept with it.</p>
       <p v-if="!h.levels.length" class="wq-muted">No lots decided yet.</p>
@@ -191,7 +191,7 @@ function pickSwitch(x) { sw.value[key(x)] = { to: x.suggestion?.to || '', reason
             <Button variant="solid" label="Switch" :disabled="!sw[key(x)].to || !sw[key(x)].reason.trim()" :loading="busy === key(x)" @click="doSwitch(x)" /></div></td></tr>
         </template></tbody></table>
     </section>
-    <section class="rules wq-panel mb-5 p-5">
+    <section data-help="iqc-rules" class="rules wq-panel mb-5 p-5">
       <h2 class="wq-h2">Switching rules</h2>
       <p class="wq-muted mb-3">The starting rules are defaults: set them to what your procedure says. Rules are switched off, never deleted.</p>
       <table class="wq-table text-sm"><thead><tr><th>From</th><th>To</th><th>When</th><th>In use</th></tr></thead>
@@ -207,7 +207,7 @@ function pickSwitch(x) { sw.value[key(x)] = { to: x.suggestion?.to || '', reason
         <Button type="submit" label="Add the rule" />
       </form>
     </section>
-    <section class="wq-panel p-5">
+    <section data-help="iqc-settings" class="wq-panel p-5">
       <h2 class="wq-h2">Who may do what</h2>
       <label v-for="(label, k) in h.setting_labels" :key="k" class="mb-2 flex items-center gap-2 text-sm">
         <input type="checkbox" class="form-checkbox" :checked="h.settings[k]" :disabled="!h.can_configure || busy === k" @change="setting(k, $event.target.checked)">{{ label }}</label>

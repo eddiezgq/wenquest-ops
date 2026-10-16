@@ -39,7 +39,7 @@ async function add() {
     <p class="wq-muted md:col-span-3">New equipment is out of service until its first good calibration is approved.</p>
     <div><Button type="submit" variant="solid" label="Register" :disabled="!f.code.trim() || !f.name.trim()" /></div>
   </form>
-  <section v-if="v" class="wq-panel p-5">
+  <section v-if="v" data-help="gauges-list" class="wq-panel p-5">
     <p class="wq-muted mb-3">Once equipment is registered, incoming inspection names the equipment for each measured characteristic, and only equipment in calibration can be used when the inspector signs.</p>
     <p v-if="!v.gauges.length" class="wq-muted">No equipment registered yet.</p>
     <table v-else class="wq-table text-sm"><thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Last good calibration</th><th>Next due</th><th>Location</th></tr></thead>

@@ -68,7 +68,7 @@ const act = async (a, body, msg) => { if (await call(`/api/production/records/${
           <td><RouterLink v-if="st.ncr_id" :to="`/quality/ncr/${st.ncr_id}`" class="wq-link me-2">{{ st.ncr_name }} ({{ st.ncr_status }})</RouterLink>
             <Button v-if="st.verdict === 'fail' && (!st.ncr_id || st.ncr_status === 'cancelled') && r.can_edit && ['in_production', 'qa_review'].includes(r.status)" size="sm" label="Open a nonconformance" @click="call(`/api/production/records/${r.id}/steps/${st.seq}/ncr`, 'POST', null, 'Nonconformance report opened.')" /></td>
         </tr></tbody></table>
-      <form v-if="producing() && next()" class="record mt-4 flex flex-wrap items-end gap-3" @submit.prevent="record">
+      <form v-if="producing() && next()" data-help="production-record-step" class="record mt-4 flex flex-wrap items-end gap-3" @submit.prevent="record">
         <span class="text-sm font-medium">Step {{ next().seq }}: {{ next().name }}</span>
         <template v-if="next().kind === 'measure'">
           <label class="wq-field w-32">Reading {{ next().unit }}<input v-model="s.value" class="wq-input" inputmode="decimal"></label>
@@ -81,7 +81,7 @@ const act = async (a, body, msg) => { if (await call(`/api/production/records/${
       </form>
     </section>
 
-    <section class="materials wq-panel mb-5 p-5">
+    <section data-help="production-materials" class="materials wq-panel mb-5 p-5">
       <h2 class="wq-h2">Materials</h2>
       <p v-if="r.template.materials.length" class="mb-2 text-sm text-ink-gray-6">Each lot records: {{ r.template.materials.join(', ') }}.</p>
       <p v-if="!r.materials.length" class="wq-muted">None recorded.</p>
@@ -95,7 +95,7 @@ const act = async (a, body, msg) => { if (await call(`/api/production/records/${
       </form>
     </section>
 
-    <section class="qty wq-panel mb-5 flex flex-wrap items-end gap-3 p-5">
+    <section data-help="production-qty" class="qty wq-panel mb-5 flex flex-wrap items-end gap-3 p-5">
       <span class="text-sm">Planned {{ r.planned_qty }}</span>
       <label class="wq-field w-28">Good<input v-model="q.good_qty" type="number" min="0" class="wq-input" :disabled="!producing()"></label>
       <label class="wq-field w-28">Scrapped<input v-model="q.scrap_qty" type="number" min="0" class="wq-input" :disabled="!producing()"></label>
@@ -103,7 +103,7 @@ const act = async (a, body, msg) => { if (await call(`/api/production/records/${
       <Button v-if="producing()" label="Save" @click="saveQty" />
     </section>
 
-    <section v-if="r.can_edit && ['in_production', 'qa_review'].includes(r.status)" class="decide wq-panel mb-5 p-5">
+    <section v-if="r.can_edit && ['in_production', 'qa_review'].includes(r.status)" data-help="production-decide" class="decide wq-panel mb-5 p-5">
       <template v-if="r.status === 'in_production'">
         <p v-if="r.to_submit.length" class="mb-2 text-sm text-ink-gray-6">To submit: {{ r.to_submit.join('; ') }}.</p>
         <Button variant="solid" label="Submit for review" :disabled="!!r.to_submit.length" @click="act('submit', {}, 'Submitted for review.')" />

@@ -50,7 +50,7 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <template v-if="c">
-    <ol class="stages mb-6 flex flex-wrap items-center gap-1">
+    <ol data-help="capa-stages" class="stages mb-6 flex flex-wrap items-center gap-1">
       <template v-for="(s, i) in STAGES" :key="s">
         <li class="flex items-center gap-1.5 rounded-full px-3 py-1 text-sm capitalize"
             :class="c.status === s ? 'bg-surface-gray-7 font-medium text-ink-base' : STAGES.indexOf(s) < STAGES.indexOf(c.status) ? 'bg-surface-gray-2 text-ink-gray-8' : 'text-ink-gray-4'">
@@ -68,14 +68,14 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
           <template v-if="c.cancel_reason"><dt>Cancelled because</dt><dd>{{ c.cancel_reason }}</dd></template>
         </dl>
       </section>
-      <form v-if="canEdit && FIELDS[c.status]" class="form wq-panel grid h-fit gap-3 p-5" @submit.prevent="step('update', edit)">
+      <form v-if="canEdit && FIELDS[c.status]" data-help="capa-next-step" class="form wq-panel grid h-fit gap-3 p-5" @submit.prevent="step('update', edit)">
         <label v-for="k in FIELDS[c.status]" :key="k" class="wq-field">{{ LABELS[k] }}
           <select v-if="k === 'risk'" v-model="edit.risk" class="wq-select"><option value="">—</option><option>low</option><option>medium</option><option>high</option></select>
           <textarea v-else-if="['description', 'containment', 'root_cause'].includes(k)" v-model="edit[k]" class="wq-textarea" rows="2"></textarea>
           <input v-else v-model="edit[k]" class="wq-input"></label>
         <div class="flex flex-wrap gap-2"><Button type="submit" label="Save" /><Button variant="solid" :label="NEXT[c.status][1]" @click="step(NEXT[c.status][0])" /></div>
       </form>
-      <section v-if="canEdit && c.status === 'effectiveness'" class="wq-panel grid h-fit gap-2 p-5">
+      <section v-if="canEdit && c.status === 'effectiveness'" data-help="capa-effectiveness" class="wq-panel grid h-fit gap-2 p-5">
         <h3 class="text-base font-semibold text-ink-gray-9">Effectiveness check</h3>
         <p v-if="c.owner === me" class="wq-muted">You own this action; someone else must close it as effective.</p>
         <input v-model="check.evidence" class="wq-input" placeholder="Evidence: data and period checked">
@@ -87,7 +87,7 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
     </div>
 
     <h2 class="wq-h2 mt-8">Actions</h2>
-    <div class="wq-panel overflow-x-auto">
+    <div data-help="capa-actions" class="wq-panel overflow-x-auto">
       <table class="wq-table">
         <thead><tr><th>Kind</th><th>Action</th><th>Owner</th><th>Due</th><th>Done</th></tr></thead>
         <tbody><tr v-for="a in c.actions" :key="a.id">
@@ -99,7 +99,7 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
               <input v-model="evidence[a.id]" class="wq-input w-48" placeholder="Evidence"><Button label="Done" @click="step('action-done', { action_id: a.id, evidence: evidence[a.id] })" /></div></td></tr></tbody>
       </table>
     </div>
-    <form v-if="canEdit && ['draft', 'investigation', 'implementation'].includes(c.status)" class="mt-3 flex flex-wrap gap-2"
+    <form v-if="canEdit && ['draft', 'investigation', 'implementation'].includes(c.status)" data-help="capa-add-action" class="mt-3 flex flex-wrap gap-2"
           @submit.prevent="step('action', add); add = { text: '', owner: '', due: '', kind: 'corrective' }">
       <select v-model="add.kind" class="wq-select"><option value="correction">Correction</option><option value="corrective">Corrective</option><option value="preventive">Preventive</option></select>
       <input v-model="add.text" class="wq-input max-w-80" placeholder="New action" required><input v-model="add.owner" class="wq-input max-w-56" placeholder="Owner email">
@@ -109,7 +109,7 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
       <input v-model="cancel" class="wq-input flex-1" placeholder="Reason to cancel"><Button theme="red" label="Cancel" @click="step('cancel', { reason: cancel })" /></div>
 
     <OwnFields :record="c" kind="capa" :can-edit="canEdit" @changed="set" />
-    <h2 class="wq-h2 mt-8">Signatures</h2>
+    <h2 data-help="capa-signatures" class="wq-h2 mt-8">Signatures</h2>
     <Trail :items="c.signatures" kind="signatures" />
     <h2 class="wq-h2 mt-8">History</h2>
     <Trail :items="c.history" />

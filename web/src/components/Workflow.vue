@@ -34,7 +34,7 @@ const stateLabel = (s) => wf.value.states[s]?.label || s
 </script>
 
 <template>
-  <section class="wq-panel mb-6 p-5">
+  <section data-help="workflow-card" class="wq-panel mb-6 p-5">
     <div class="mb-1 flex flex-wrap items-center gap-2">
       <h2 class="text-base font-semibold text-ink-gray-9">{{ wf.label }}</h2>
       <Badge theme="green" :label="`version ${data.enabled.version} in use`" />
@@ -44,8 +44,8 @@ const stateLabel = (s) => wf.value.states[s]?.label || s
     <p class="wq-muted mb-2">Fingerprint {{ data.enabled.fingerprint.slice(0, 12) }}… Records keep the version they started under.</p>
     <div class="mb-4 flex flex-wrap items-center gap-2 text-sm">
       <template v-if="data.can_configure">
-        <Button v-if="draft" icon-left="lucide-file-pen-line" :label="`Open the draft (version ${draft.version})`" :route="`/quality/workflows/${draft.id}`" />
-        <Button v-else icon-left="lucide-plus" label="Change this workflow" @click="newDraft" />
+        <Button v-if="draft" data-help="workflow-open-draft" icon-left="lucide-file-pen-line" :label="`Open the draft (version ${draft.version})`" :route="`/quality/workflows/${draft.id}`" />
+        <Button v-else data-help="workflow-change" icon-left="lucide-plus" label="Change this workflow" @click="newDraft" />
       </template>
       <RouterLink v-else-if="draft" :to="`/quality/workflows/${draft.id}`" class="wq-link">Draft version {{ draft.version }}</RouterLink>
       <span class="text-ink-gray-5">Versions:</span>

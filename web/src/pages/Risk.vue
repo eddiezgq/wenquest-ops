@@ -54,7 +54,7 @@ const example = async () => { await call('/api/risk/example', 'POST'); load() }
   </form>
 
   <template v-if="v">
-    <section class="files wq-panel mb-5 p-5">
+    <section data-help="risk-files" class="files wq-panel mb-5 p-5">
       <div class="mb-3"><select v-model="status" class="wq-select w-40"><option value="current">Current</option><option value="draft">Drafts</option><option value="approved">Approved</option><option value="all">All versions</option></select></div>
       <p v-if="!v.files.length" class="wq-muted">None.</p>
       <table v-else class="wq-table text-sm"><thead><tr><th>Number</th><th>Version</th><th>Product</th><th>Status</th><th>Owner</th><th>Hazards</th><th>Approved</th></tr></thead>
@@ -64,7 +64,7 @@ const example = async () => { await call('/api/risk/example', 'POST'); load() }
           <td>{{ r.items }}</td><td>{{ r.approved_at ? `${r.approved_at.slice(0, 10)} · ${r.approved_by}` : '' }}</td></tr></tbody></table>
     </section>
 
-    <section class="criteria wq-panel mb-5 p-5">
+    <section data-help="risk-criteria" class="criteria wq-panel mb-5 p-5">
       <h2 class="wq-h2">The company's risk criteria</h2>
       <p class="wq-muted mb-3 max-w-3xl">Your own severity and probability levels, and which combinations are acceptable. Set them to what your
         risk management procedure says; they are not standard values. Approved risk files keep the criteria they were approved with.</p>

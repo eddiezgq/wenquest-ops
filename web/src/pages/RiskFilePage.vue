@@ -61,12 +61,12 @@ async function revise() {
       <label class="wq-field md:col-span-2">Product or product family<input v-model="f.product" class="wq-input" :disabled="!draft"></label>
       <label class="wq-field">Owner<select v-model="f.owner" class="wq-select" :disabled="!draft"><option value="" /><option v-for="p in r.people" :key="p">{{ p }}</option></select></label>
       <label class="wq-field md:col-span-3">Scope<textarea v-model="f.scope" rows="2" class="wq-input" :disabled="!draft" /></label>
-      <label class="wq-field md:col-span-3">Overall residual risk<textarea v-model="f.conclusion" rows="2" class="wq-input" :disabled="!draft" /></label>
+      <label data-help="risk-conclusion" class="wq-field md:col-span-3">Overall residual risk<textarea v-model="f.conclusion" rows="2" class="wq-input" :disabled="!draft" /></label>
       <label class="wq-field md:col-span-3">Benefit-risk conclusion<textarea v-model="f.benefit_risk" rows="2" class="wq-input" :disabled="!draft" /></label>
       <div v-if="draft"><Button label="Save" :disabled="!Object.keys(changed()).length" @click="call(`/api/risk/files/${r.id}`, 'PUT', changed(), 'Saved.')" /></div>
     </section>
 
-    <section class="items wq-panel mb-5 p-5">
+    <section data-help="risk-hazards" class="items wq-panel mb-5 p-5">
       <h2 class="wq-h2">Hazards</h2>
       <p v-if="r.gaps.length && draft" class="mb-2 text-sm text-ink-amber-7">The matrix does not decide: {{ r.gaps.join(', ') }}.</p>
       <p v-if="!r.items.length" class="wq-muted">None yet.</p>
@@ -84,7 +84,7 @@ async function revise() {
             <Button size="sm" variant="ghost" label="Remove" @click="call(`/api/risk/files/${r.id}/items/${it.id}`, 'DELETE', null, 'Removed.')" /></template></td>
         </tr></tbody></table>
 
-      <form v-if="draft" class="item mt-4 grid gap-3 md:grid-cols-3" @submit.prevent="saveItem">
+      <form v-if="draft" data-help="risk-hazard-form" class="item mt-4 grid gap-3 md:grid-cols-3" @submit.prevent="saveItem">
         <label class="wq-field">Hazard<input v-model="item.hazard" class="wq-input"></label>
         <label class="wq-field">Hazardous situation<input v-model="item.situation" class="wq-input"></label>
         <label class="wq-field">Harm<input v-model="item.harm" class="wq-input"></label>
@@ -102,7 +102,7 @@ async function revise() {
       </form>
     </section>
 
-    <section v-if="r.status === 'draft' || (r.status === 'approved' && r.can_edit)" class="steps wq-panel mb-5 p-5">
+    <section v-if="r.status === 'draft' || (r.status === 'approved' && r.can_edit)" data-help="risk-approve" class="steps wq-panel mb-5 p-5">
       <template v-if="r.status === 'draft'">
         <p v-if="r.to_approve.length" class="mb-2 text-sm text-ink-gray-6">To approve: {{ r.to_approve.join('; ') }}.</p>
         <div v-if="r.can_configure" class="flex flex-wrap items-end gap-2">

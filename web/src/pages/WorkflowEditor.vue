@@ -89,13 +89,13 @@ const stepNames = computed(() => Object.keys(cfg.value?.steps || {}))
 
   <template v-if="v && cfg">
     <div class="mb-5 grid gap-4 lg:grid-cols-2">
-      <section class="wq-panel p-4">
+      <section data-help="workflow-changes" class="wq-panel p-4">
         <h2 class="wq-h2">Changes from version {{ v.enabled_version }}</h2>
         <p v-if="!v.changes.length" class="wq-muted">None yet.</p>
         <ul class="list-disc ps-5 text-sm text-ink-gray-8"><li v-for="c in v.changes" :key="c">{{ c }}</li></ul>
         <p v-if="dirty" class="mt-2 text-sm text-ink-amber-7">Unsaved changes on this page.</p>
       </section>
-      <section class="wq-panel p-4">
+      <section data-help="workflow-check" class="wq-panel p-4">
         <h2 class="wq-h2">Check</h2>
         <p v-if="!draft" class="wq-muted">This version is {{ v.status }}; it cannot change. Make a new draft to change the workflow.</p>
         <p v-else-if="!v.errors.length" class="flex items-center gap-1.5 text-sm text-ink-green-7"><span class="lucide-check size-4" />Keeps every rule that cannot be switched off.</p>
@@ -116,7 +116,7 @@ const stepNames = computed(() => Object.keys(cfg.value?.steps || {}))
         </div>
       </section>
 
-      <section class="wq-panel p-5">
+      <section data-help="workflow-steps" class="wq-panel p-5">
         <h2 class="wq-h2">Steps</h2>
         <p class="wq-muted mb-3">Where each step starts and ends, and which steps are signed, stay as they are. You can rename steps, word the signature,
           add what a step needs, keep more people from doing it, and limit it to some roles. Grey ticks are part of the default and stay.</p>
@@ -194,7 +194,7 @@ const stepNames = computed(() => Object.keys(cfg.value?.steps || {}))
         <Button v-if="editable" icon-left="lucide-plus" label="Add an approval" @click="addApproval" />
       </section>
 
-      <section v-if="v.kind === 'ncr'" class="wq-panel p-5">
+      <section v-if="v.kind === 'ncr'" data-help="workflow-rules" class="wq-panel p-5">
         <h2 class="wq-h2">Rules</h2>
         <p class="mb-2 text-sm text-ink-gray-7">Close only after a linked corrective action is closed:
           <label v-for="sv in ['minor', 'major']" :key="sv" class="ms-3 inline-flex items-center gap-1"><input type="checkbox" class="form-checkbox" :disabled="sv === 'major'"
@@ -205,11 +205,11 @@ const stepNames = computed(() => Object.keys(cfg.value?.steps || {}))
       </section>
     </fieldset>
 
-    <section v-if="editable" class="wq-panel mt-5 flex flex-wrap items-end gap-3 p-5">
+    <section v-if="editable" data-help="workflow-save" class="wq-panel mt-5 flex flex-wrap items-end gap-3 p-5">
       <label class="wq-field">Note<input v-model="note" class="wq-input w-80" placeholder="What this version is for"></label>
       <Button variant="solid" icon-left="lucide-save" label="Save draft" @click="save" />
     </section>
-    <section v-if="draft && canConfigure" class="wq-panel mt-5 p-5">
+    <section v-if="draft && canConfigure" data-help="workflow-enable" class="wq-panel mt-5 p-5">
       <h2 class="wq-h2">Enable</h2>
       <p v-if="iEdited" class="wq-muted">You changed this draft, so someone else with the right to change workflows enables it.</p>
       <div v-else class="flex flex-wrap items-center gap-2">

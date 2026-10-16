@@ -34,7 +34,7 @@ onMounted(load)
     or stop someone's access, change the manifest and run the upgrade (see the runbook).</p>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
-  <div class="wq-panel overflow-x-auto">
+  <div data-help="people-list" class="wq-panel overflow-x-auto">
     <table class="wq-table">
       <thead><tr><th>Name</th><th>Roles</th><th>Department</th><th>Password</th><th>Last sign-in</th><th v-if="canManage">Set a password</th></tr></thead>
       <tbody><tr v-for="u in rows" :key="u.email" :class="{ 'opacity-60': !u.active }">
@@ -46,7 +46,7 @@ onMounted(load)
           <template v-else><span :class="u.has_password ? 'text-ink-gray-8' : 'text-ink-gray-5'">{{ u.has_password ? 'set' : 'not set' }}</span>
             <Badge v-if="u.locked" theme="red" label="locked" class="ms-1" /></template></td>
         <td class="whitespace-nowrap text-sm text-ink-gray-5">{{ u.last_login ? ago(u.last_login) : 'never' }}</td>
-        <td v-if="canManage"><form v-if="u.active && u.email !== ws.user.email" class="flex gap-2" @submit.prevent="setPassword(u)">
+        <td v-if="canManage"><form v-if="u.active && u.email !== ws.user.email" data-help="people-set-password" class="flex gap-2" @submit.prevent="setPassword(u)">
           <input v-model="pw[u.email]" class="wq-input w-44" type="password" placeholder="New password" autocomplete="new-password">
           <Button type="submit" label="Set" /></form>
           <RouterLink v-else-if="u.email === ws.user.email" to="/account" class="wq-link text-sm">Change yours</RouterLink></td>

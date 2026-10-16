@@ -55,7 +55,7 @@ const editable = (k) => open.value && c.value.can_edit && !(fixed.value && ['ite
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
   <template v-if="c">
-    <section class="details wq-panel mb-5 p-5">
+    <section data-help="complaint-details" class="details wq-panel mb-5 p-5">
       <p class="mb-3 text-sm text-ink-gray-6">Received {{ c.received_on }} from {{ c.source }} · company first knew {{ c.aware_on }}<template v-if="c.contact"> · contact {{ c.contact }}</template></p>
       <div class="grid gap-3 md:grid-cols-3">
         <label class="wq-field">Owner<select v-model="f.owner" class="wq-select" :disabled="!editable('owner')"><option value="" /><option v-for="p in people" :key="p">{{ p }}</option></select></label>
@@ -74,7 +74,7 @@ const editable = (k) => open.value && c.value.can_edit && !(fixed.value && ['ite
       <p v-if="!c.investigate" class="mt-2 text-sm text-ink-gray-7">Not investigated: {{ c.no_investigation_reason }} (approved by {{ c.no_investigation_by }})</p>
       <div v-if="open && c.can_edit" class="mt-3 flex flex-wrap gap-2">
         <Button label="Save" :disabled="!Object.keys(changes()).length" @click="save" />
-        <Button v-if="c.status === 'new'" variant="solid" label="Start the investigation" :disabled="!!Object.keys(changes()).length" @click="act('start', {}, 'Investigation started.')" />
+        <Button v-if="c.status === 'new'" data-help="complaint-start" variant="solid" label="Start the investigation" :disabled="!!Object.keys(changes()).length" @click="act('start', {}, 'Investigation started.')" />
         <Button v-if="!c.ncr" label="Open a nonconformance" @click="act('ncr', {}, 'Nonconformance opened.')" />
         <Button v-if="!c.capa" label="Open a corrective action" @click="act('capa', {}, 'Corrective action opened.')" />
       </div>
@@ -87,7 +87,7 @@ const editable = (k) => open.value && c.value.can_edit && !(fixed.value && ['ite
       </div>
     </section>
 
-    <section v-if="['investigation', 'assessed', 'closed'].includes(c.status)" class="assess wq-panel mb-5 p-5">
+    <section v-if="['investigation', 'assessed', 'closed'].includes(c.status)" data-help="complaint-assess" class="assess wq-panel mb-5 p-5">
       <h2 class="wq-h2">Must it be reported to a regulator?</h2>
       <template v-if="c.status === 'investigation'">
         <p class="wq-muted mb-3">Someone other than the owner answers and decides, with a password. WenQuest Ops does not decide: when a question is answered yes it usually means reporting, and it shows the deadline from the day the company first knew; check the time limits your regulations set.</p>
@@ -121,7 +121,7 @@ const editable = (k) => open.value && c.value.can_edit && !(fixed.value && ['ite
       </template>
     </section>
 
-    <section v-if="c.status === 'assessed' && c.can_configure" class="close wq-panel mb-5 p-5">
+    <section v-if="c.status === 'assessed' && c.can_configure" data-help="complaint-close" class="close wq-panel mb-5 p-5">
       <h2 class="wq-h2">Close</h2>
       <p v-if="c.to_close.length" class="mb-2 text-sm text-ink-gray-7">Still needed: {{ c.to_close.join('; ') }}.</p>
       <div class="flex flex-wrap items-end gap-2"><input v-model="x.password" type="password" class="wq-input w-44" placeholder="Your password" autocomplete="current-password">

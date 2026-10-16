@@ -62,9 +62,9 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
 
 <template>
   <PageTop title="Quality">
-    <Button v-if="tab === 'ncrs' && canEdit" variant="solid" icon-left="lucide-plus" label="New nonconformance" @click="showNew = !showNew" />
+    <Button v-if="tab === 'ncrs' && canEdit" data-help="ncr-new" variant="solid" icon-left="lucide-plus" label="New nonconformance" @click="showNew = !showNew" />
   </PageTop>
-  <nav class="tabs -mt-2 mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
+  <nav data-help="quality-tabs" class="tabs -mt-2 mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
     <a v-for="(l, k) in TABS" :key="k" href="#" @click.prevent="tab = k"
        class="-mb-px whitespace-nowrap border-b-2 py-2.5 text-base transition-colors"
        :class="tab === k ? 'border-outline-gray-9 font-medium text-ink-gray-9' : 'border-transparent text-ink-gray-5 hover:text-ink-gray-8'">{{ l }}</a>
@@ -72,7 +72,7 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
 
   <template v-if="tab === 'ncrs' || tab === 'capas'">
-    <form v-if="showNew && tab === 'ncrs'" class="form wq-panel mb-5 grid gap-3 p-5" @submit.prevent="newNcr">
+    <form v-if="showNew && tab === 'ncrs'" data-help="ncr-form" class="form wq-panel mb-5 grid gap-3 p-5" @submit.prevent="newNcr">
       <h2 class="text-base font-semibold text-ink-gray-9">New nonconformance</h2>
       <input v-model="form.title" class="wq-input" placeholder="Title" required>
       <textarea v-model="form.description" class="wq-textarea" rows="3" placeholder="What is wrong, how many, where found" required></textarea>
@@ -90,7 +90,7 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
         <option v-if="tab === 'ncrs'" value="cancelled">Cancelled</option><option value="all">All</option></select>
     </div>
     <p v-if="!rows.length" class="wq-muted">None.</p>
-    <div v-else class="wq-panel overflow-x-auto">
+    <div v-else data-help="quality-list" class="wq-panel overflow-x-auto">
       <table class="wq-table">
         <thead><tr><th>Number</th><th>Title</th><th>{{ tab === 'ncrs' ? 'Severity' : 'Kind' }}</th><th>Status</th><th>Owner</th><th>Opened</th></tr></thead>
         <tbody><tr v-for="r in rows" :key="r.id">
@@ -108,7 +108,7 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
       To sample a lot by plan, with readings, a signed result and switching between normal, tightened and reduced inspection, use
       <RouterLink to="/quality/iqc" class="wq-link">Incoming inspection</RouterLink>.</p>
     <p v-if="!rows.length" class="wq-muted">Nothing waiting.</p>
-    <div v-else class="wq-panel overflow-x-auto">
+    <div v-else data-help="incoming-receipts" class="wq-panel overflow-x-auto">
       <table class="wq-table">
         <thead><tr><th>Receipt</th><th>Item</th><th>Qty</th><th>Supplier</th><th>Received</th><th v-if="canEdit">Inspect</th></tr></thead>
         <tbody><tr v-for="x in rows" :key="x.receipt + x.item_code">
@@ -128,7 +128,7 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
   <template v-if="tab === 'suppliers' && scores">
     <p class="wq-muted mb-3">{{ scores.period[0] }} to {{ scores.period[1] }}. Facts only: incoming lots inspected and rejected, on-time receipt lines,
       nonconformance reports, concessions (closed reports whose disposition needed approval) and open corrective actions.</p>
-    <div class="wq-panel overflow-x-auto">
+    <div data-help="supplier-scores" class="wq-panel overflow-x-auto">
       <table class="wq-table">
         <thead><tr><th>Supplier</th><th>Lots</th><th>Rejected</th><th>Rejection rate</th><th>On time</th><th>NCRs</th><th>Concessions</th><th>Open CAPAs</th></tr></thead>
         <tbody><tr v-for="s in scores.suppliers" :key="s.supplier">
@@ -142,21 +142,21 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
 
   <template v-if="tab === 'spc'">
     <p v-if="!params.length" class="wq-muted">No numeric readings yet. Enter measured values on ERPNext quality inspections to see control charts here.</p>
-    <div v-else class="mb-4 flex flex-wrap items-center gap-2">
+    <div v-else data-help="spc-pick" class="mb-4 flex flex-wrap items-center gap-2">
       <span class="wq-muted">Item and parameter</span>
       <select v-model="pick" class="wq-select" aria-label="Item and parameter"><option v-for="p in params" :key="p.item_code + p.parameter" :value="p">{{ p.item_code }} — {{ p.parameter }} ({{ p.inspections }} inspections)</option></select>
     </div>
     <template v-if="spc">
       <p v-if="!spc.enough_data" class="wq-muted">{{ spc.note }}</p>
       <template v-else>
-        <ControlChart :data="spc" />
+        <ControlChart data-help="spc-chart" :data="spc" />
         <div class="mt-4 grid gap-4 md:grid-cols-2">
-          <section class="wq-panel p-4"><h3 class="mb-2 text-base font-semibold text-ink-gray-9">Signals</h3>
+          <section data-help="spc-signals" class="wq-panel p-4"><h3 class="mb-2 text-base font-semibold text-ink-gray-9">Signals</h3>
             <p v-if="!spc.signals.length" class="wq-muted">No rule broken.</p>
             <ul class="divide-y divide-outline-gray-1 text-sm">
               <li v-for="s in spc.signals" :key="s.index + '-' + s.rule" class="py-1.5 text-ink-gray-8">
                 <Badge theme="red" :label="`Rule ${s.rule}`" class="me-2" />{{ s.text }}</li></ul></section>
-          <section class="wq-panel p-4"><h3 class="mb-2 text-base font-semibold text-ink-gray-9">Capability</h3>
+          <section data-help="spc-capability" class="wq-panel p-4"><h3 class="mb-2 text-base font-semibold text-ink-gray-9">Capability</h3>
             <p v-if="!spc.capability" class="wq-muted">Needs both spec limits on the readings.</p>
             <dl v-else class="grid grid-cols-3 gap-3">
               <div v-for="[k, v] in [['Cp', r3(spc.capability.Cp)], ['Cpk', r3(spc.capability.Cpk)], ['Pp', r3(spc.capability.Pp)],

@@ -46,12 +46,12 @@ function to(p, item) {
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <template v-if="cl">
     <div class="mb-4 flex flex-wrap items-end gap-3">
-      <label class="wq-field">Process<select v-model="process" class="wq-select"><option value="">All processes</option>
+      <label data-help="audit-process" class="wq-field">Process<select v-model="process" class="wq-select"><option value="">All processes</option>
         <option v-for="p in cl.processes_all" :key="p.id" :value="p.id">{{ p.label }}</option></select></label>
       <span class="pb-2 text-sm text-ink-gray-5">{{ cl.edition_label }}, from the check of {{ ago(cl.evaluation?.at) }}</span>
-      <RouterLink to="/system/registers/audits" class="wq-link pb-2 text-sm">Record the audit in the internal audits register</RouterLink>
+      <RouterLink to="/system/registers/audits" data-help="audit-register" class="wq-link pb-2 text-sm">Record the audit in the internal audits register</RouterLink>
     </div>
-    <section v-for="p in cl.processes" :key="p.id" class="checklist wq-panel mb-4 p-5">
+    <section v-for="p in cl.processes" :key="p.id" data-help="audit-questions" class="checklist wq-panel mb-4 p-5">
       <h2 class="wq-h2">{{ p.label }}</h2>
       <ol class="flex flex-col gap-3">
         <li v-for="(it, i) in p.items" :key="it.id" class="border-t border-outline-gray-1 pt-3 first:border-t-0 first:pt-0">

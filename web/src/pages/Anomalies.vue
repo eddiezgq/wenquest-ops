@@ -17,13 +17,13 @@ watch(status, load, { immediate: true })
 
 <template>
   <PageTop title="Anomalies">
-    <select v-model="status" class="wq-select" aria-label="Show">
+    <select v-model="status" data-help="anomalies-show" class="wq-select" aria-label="Show">
       <option value="active">Active</option><option value="resolved">Resolved</option>
       <option value="closed">Closed</option><option value="all">All</option></select>
   </PageTop>
   <p v-if="error" class="wq-error">{{ error }}</p>
   <p v-if="!rows.length" class="wq-muted">None.</p>
-  <div v-else class="wq-panel overflow-x-auto">
+  <div v-else data-help="anomalies-list" class="wq-panel overflow-x-auto">
     <table class="wq-table">
       <thead><tr><th class="w-24">Severity</th><th>What</th><th>Rule</th><th>About</th><th>Status</th><th>Since</th></tr></thead>
       <tbody>

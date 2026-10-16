@@ -188,7 +188,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
     No AI model is set up for this company, so files are classified by rules (file names, folders and labels such as
     “Doc No.”), with limited accuracy. Add the company's model key to use AI.</p>
 
-  <section v-if="canEdit" class="drop mb-5 rounded-5 border-2 border-dashed p-5 transition-colors"
+  <section v-if="canEdit" data-help="docs-drop" class="drop mb-5 rounded-5 border-2 border-dashed p-5 transition-colors"
            :class="dragging ? 'border-outline-gray-5 bg-surface-gray-2' : 'border-outline-gray-2 bg-surface-gray-1'"
            @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="drop">
     <div class="flex flex-wrap items-center gap-3">
@@ -209,7 +209,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
     </div>
   </section>
 
-  <nav class="tabs mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
+  <nav data-help="docs-tabs" class="tabs mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
     <a v-for="(l, k) in TABS" :key="k" href="#" @click.prevent="tab = k"
        class="-mb-px whitespace-nowrap border-b-2 py-2.5 text-base transition-colors"
        :class="tab === k ? 'border-outline-gray-9 font-medium text-ink-gray-9' : 'border-transparent text-ink-gray-5 hover:text-ink-gray-8'">{{ l }}</a>
@@ -234,7 +234,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
       (duplicates, revisions, numbers, missing forms). <a href="#" class="wq-link" @click.prevent="toProblems('')">See them</a></p>
     <h2 class="wq-h2">By process and type</h2>
     <p class="wq-muted mb-3">Documents in the library (confirmed, drafts, waiting for approval, effective). Click a number to see them.</p>
-    <div class="wq-panel overflow-x-auto">
+    <div data-help="docs-overview" class="wq-panel overflow-x-auto">
       <table class="wq-table">
         <thead><tr><th>Process</th><th v-for="(n, t) in meta.types" :key="t" class="text-right">{{ n }}</th><th class="text-right">All</th><th class="text-right">Problems</th></tr></thead>
         <tbody><tr v-for="(pn, p) in overview.processes" :key="p">
@@ -254,7 +254,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
 
   <!-- problems -->
   <template v-if="tab === 'problems' && problems && meta">
-    <div class="mb-3 flex flex-wrap items-center gap-2">
+    <div data-help="docs-problems" class="mb-3 flex flex-wrap items-center gap-2">
       <select v-model="issueProcess" class="wq-select" aria-label="Process"><option value="">Every process</option>
         <option v-for="(n, p) in meta.processes" :key="p" :value="p">{{ n }}</option></select>
       <span class="wq-muted">Found by fixed checks of the library; you decide what to do. Nothing changes by itself.</span>
@@ -286,7 +286,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
       </ul>
     </article>
 
-    <h2 class="wq-h2 mt-8">Numbering</h2>
+    <h2 data-help="docs-numbering" class="wq-h2 mt-8">Numbering</h2>
     <p class="wq-muted mb-3 max-w-3xl">How suggested numbers are made. Without a rule of your own, the convention is learned from the numbers
       your documents already have. Write a rule as a prefix and <code>{seq}</code>, optionally with <code>{process}</code> for the process code
       (for example <code>F-{process}-{seq}</code> with 3 digits gives F-QA-013). Original file names are never changed.</p>
@@ -320,7 +320,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
       <Button variant="solid" :disabled="!chosen.size" icon-left="lucide-check" :label="`Confirm ${chosen.size} selected`" @click="confirmChosen" />
     </div>
     <p v-if="!rows.length" class="wq-muted">Nothing to review.</p>
-    <div v-else class="wq-panel overflow-x-auto">
+    <div v-else data-help="docs-review-list" class="wq-panel overflow-x-auto">
       <table class="wq-table">
         <thead><tr><th v-if="canEdit"></th><th>File</th><th>Type</th><th>Process</th><th>Number</th><th>Title</th><th>Proposal</th></tr></thead>
         <tbody><tr v-for="d in rows" :key="d.id">
@@ -342,7 +342,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
 
   <!-- library -->
   <template v-if="tab === 'library' && meta">
-    <form class="mb-3 flex flex-wrap items-center gap-2" @submit.prevent="load">
+    <form data-help="docs-library-filter" class="mb-3 flex flex-wrap items-center gap-2" @submit.prevent="load">
       <input v-model="f.q" class="wq-input w-64 sm:hidden" type="search" placeholder="Search">
       <select v-model="f.status" class="wq-select" aria-label="Status">
         <option value="library">In the library</option><option value="effective">Effective</option><option value="confirmed">Kept records</option>
@@ -375,7 +375,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
   <!-- imports -->
   <template v-if="tab === 'imports'">
     <p v-if="!imports.length" class="wq-muted">No imports yet.</p>
-    <article v-for="i in imports" :key="i.id" class="wq-panel mb-4 p-4">
+    <article v-for="i in imports" :key="i.id" data-help="docs-import" class="wq-panel mb-4 p-4">
       <div class="flex flex-wrap items-center gap-2">
         <h3 class="text-base font-semibold text-ink-gray-9">{{ i.label || `Import ${i.id}` }}</h3>
         <Badge :theme="STATUS[i.status] || 'gray'" :label="i.status === 'extracting' ? 'reading text' : i.status === 'ready' ? 'ready to classify' : label(i.status)" />

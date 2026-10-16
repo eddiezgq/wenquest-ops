@@ -48,7 +48,7 @@ async function saveType(k) {
   <PageTop :crumbs="[{ label: 'Documents', to: '/documents' }]">
     <template #title>Reading and review</template>
   </PageTop>
-  <nav class="tabs -mt-2 mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
+  <nav data-help="reading-tabs" class="tabs -mt-2 mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
     <a v-for="(l, k) in { mine: 'My reading', reviews: 'Reviews due', all: 'Everyone\'s reading', types: 'Settings' }" :key="k" href="#"
        v-show="k === 'mine' || v" class="-mb-px whitespace-nowrap border-b-2 pb-2 text-base"
        :class="tab === k ? 'border-outline-gray-9 font-medium text-ink-gray-9' : 'border-transparent text-ink-gray-5 hover:text-ink-gray-8'" @click.prevent="tab = k">{{ l }}</a>
@@ -56,7 +56,7 @@ async function saveType(k) {
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
 
-  <section v-if="tab === 'mine'" class="mine wq-panel p-5">
+  <section v-if="tab === 'mine'" data-help="reading-mine" class="mine wq-panel p-5">
     <p class="wq-muted mb-3">Documents you are asked to read. Open each one, read it, then confirm with your password that you have read and understood it.</p>
     <p v-if="!mine.length" class="wq-muted">Nothing to read.</p>
     <table v-else class="wq-table text-sm"><thead><tr><th>Document</th><th>Due</th><th>Status</th><th /></tr></thead>
@@ -69,7 +69,7 @@ async function saveType(k) {
           <Button size="sm" variant="solid" label="I have read and understood it" :disabled="!pw[t.id]" @click="ack(t)" /></div></td></tr></tbody></table>
   </section>
 
-  <section v-if="v && tab === 'reviews'" class="wq-panel p-5">
+  <section v-if="v && tab === 'reviews'" data-help="reading-reviews" class="wq-panel p-5">
     <p class="wq-muted mb-3">Documents in effect whose type is reviewed periodically, by when the next review is due. Record a review on the document's page; someone else approves it.</p>
     <p v-if="!v.reviews.length" class="wq-muted">None.</p>
     <table v-else class="wq-table text-sm"><thead><tr><th>Document</th><th>In effect since</th><th>Review due</th><th>Waiting</th></tr></thead>
@@ -79,7 +79,7 @@ async function saveType(k) {
         <td>{{ r.waiting ? `review by ${r.waiting.reviewed_by}, to approve` : '' }}</td></tr></tbody></table>
   </section>
 
-  <section v-if="v && tab === 'all'" class="wq-panel p-5">
+  <section v-if="v && tab === 'all'" data-help="reading-everyone" class="wq-panel p-5">
     <p v-if="!v.training.length" class="wq-muted">Nobody has been asked to read anything yet.</p>
     <table v-else class="wq-table text-sm"><thead><tr><th>Person</th><th>Document</th><th>Due</th><th>Status</th></tr></thead>
       <tbody><tr v-for="t in v.training" :key="t.id"><td>{{ t.email }}</td>
@@ -88,7 +88,7 @@ async function saveType(k) {
         <td><Badge :theme="t.overdue ? 'red' : TR[t.status]" :label="t.overdue ? 'overdue' : t.status" /> <span class="text-ink-gray-5">{{ t.note }}</span></td></tr></tbody></table>
   </section>
 
-  <section v-if="v && tab === 'types'" class="wq-panel p-5">
+  <section v-if="v && tab === 'types'" data-help="reading-settings" class="wq-panel p-5">
     <p class="wq-muted mb-3">How often each type of document is reviewed (empty: not periodically) and how many days people have to read a new revision. The starting values are defaults: set them to what your procedure says.</p>
     <table class="wq-table text-sm"><thead><tr><th>Type</th><th>Review every (months)</th><th>Days to read</th><th /></tr></thead>
       <tbody><tr v-for="(l, k) in v.doc_types" :key="k"><td>{{ l }}</td>

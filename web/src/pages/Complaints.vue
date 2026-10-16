@@ -34,10 +34,10 @@ async function create() {
 <template>
   <PageTop :crumbs="[{ label: 'Quality', to: '/quality' }]">
     <template #title>Complaints</template>
-    <Button v-if="v?.can_edit" variant="solid" icon-left="lucide-plus" label="Record a complaint" @click="show = !show" />
+    <Button v-if="v?.can_edit" data-help="complaints-new" variant="solid" icon-left="lucide-plus" label="Record a complaint" @click="show = !show" />
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
-  <form v-if="show" class="new wq-panel mb-5 grid gap-3 p-5 md:grid-cols-4" @submit.prevent="create">
+  <form v-if="show" data-help="complaints-form" class="new wq-panel mb-5 grid gap-3 p-5 md:grid-cols-4" @submit.prevent="create">
     <label class="wq-field">Received on<input v-model="form.received_on" type="date" class="wq-input"></label>
     <label class="wq-field">Company first knew on<input v-model="form.aware_on" type="date" class="wq-input"></label>
     <label class="wq-field">Source<select v-model="form.source" class="wq-select"><option>customer</option><option>distributor</option><option>field</option><option>other</option></select></label>
@@ -51,7 +51,7 @@ async function create() {
     <label class="wq-field">Did the product fail?<select v-model="form.malfunction" class="wq-select"><option>unknown</option><option>yes</option><option>no</option></select></label>
     <div class="flex items-end"><Button type="submit" variant="solid" label="Record" :disabled="!form.customer.trim() || !form.description.trim()" /></div>
   </form>
-  <section v-if="v" class="wq-panel p-5">
+  <section v-if="v" data-help="complaints-list" class="wq-panel p-5">
     <div class="mb-3 flex items-center gap-3"><select v-model="status" class="wq-select w-40"><option value="open">Open</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option><option value="all">All</option></select></div>
     <p v-if="!v.complaints.length" class="wq-muted">None.</p>
     <table v-else class="wq-table text-sm"><thead><tr><th>Number</th><th>Received</th><th>Customer</th><th>Product</th><th>Hurt</th><th>Status</th><th>Reporting</th><th>Owner</th></tr></thead>

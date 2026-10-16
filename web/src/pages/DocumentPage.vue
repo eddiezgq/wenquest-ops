@@ -119,7 +119,7 @@ async function newRevision() {
       </section>
 
       <!-- the proposal, field by field, with the file's own words -->
-      <section class="wq-panel p-5">
+      <section data-help="doc-proposal" class="wq-panel p-5">
         <div class="mb-3 flex flex-wrap items-center gap-2">
           <h2 class="text-base font-semibold text-ink-gray-9">{{ reviewing ? 'Proposal' : 'Details' }}</h2>
           <span v-if="d.engine" class="text-sm text-ink-gray-5">by {{ d.engine === 'ai' ? 'AI' : d.engine === 'rules' ? 'rules (limited accuracy)' : d.engine }}</span>
@@ -150,7 +150,7 @@ async function newRevision() {
         <div v-if="d.refs.length" class="mt-4 text-sm text-ink-gray-6">Names these documents:
           <RouterLink v-for="r in d.refs" :key="r" :to="`/documents?tab=library&q=${encodeURIComponent(r)}`" class="wq-link ms-1.5">{{ r }}</RouterLink></div>
 
-        <div v-if="reviewing && canEdit" class="mt-5 flex flex-wrap items-center gap-2 border-t border-outline-gray-1 pt-4">
+        <div v-if="reviewing && canEdit" data-help="doc-confirm" class="mt-5 flex flex-wrap items-center gap-2 border-t border-outline-gray-1 pt-4">
           <Button variant="solid" icon-left="lucide-check" label="Confirm" @click="confirm" />
           <span class="wq-muted">{{ meta.controlled.includes(form.doc_type) ? 'Procedures, work instructions and forms become drafts and need approval.' : 'Records, certificates and other documents are kept at once.' }}</span>
           <span class="ms-auto flex items-center gap-2">
@@ -160,7 +160,7 @@ async function newRevision() {
       </section>
 
       <!-- controlled document steps -->
-      <section v-if="canEdit && d.status === 'draft'" class="wq-panel mt-5 p-5">
+      <section v-if="canEdit && d.status === 'draft'" data-help="doc-send" class="wq-panel mt-5 p-5">
         <h2 class="wq-h2">Approval</h2>
         <p class="wq-muted mb-3">Correct the details above if needed and save them. Someone other than the person who uploaded, confirmed or sends it approves it with their password. It then becomes effective and its file is frozen.</p>
         <div class="flex flex-wrap gap-2">
@@ -168,7 +168,7 @@ async function newRevision() {
           <Button variant="solid" icon-left="lucide-send" :disabled="!!Object.keys(changed()).length" label="Send for approval" @click="step('submit', {}, 'Sent for approval.')" />
         </div>
       </section>
-      <section v-if="canEdit && d.status === 'in_review'" class="wq-panel mt-5 p-5">
+      <section v-if="canEdit && d.status === 'in_review'" data-help="doc-approve" class="wq-panel mt-5 p-5">
         <h2 class="wq-h2">Approval</h2>
         <p v-if="involved" class="wq-muted">You uploaded, confirmed or sent this document, so someone else approves it.</p>
         <div v-else class="flex flex-wrap items-center gap-2">
@@ -183,7 +183,7 @@ async function newRevision() {
           <Button label="Send back" :disabled="!x.reason.trim()" @click="step('send-back', { reason: x.reason }, 'Sent back as a draft.')" />
         </div>
       </section>
-      <section v-if="canEdit && ['effective', 'confirmed'].includes(d.status)" class="wq-panel mt-5 p-5">
+      <section v-if="canEdit && ['effective', 'confirmed'].includes(d.status)" data-help="doc-revise" class="wq-panel mt-5 p-5">
         <template v-if="d.status === 'effective' && d.controlled">
           <h2 class="wq-h2">New revision</h2>
           <p class="wq-muted mb-3">Upload the next revision. It goes through approval; when it is approved this one becomes obsolete. This file is kept.</p>
@@ -219,7 +219,7 @@ async function newRevision() {
     </div>
 
     <aside class="flex flex-col gap-5">
-      <section v-if="ledgers && Object.keys(ledgers.kinds).length" class="ledger wq-panel p-4">
+      <section v-if="ledgers && Object.keys(ledgers.kinds).length" data-help="doc-ledger" class="ledger wq-panel p-4">
         <h2 class="wq-h2">Import as a ledger</h2>
         <p class="wq-muted mb-3">Bring this sheet's rows into WenQuest Ops: {{ meta.ai ? 'AI proposes' : 'the rules propose' }} which column is which; you check, then import with your password.</p>
         <div class="flex flex-wrap items-center gap-2">
@@ -231,7 +231,7 @@ async function newRevision() {
           <li v-for="l in ledgers.imports" :key="l.id" class="py-0.5"><RouterLink :to="`/documents/ledger/${l.id}`" class="wq-link">{{ ledgers.kinds[l.target] || l.target }}</RouterLink>
             <span class="text-ink-gray-5"> — {{ l.status === 'imported' ? `imported ${l.result.imported + l.result.drafted} rows` : 'to check' }}</span></li></ul>
       </section>
-      <section class="wq-panel p-4">
+      <section data-help="doc-file" class="wq-panel p-4">
         <h2 class="wq-h2">File</h2>
         <p class="break-all text-base text-ink-gray-9">{{ d.original_name }}</p>
         <p class="break-all text-sm text-ink-gray-5">{{ d.path || '(top folder)' }}</p>

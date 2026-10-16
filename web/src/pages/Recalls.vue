@@ -17,10 +17,10 @@ watch(status, load, { immediate: true })
 <template>
   <PageTop :crumbs="[{ label: 'Quality', to: '/quality' }]">
     <template #title>Recalls</template>
-    <RouterLink to="/quality/trace"><Button icon-left="lucide-route" label="Trace a lot" /></RouterLink>
+    <RouterLink to="/quality/trace" data-help="recalls-trace"><Button icon-left="lucide-route" label="Trace a lot" /></RouterLink>
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
-  <section v-if="v" class="wq-panel p-5">
+  <section v-if="v" data-help="recalls-list" class="wq-panel p-5">
     <p class="wq-muted mb-3 max-w-3xl">A recall starts from a trace: trace the lot, then <i>Start a recall of these lots</i>.</p>
     <div class="mb-3"><select v-model="status" class="wq-select w-40"><option value="open">Draft and open</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option><option value="all">All</option></select></div>
     <p v-if="!v.recalls.length" class="wq-muted">None.</p>
