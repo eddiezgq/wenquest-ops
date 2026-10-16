@@ -95,9 +95,14 @@ def documents_current(facts: dict, settings: dict) -> dict:
         return result(UNKNOWN, "No procedures, work instructions or forms in the library yet.")
     ids = {d["id"] for d in live}
     bad = [i for i in facts["document_issues"] if i["kind"] in CLASHES and ids & set(i["docs"])]
-    if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'problem')} with revisions, numbers or copies.",
-                      [{"kind": "document", "id": i["docs"][0], "label": i["title"], "why": i["detail"]} for i in bad])
+    late = [d for d in facts.get("doc_reviews_overdue") or [] if d["id"] in ids]    # periodic review (17d)
+    if bad or late:
+        what = [f"{_plural(len(bad), 'problem')} with revisions, numbers or copies"] if bad else []
+        what += [f"{_plural(len(late), 'periodic review')} overdue"] if late else []
+        return result(NOT_MET, "; ".join(what).capitalize() + ".",
+                      [{"kind": "document", "id": i["docs"][0], "label": i["title"], "why": i["detail"]} for i in bad]
+                      + [{"kind": "document", "id": d["id"], "label": d["number"] or d["title"],
+                          "why": f"periodic review due {d['due']}"} for d in late])
     return result(MET, f"{_plural(len(live), 'controlled document')} checked: one current revision each, no clashing "
                        "numbers or copies.")
 
@@ -621,6 +626,84 @@ def scope_declared(facts: dict, settings: dict, control: str = "scope") -> dict:
     return result(MET, doc["detail"] + " " + why, evidence=doc["evidence"])
 
 
+# ---------------------------------------------------------------- records of the regulated modules (17k)
+# These read the module's own records. A company that does not use the module yet shows the control point with the
+# documents it links, as before: no records falls back to the linked documents.
+
+def _or_linked(facts: dict, settings: dict, control: str, none: str) -> dict:
+    r = linked_document(facts, settings, control)
+    return result(UNKNOWN, f"{none} {r['detail']}") if r["status"] == UNKNOWN else r
+
+
+def _decided(facts: dict, status: str) -> list[dict]:
+    return [p for p in facts.get("production") or [] if p["status"] == status and p["decided_on"]
+            and p["decided_on"] >= facts["since"]]
+
+
+def risk_managed(facts: dict, settings: dict, control: str = "risk_management") -> dict:
+    """Approved risk files (17h) that still match their fingerprint; drafts are named, not judged."""
+    files = facts.get("risk_files") or []
+    approved = [f for f in files if f["status"] == "approved"]
+    if not approved:
+        return _or_linked(facts, settings, control, "No approved risk file under Risk yet.")
+    broken = [ref("risk_file", f, "changed since it was approved") for f in approved if f["intact"] is False]
+    if broken:
+        return result(NOT_MET, f"{_plural(len(broken), 'approved risk file')} no longer match what was approved.",
+                      broken)
+    drafts = [f for f in files if f["status"] == "draft"]
+    return result(MET, f"{_plural(len(approved), 'approved risk file')}, each as approved."
+                  + (f" {_plural(len(drafts), 'draft')} not approved yet." if drafts else ""),
+                  evidence=[ref("risk_file", f, f["product"]) for f in approved])
+
+
+def production_recorded(facts: dict, settings: dict, control: str = "production") -> dict:
+    """Lots decided in the period (17i): each with its record, released by someone who did not make it."""
+    lots = _decided(facts, "released") + _decided(facts, "rejected")
+    if not lots:
+        return _or_linked(facts, settings, control, "No production lot released or rejected in the period.")
+    bad = [ref("production", p, "decided by someone who recorded it") for p in lots
+           if p["decided_by"] in (p["involved"] or [])]
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'lot')} decided by someone who made it.", bad)
+    rel = [p for p in lots if p["status"] == "released"]
+    return result(MET, f"{_plural(len(lots), 'lot')} with a production record in the period, {len(rel)} released.",
+                  evidence=[ref("production", p, f"lot {p['lot_no']}, {p['status']}") for p in lots])
+
+
+def lots_traceable(facts: dict, settings: dict, control: str = "traceability") -> dict:
+    """Each lot released in the period has a lot number and the incoming lots of every material it must use."""
+    rel = _decided(facts, "released")
+    if not rel:
+        return _or_linked(facts, settings, control, "No production lot released in the period.")
+    bad = []
+    for p in rel:
+        missing = sorted(set(p["materials_needed"]) - set(p["materials_used"]))
+        if missing:
+            bad.append(ref("production", p, "no incoming lot recorded for " + ", ".join(missing)))
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'released lot')} cannot be traced to every material.", bad)
+    return result(MET, f"{_plural(len(rel), 'released lot')}, each traced to the incoming lots of its materials.",
+                  evidence=[ref("production", p, f"lot {p['lot_no']}") for p in rel])
+
+
+def release_signed(facts: dict, settings: dict, control: str = "product_release") -> dict:
+    """Production lots and incoming lots released in the period: by a named person, not the one who checked."""
+    lots = _decided(facts, "released")
+    incoming = [i for i in facts.get("iqc_decided") or [] if i["decided_on"] and i["decided_on"] >= facts["since"]]
+    if not lots and not incoming:
+        return _or_linked(facts, settings, control, "No lot released in the period.")
+    bad = [ref("production", p, "released by someone who made it") for p in lots
+           if not p["decided_by"] or p["decided_by"] in (p["involved"] or [])]
+    bad += [ref("iqc", i, "decided by the inspector who signed it") for i in incoming
+            if not i["decided_by"] or i["decided_by"] == i["signed_by"]]
+    if bad:
+        return result(NOT_MET, f"{_plural(len(bad), 'release')} not made by a second person.", bad)
+    return result(MET, f"{_plural(len(lots) + len(incoming), 'release')} in the period, each signed by a named person "
+                       "who did not do the checks.",
+                  evidence=[ref("production", p, f"released by {p['decided_by']}") for p in lots]
+                  + [ref("iqc", i, f"{i['status']} by {i['decided_by']}") for i in incoming])
+
+
 def register(facts: dict, settings: dict, name: str) -> dict:
     return result(UNKNOWN, f"Evidence comes from the {name.replace('_', ' ')} register, which is not there yet "
                            "(next step).")
@@ -630,8 +713,11 @@ CHECKS = {f.__name__: f for f in (documents_approved, documents_current, documen
                                   ncr_concession_approved, ncr_recorded, rejected_lots_have_ncr, capa_for_major,
                                   capa_on_time, capa_effective, scope_declared, training_current, calibration_current,
                                   audits_done, reviews_done, objectives_reviewed, risks_reviewed, complaints_answered,
-                                  complaints_assessed, feedback_collected, suppliers_approved)}
-LINKED = ("linked_document", "scope_declared")          # rules that take documents linked as evidence
+                                  complaints_assessed, feedback_collected, suppliers_approved, risk_managed,
+                                  production_recorded, lots_traceable, release_signed)}
+# rules that read the module's records and fall back to the documents linked to the control point
+WITH_DOCUMENTS = ("risk_managed", "production_recorded", "lots_traceable", "release_signed")
+LINKED = ("linked_document", "scope_declared", *WITH_DOCUMENTS)   # rules that take documents linked as evidence
 # the settings each check reads besides window_days, so a pack that leaves one out is caught when it is checked
 NEEDS = {"ncr_contained": ["ncr_contain_days"], "capa_for_major": ["capa_within_days"],
          "capa_on_time": ["capa_overdue_days"], "training_current": ["training_followup_days"],
@@ -664,7 +750,8 @@ def evaluate(pack: dict, edition: str, facts: dict, settings: dict | None = None
                 r = register(facts, settings, rule.split(":", 1)[1])
             else:
                 try:
-                    r = CHECKS[rule](facts, settings)
+                    args = (c["id"],) if rule in WITH_DOCUMENTS else ()
+                    r = CHECKS[rule](facts, settings, *args)
                 except (TypeError, ValueError, KeyError, AttributeError) as exc:     # odd data: say so, go on
                     r = result(UNKNOWN, f"Could not be checked: a value is not as expected ({type(exc).__name__}).")
             out[c["id"]] = {**r, "process": pname, "summary": c["summary"], "clauses": (c.get("clauses") or {}).get(

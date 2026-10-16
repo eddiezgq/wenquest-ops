@@ -31,7 +31,8 @@ const canDocs = computed(() => ws.value?.user.permissions.includes('documents:vi
 const latest = computed(() => !route.query.evaluation && !route.query.day)
 const pickDay = ref('')
 const regs = ref([])
-const LINKED = ['linked_document', 'scope_declared']
+// rules that take linked documents; the last four read the module records first (17k)
+const LINKED = ['linked_document', 'scope_declared', 'risk_managed', 'production_recorded', 'lots_traceable', 'release_signed']
 const counts = computed(() => v.value?.evaluation?.counts || {})
 const stds = ref([])
 
@@ -92,6 +93,9 @@ function to(p, c) {
   if (p.kind === 'supplier') return objectPath('Supplier', p.id)
   if (p.kind === 'asl') return `/quality/suppliers#a${p.id}`
   if (p.kind === 'reading') return '/documents/control'
+  if (p.kind === 'risk_file') return `/quality/risk/${p.id}`
+  if (p.kind === 'production') return `/quality/production/${p.id}`
+  if (p.kind === 'iqc') return `/quality/iqc/${p.id}`
   if (p.kind === 'entry' && String(p.id).startsWith('c')) return `/quality/complaints/${String(p.id).slice(1)}`
   if (p.kind === 'entry' && String(p.id).startsWith('g')) return `/quality/gauges/${String(p.id).slice(1)}`
   if (p.kind === 'entry' && String(p.id).startsWith('m')) return `/quality/reviews/${String(p.id).slice(1)}`

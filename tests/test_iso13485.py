@@ -122,7 +122,7 @@ def test_both_standards_on_the_same_records(world):
     with pytest.raises(QMS.QmsError, match="no edition"):
         QMS.enable(world, jordan, "iso13485", "2015", PW, T)
     p = QMS.enable(world, jordan, "iso13485", "2016", PW, T)
-    assert p["version"] == 1 and p["fingerprint"] == QMS.fingerprint(QMS.load("iso13485"))
+    assert p["version"] == QMS.load("iso13485")["version"] and p["fingerprint"] == QMS.fingerprint(QMS.load("iso13485"))
     res = QMS.latest(world, "iso13485")["results"]
     assert len(res) == len(QMS.controls(QMS.load("iso13485")))
     assert res["complaints_assessed"]["status"] == "unknown" and res["design"]["status"] == "unknown"

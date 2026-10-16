@@ -15,7 +15,7 @@
 standard: iso9001
 name: ISO 9001
 label: ISO 9001 quality management system
-version: 3
+version: 4   # 4: production and traceability read the production records (17k)
 editions:
   "2015": {label: "ISO 9001:2015 (with Amendment 1:2024)", ready: true}
   "2026": {label: "ISO 9001:2026", ready: false, note: "clause mapping after review of the published text"}
@@ -146,12 +146,12 @@ processes:
       - id: production
         summary: Production and service provision are carried out under controlled conditions.
         clauses: {"2015": ["8.5.1"]}
-        rule: linked_document
+        rule: production_recorded
         hint: work instructions or the production procedure
       - id: traceability
         summary: Outputs are identified, and traced where traceability is required.
         clauses: {"2015": ["8.5.2"]}
-        rule: linked_document
+        rule: lots_traceable
         hint: the identification and traceability procedure
       - id: customer_property
         short: customer property

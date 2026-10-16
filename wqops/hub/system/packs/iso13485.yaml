@@ -13,7 +13,7 @@
 standard: iso13485
 name: ISO 13485
 label: ISO 13485 medical devices quality management system
-version: 1
+version: 2   # 2: risk, production, traceability and release read the module records (17k)
 editions:
   "2016": {label: "ISO 13485:2016", ready: true}
 settings:
@@ -228,7 +228,7 @@ processes:
       - id: risk_management
         summary: Risk management is documented and applied through product realization, with records kept.
         clauses: {"2016": ["7.1"]}
-        rule: linked_document
+        rule: risk_managed
         hint: the risk management procedure and the risk management files
       - id: customer_requirements
         summary: The requirements for each device, including regulatory and user training needs, are determined and
@@ -277,7 +277,7 @@ processes:
         summary: Production is planned and carried out under controlled conditions, with a record for each device or
           batch that identifies the quantity made and released.
         clauses: {"2016": ["7.5.1"]}
-        rule: linked_document
+        rule: production_recorded
         hint: work instructions or the production procedure
       - id: cleanliness
         short: cleanliness of product
@@ -333,7 +333,7 @@ processes:
       - id: traceability
         summary: Traceability is documented to the extent regulations and the device's risk need it.
         clauses: {"2016": ["7.5.9.1"]}
-        rule: linked_document
+        rule: lots_traceable
         hint: the traceability procedure
       - id: implantable
         short: implantable devices
@@ -397,7 +397,7 @@ processes:
         summary: Product is released only after its checks are done, with the identity of the person who released it
           recorded.
         clauses: {"2016": ["8.2.6"]}
-        rule: linked_document
+        rule: release_signed
         hint: the product release procedure
   nonconforming:
     label: Control of nonconforming product

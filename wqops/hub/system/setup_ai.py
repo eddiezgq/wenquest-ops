@@ -13,6 +13,7 @@ from wqops.hub.ai import agent as AG
 from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
 from wqops.hub.system import qms as QMS
+from wqops.hub.system import rules as R
 from wqops.hub.system import setup as SU
 
 
@@ -33,7 +34,7 @@ def describe(conn, standard: str) -> str:
     lines.append("Requirements (id: summary; how it is shown):")
     for cid, c in QMS.controls(pack).items():
         how = "may not apply" if c.get("may_exclude") else ""
-        if c["rule"] in ("linked_document", "scope_declared") or c.get("switch"):
+        if c["rule"] in R.LINKED or c.get("switch"):
             how += ("; " if how else "") + "shown by a document"
         now = []
         if cid in decl:
