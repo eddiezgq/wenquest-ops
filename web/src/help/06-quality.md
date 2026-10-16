@@ -160,6 +160,23 @@ password, someone who does not own it and did not raise or open it, once every c
 effectiveness conclusion, a note on anyone who did not confirm, and the regulatory decision. A draft is cancelled
 with a reason; nothing is deleted.
 
+## Management reviews
+
+*Quality → Management reviews* is where top management reviews the quality system at planned intervals. Start a
+review with a title and the period it covers, then choose *Collect the inputs*. WenQuest Ops counts them from your
+records for that period: incoming inspection, nonconformances, corrective actions, suppliers, documents and reading,
+complaints, measuring equipment, changes, risk, production, recalls, delivery performance, and the actions of earlier
+reviews still open. A figure that cannot be counted shows "unknown", not 0. The inputs are then frozen with a
+fingerprint; records made later do not change them unless someone counts again, and the old fingerprint stays in the
+history.
+
+At the meeting, write the date, who attended, the meeting's assessment next to each input and the conclusion: is the
+system suitable, adequate and effective? Add the actions decided, each with an owner and a due date. The chair signs
+with their password once all this is written. The chair must not be someone who collected the inputs or wrote the
+notes or actions. Once signed the review is fixed and goes into the management review register that the ISO check
+reads. Owners mark their actions done with what shows it is done; the next review lists those still open.
+*Print the report* gives the review on paper.
+
 ## Approved suppliers
 
 **Approved suppliers** in the sidebar lists which supplier may deliver which item: one entry per supplier and item,

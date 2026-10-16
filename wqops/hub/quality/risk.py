@@ -411,12 +411,12 @@ def view(conn, fid: int) -> dict:
             "signatures": Q.signatures(conn, "risk_file", fid)}
 
 
-def summary(conn, since: dt.date, until: dt.date) -> dict:
+def summary(conn, since: dt.date, until: dt.date, tz: str = "UTC") -> dict:
     """For management review: files approved in the period, items in approved files whose residual risk is not
     acceptable, and drafts not yet approved."""
     return {
-        "approved": conn.execute("select count(*) as n from risk_files where approved_at::date between %s and %s",
-                                 (since, until)).fetchone()["n"],
+        "approved": conn.execute("select count(*) as n from risk_files where (approved_at at time zone %s)::date "
+                                 "between %s and %s", (tz, since, until)).fetchone()["n"],
         "residual_not_acceptable": conn.execute(
             "select count(*) as n from risk_items i join risk_files f on f.id = i.file_id where f.status = 'approved' "
             "and i.residual_verdict <> 'acceptable'").fetchone()["n"],

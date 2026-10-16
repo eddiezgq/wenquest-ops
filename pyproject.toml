@@ -68,4 +68,6 @@ ignore = ["PLR2004", "PLR0913", "S101", "RUF001", "RUF002", "RUF003"]  # RUF00x:
 "wqops/hub/quality/risk_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/production_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/recall_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
+"wqops/hub/quality/review_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
+"wqops/hub/quality/review.py" = ["S608"]  # the inputs' queries are built from fixed column names only
 "wqops/hub/quality/records.py" = ["PLR0917"]  # (conn, id, email, value, note): one record step per call

@@ -644,15 +644,16 @@ def measured_since(conn, gid: int, since: dt.date | None) -> list[dict]:
         "%s::date - 1) group by r.id order by r.id", (gid, since, since))]
 
 
-def summary(conn, since: dt.date, until: dt.date) -> dict:
+def summary(conn, since: dt.date, until: dt.date, tz: str = "UTC") -> dict:
     """For management review: lots released and rejected in the period, the first-pass share of those released
     (no failed step), and lots in production."""
     rel = conn.execute("select r.id, exists (select 1 from prod_steps s where s.record_id = r.id and s.verdict = "
-                       "'fail') as failed from prod_records r where status = 'released' and decided_at::date between "
-                       "%s and %s", (since, until)).fetchall()
+                       "'fail') as failed from prod_records r where status = 'released' and "
+                       "(decided_at at time zone %s)::date between %s and %s", (tz, since, until)).fetchall()
     return {"released": len(rel),
             "rejected": conn.execute("select count(*) as n from prod_records where status = 'rejected' and "
-                                     "decided_at::date between %s and %s", (since, until)).fetchone()["n"],
+                                     "(decided_at at time zone %s)::date between %s and %s",
+                                     (tz, since, until)).fetchone()["n"],
             "first_pass": round(sum(not r["failed"] for r in rel) / len(rel), 4) if rel else None,
             "in_production": conn.execute("select count(*) as n from prod_records where status in ('in_production', "
                                           "'qa_review')").fetchone()["n"]}
