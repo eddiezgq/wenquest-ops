@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 
 from wqops.hub import permissions as P
 from wqops.hub.ont import metrics as M
+from wqops.hub.ont import overview as OV
 from wqops.hub.ont import schema as S
 
 MAX_NODES = 150
@@ -158,6 +159,55 @@ def mount_dashboard(app: FastAPI, conn_dep, user_dep, company) -> None:
         names = [n for n in M.LABELS if P.allows(u["roles"], M.VIEW[n])]
         return {"as_of": str(day), "days": days, "metrics": [M.compute(c, n, day, days) for n in names],
                 "trends": {n: M.weekly(c, n, day) for n in M.TRENDS if n in names}}
+
+    def _day(as_of: str) -> dt.date:
+        try:
+            return dt.date.fromisoformat(as_of) if as_of else today(company()[0])
+        except ValueError as exc:
+            raise HTTPException(400, "as_of must be a date like 2026-10-12") from exc
+
+    def _tz() -> str:
+        return ((company()[0] or {}).get("company") or {}).get("timezone") or "UTC"
+
+    def _weeks(weeks: int) -> int:
+        if weeks not in (8, 13, 26):
+            raise HTTPException(400, "weeks must be 8, 13 or 26")
+        return weeks
+
+    @app.get("/api/overview")
+    def overview(weeks: int = 8, as_of: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
+        """The company overview (ADR-0018): the panels, the chain and what waits, as this person may see them."""
+        if not P.allows(u["roles"], "dashboard:view"):
+            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS['dashboard:view']}")
+        st = OV.settings(c)
+        return OV.build(c, u, _day(as_of), _weeks(weeks), st, tz=_tz()) | {
+            "visitor_mode": st["visitor_mode"], "thresholds": OV.R.thresholds(st["thresholds"]),
+            "threshold_note": OV.R.NOTE, "can_configure": P.allows(u["roles"], "settings:edit")}
+
+    @app.get("/api/overview/wall")
+    def overview_wall(weeks: int = 8, u=Depends(user_dep), c=Depends(conn_dep)):
+        """The big screen; in visitor mode without amounts of money or names."""
+        if not P.allows(u["roles"], "dashboard:view"):
+            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS['dashboard:view']}")
+        return OV.wall(c, u, _day(""), _weeks(weeks), OV.settings(c), tz=_tz()) | {
+            "company": (company()[0] or {}).get("company", {}).get("name")}
+
+    @app.post("/api/overview/settings")
+    async def overview_settings(request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        if not P.allows(u["roles"], "settings:edit"):
+            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS['settings:edit']}")
+        try:
+            d = await request.json()
+        except ValueError as exc:
+            raise HTTPException(400, "the request is not JSON") from exc
+        if not isinstance(d, dict):
+            raise HTTPException(400, "send a key and a value")
+        try:
+            return OV.set_setting(c, u["email"], str(d.get("key") or ""), d.get("value"))
+        except KeyError as exc:
+            raise HTTPException(404, "no such setting") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.get("/api/dashboard/{name}")
     def metric(name: str, days: int = 30, as_of: str = "", u=Depends(user_dep), c=Depends(conn_dep)):

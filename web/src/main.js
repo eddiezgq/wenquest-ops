@@ -43,12 +43,16 @@ import ComplaintPage from './pages/ComplaintPage.vue'
 import DocControlPage from './pages/DocControlPage.vue'
 import IqcPlan from './pages/IqcPlan.vue'
 import IqcInspection from './pages/IqcInspection.vue'
+import '@fontsource/barlow-condensed/500.css'
+import '@fontsource/barlow-condensed/600.css'
 import './style.css'
+import Wall from './pages/Wall.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: Dashboard, meta: { title: 'Dashboard' } },
+    { path: '/wall', component: Wall, meta: { title: 'Big screen', bare: true } },
     { path: '/objects', component: Objects, meta: { title: 'Objects' } },
     { path: '/o/:type/:key(.*)', component: ObjectPage, meta: { title: 'Object' } },
     { path: '/anomalies', component: Anomalies, meta: { title: 'Anomalies' } },

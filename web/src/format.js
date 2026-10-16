@@ -12,5 +12,11 @@ export function fmt(v, unit) {
   return String(v)
 }
 
+// Short money for tight places: $4.1K, $12K, $1.2M
+export function fmtShort(v) {
+  if (v === null || v === undefined) return 'unknown'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 }).format(v)
+}
+
 export const docState = (v) => ({ 0: 'Draft', 1: 'Submitted', 2: 'Cancelled' })[v] ?? v
 export const ago = (iso) => (iso ? new Date(iso).toLocaleString('en-US') : '')

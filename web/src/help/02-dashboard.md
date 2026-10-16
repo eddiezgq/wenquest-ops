@@ -1,21 +1,41 @@
 # Dashboard
 
-The dashboard shows the last 7, 30 or 90 days. Hover a number to see exactly how it is counted.
+The dashboard shows the whole business at once. Everything on it is counted by WenQuest Ops from ERPNext and its own
+records; nothing is estimated, and a number with no data behind it says "unknown". It refreshes itself after each
+ERPNext sync (every 5 minutes); numbers that changed light up for a moment.
 
 ![The dashboard of the demo company](img/dashboard.webp)
 
-| Number | How it is counted |
+**From purchase order to payment.** The chain of the business: purchase orders, receiving, incoming inspection,
+stock, production, release, delivery, invoicing and payment. Each step shows what is there now; a red step has
+something stuck (a purchase order past its required-by date, a lot waiting too long, an order late, an invoice past
+due). Click a step to open it. Complaints and recalls coming back from customers are shown above the end of the chain.
+
+**The lights.** One for each part of the business. The colour comes from one number and your company's targets:
+
+| Light | The number |
 | --- | --- |
-| On-time delivery | Sales orders fully delivered in the period whose last delivery note is on or before the delivery date |
-| Items short | Stock items whose stock on hand (not counting quarantine) is less than what open orders still need |
-| Inventory value | The stock ledger's value, by warehouse |
-| Days of inventory | Inventory value ÷ average daily value shipped over the last 90 days |
-| Supplier on-time | Receipt lines received on or before the purchase order line's required-by date |
-| Open nonconformances | Open nonconformance reports plus rejected inspections that have no report yet |
+| Sales | Orders this week against the average of the weeks before |
+| Delivery | Sales orders delivered on time in the last 30 days |
+| Inventory | Items short for open orders |
+| Purchasing | Purchase order lines received on time in the last 30 days |
+| Production | Lots released in the last 30 days without a failed step |
+| Quality | Overdue quality actions: CAPA steps, complaint report deadlines, calibrations |
+| Finance | The share of receivables past their due date |
 
-Each number lists the orders, items or suppliers behind it — click through to check.
+Green is on target, amber is to watch, red is to act on, grey means there is not enough data. The targets are starting
+points: the owner sets the company's own. Hover a light to see its target.
 
-**Daily brief.** Every morning at 7:30 (company time) the system writes a short brief: the numbers, new and
-critical problems, what is due today and the drafts waiting for you. You only see the parts your role allows.
+**The panels.** Each part of the business has a panel with its key figures, a curve over 8, 13 or 26 weeks, and the
+orders, items or customers behind it. Finance (invoices, receivables, payables) is shown only to people allowed to see
+it (the owner by default).
 
-**Needs attention** lists open anomalies, most serious first.
+**Waiting for people.** What waits for you: documents to read, drafts to confirm, lots to release, changes and risk
+files to approve, and overdue quality actions in red.
+
+**Daily brief.** Every morning at 7:30 (company time) the system writes a short brief; open it with *Daily brief*.
+
+**Big screen.** *Big screen* shows the dashboard full screen for a TV in the office or on the shop floor: large type,
+a new scene every 20 seconds (arrow keys to move, space to pause, F for full screen, Esc to leave). In visitor mode,
+which is on unless the owner turns it off, it shows no amounts of money and no names of customers or suppliers:
+only shares, counts and the shape of the curves.
