@@ -172,7 +172,7 @@ def test_register_checks():
 
 def test_entries_are_signed_locked_voided_and_judged(world):
     p = QMS.enable(world, Acc.get(world, JORDAN), "iso9001", "2015", PW, T)
-    assert p["version"] == 3                  # 3: registers shared with ISO 13485 (17a)
+    assert p["version"] == 4                  # 3: registers shared with ISO 13485 (17a); 4: module records (17k)
     res = QMS.latest(world, "iso9001")["results"]
     assert res["audit"]["detail"] == "Nothing in the audits register yet."
     # every supplier the demo business bought from in the last year is listed as not approved

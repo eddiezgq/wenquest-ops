@@ -24,6 +24,7 @@ from wqops.hub.quality import calibration as CAL
 from wqops.hub.quality import complaints as CMP
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import review as MR
+from wqops.hub.quality import risk as RK
 from wqops.hub.system import rules as R
 
 PACKS = Path(__file__).resolve().parent / "packs"
@@ -273,6 +274,20 @@ def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # n
         "applicability": applicability(conn, standard),
         "excludable": {c: x.get("short", c) for c, x in controls(pack).items() if x.get("may_exclude")},
         "evidence": evidence(conn, standard),
+        # the regulated modules' own records (17k)
+        "risk_files": [{"id": f["id"], "name": f["name"], "product": f["product"], "status": f["status"],
+                        "intact": RK.intact(conn, f)} for f in conn.execute(
+            "select * from risk_files where status in ('approved', 'draft') order by id").fetchall()],
+        "production": [dict(p, decided_on=day(p.pop("decided_at")), materials_needed=list(p["materials_needed"] or []),
+                            materials_used=list(p["materials_used"] or [])) for p in conn.execute(
+            "select r.id, r.name, r.lot_no, r.status, r.decided_by, r.decided_at, r.involved, "
+            "t.materials as materials_needed, array(select distinct m.item_code from prod_materials m where "
+            "m.record_id = r.id) as materials_used from prod_records r join prod_templates t on t.id = r.template_id "
+            "where r.status in ('released', 'rejected') order by r.id")],
+        "iqc_decided": [dict(i, decided_on=day(i.pop("decided_at"))) for i in conn.execute(
+            "select id, name, status, signed_by, decided_by, decided_at from iqc_inspections where status in "
+            "('released', 'rejected') order by id")],
+        "doc_reviews_overdue": [d for d in CTL.review_list(conn, today) if d["overdue"]],
     }
 
 
