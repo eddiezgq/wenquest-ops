@@ -17,13 +17,28 @@ from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
 
 MAX_ROUNDS = 8
+HISTORY = 6        # earlier questions and answers of the conversation sent with a follow-up (ADR-0021)
 MAX_RESULT = 20000
 DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 NUM = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?")
 SMALL = 10  # small counts ("3 orders") may be counted by the model itself
 
 
-def system_prompt(ctx: T.Ctx) -> str:
+def page_line(page: dict | None) -> str:
+    """What the person is looking at, from the chat panel (ADR-0021 item 3); only plain words go to the model."""
+    if not page:
+        return ""
+    title = str(page.get("title") or "")[:120]
+    path = str(page.get("path") or "")[:200]
+    rec = page.get("record") or {}
+    line = f"\nThe person is looking at the page {title!r} ({path})."
+    if rec.get("kind") and rec.get("id"):
+        line += (f" It shows the record kind {str(rec['kind'])[:20]!r} with id {int(rec['id'])}: when they say "
+                 "'this' or 'here', read it with get_record.")
+    return line
+
+
+def system_prompt(ctx: T.Ctx, page: dict | None = None) -> str:
     company = (ctx.manifest or {}).get("company", {}).get("name", "the company")
     return (
         f"You are the operations assistant of {company}, inside WenQuest Ops. Today is {ctx.today}. "
@@ -36,6 +51,7 @@ def system_prompt(ctx: T.Ctx) -> str:
         "- You cannot change anything in ERPNext and cannot send messages. You may only prepare drafts with the "
         "draft tools, if offered; a person must confirm them. Never say something was ordered, sent or submitted.\n"
         "- If the person's role cannot see something, say so rather than working around it."
+        + page_line(page)
     )
 
 
@@ -119,14 +135,18 @@ def _run_tool(ctx, tools, name, args, calls, corpus):  # noqa: PLR0917 - interna
     return text, ok
 
 
-def with_model(ctx: T.Ctx, question: str, model: L.Anthropic, tools: dict[str, T.Tool]) -> dict:
-    messages: list[dict] = [{"role": "user", "content": question}]
+def with_model(ctx: T.Ctx, question: str, model: L.Anthropic, tools: dict[str, T.Tool],  # noqa: PLR0917
+               history: list[dict] | None = None, page: dict | None = None) -> dict:
+    messages: list[dict] = []
+    for h in (history or [])[-HISTORY:]:                 # the conversation so far, as plain text
+        messages += [{"role": "user", "content": h["question"]}, {"role": "assistant", "content": h["answer"] or "-"}]
+    messages.append({"role": "user", "content": question})
     calls: list[dict] = []
-    corpus = [question]
+    corpus = [question] + [h["answer"] or "" for h in (history or [])[-HISTORY:]]
     usage = {"input_tokens": 0, "output_tokens": 0}
     specs = [t.spec() for t in tools.values()]
     for _ in range(MAX_ROUNDS):
-        resp = model.create(system_prompt(ctx), messages, specs)
+        resp = model.create(system_prompt(ctx, page), messages, specs)
         for k in usage:
             usage[k] += int(resp.get("usage", {}).get(k, 0))
         content = resp.get("content", [])
@@ -189,7 +209,12 @@ def _fmt(v, unit) -> str:
     return {"%": f"{v:g}%", "currency": f"{v:,.2f}", "days": f"{v:g} days"}.get(unit, f"{v:g}")
 
 
-def with_rules(ctx: T.Ctx, question: str, tools: dict[str, T.Tool]) -> dict:
+THIS = ("this", "here", "summar", "status of it", "what is it")
+SHOWN = ("name", "title", "product", "item_code", "lot_no", "customer", "supplier", "status", "severity", "owner",
+         "due", "result", "description", "conclusion")
+
+
+def with_rules(ctx: T.Ctx, question: str, tools: dict[str, T.Tool], page: dict | None = None) -> dict:  # noqa: PLR0912
     calls: list[dict] = []
     corpus = [question]
     lines: list[str] = []
@@ -199,6 +224,18 @@ def with_rules(ctx: T.Ctx, question: str, tools: dict[str, T.Tool]) -> dict:
         return json.loads(text) if ok else None
 
     q = question.lower()
+    rec = (page or {}).get("record") or {}
+    if rec.get("kind") and rec.get("id") and "get_record" in tools and any(w in q for w in THIS):
+        got = use("get_record", kind=rec["kind"], id=rec["id"])     # "summarize this": the record on the page
+        if got is None:
+            lines.append(calls[-1]["summary"])
+        else:
+            r = got["record"]
+            lines.append(f"{got['ref']}.")
+            lines += [f"{k.replace('_', ' ').capitalize()}: {str(r[k]).rstrip('.')}." for k in SHOWN[1:]
+                      if r.get(k) not in (None, "")]
+            return {"engine": "rules", "model": None, "answer": "\n".join(lines), "tool_calls": calls,
+                    "corpus": corpus}
     # a named object: answer about it first
     for word in re.findall(r"[A-Za-z0-9][\w./-]*\d[\w./-]*", question):
         found = ctx.conn.execute(
@@ -251,21 +288,28 @@ def with_rules(ctx: T.Ctx, question: str, tools: dict[str, T.Tool]) -> dict:
     return {"engine": "rules", "model": None, "answer": "\n".join(lines) or HELP, "tool_calls": calls, "corpus": corpus}
 
 
-def ask(ctx: T.Ctx, question: str, model: L.Anthropic | None = None, extra_tools: list[T.Tool] | None = None) -> dict:
-    """Answer one question and record the run."""
+def ask(ctx: T.Ctx, question: str, model: L.Anthropic | None = None,
+        extra_tools: list[T.Tool] | None = None, *, chat_id: int | None = None, page: dict | None = None) -> dict:
+    """Answer one question and record the run; in a conversation, with its earlier questions and the page."""
     question = question.strip()[:2000]
     tools = T.registry(extra_tools)
+    history = [dict(r) for r in ctx.conn.execute(
+        "select question, answer from ai_runs where chat_id = %s and kind = 'ask' order by id", (chat_id,))] \
+        if chat_id else []
     start(ctx, "ask", question)
+    if chat_id or page:
+        ctx.conn.execute("update ai_runs set chat_id = %s, page = %s where id = %s",
+                         (chat_id, Jsonb(page) if page else None, ctx.run_id))
     error = None
     if model is not None and model.configured():
         try:
-            out = with_model(ctx, question, model, tools)
+            out = with_model(ctx, question, model, tools, history, page)
         except L.LlmError as exc:
             error = str(exc)
-            out = with_rules(ctx, question, tools)
+            out = with_rules(ctx, question, tools, page)
             out["engine"] = "rules (model unavailable)"
     else:
-        out = with_rules(ctx, question, tools)
+        out = with_rules(ctx, question, tools, page)
     bad = verify(out["answer"], "\n".join(out.pop("corpus")))
     out.update(verified=not bad, unverified=bad, error=error)
     finish(ctx, out)

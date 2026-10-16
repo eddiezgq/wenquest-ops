@@ -10,6 +10,7 @@ import {
 import { api } from './api'
 import { setCurrency } from './format'
 import Tour from './components/Tour.vue'
+import ChatPanel from './components/ChatPanel.vue'
 
 const route = useRoute()
 const ws = ref(null)
@@ -21,6 +22,10 @@ provide('workspace', ws)
 // no steps: the guided tour; a help topic passes its own (ADR-0019)
 const startTour = (steps = null, name = '') => { tourSteps.value = steps; tourName.value = name; touring.value = false; setTimeout(() => { touring.value = true }) }
 provide('startTour', startTour)
+// the AI chat panel on every page (ADR-0021); the Assistant page opens a past conversation in it
+const chatOpen = ref(false)
+const chat = ref(null)
+provide('openChat', (id) => chat.value?.openChat(id))
 // the help videos are recorded by driving the same tours (ADR-0019 item 7, .github/scripts/help_tours.py)
 window.wqoTour = startTour
 const TOUR_KEY = 'wqo-tour-done'
@@ -103,6 +108,7 @@ const menu = computed(() => [
         <RouterView />
       </main>
       <Tour v-if="touring" :permissions="ws.user.permissions" :steps="tourSteps" :name="tourName" @done="tourDone" />
+      <ChatPanel v-if="can('ai:use')" ref="chat" v-model:open="chatOpen" />
     </DesktopShell>
   </FrappeUIProvider>
 </template>

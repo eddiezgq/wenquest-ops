@@ -3,6 +3,14 @@
 import { computed } from 'vue'
 import { objectPath } from '../api'
 
+// a quality or document record the assistant read (ADR-0021): [Record:kind/id/name]
+const PATHS = { ncr: '/quality/ncr/', capa: '/quality/capa/', complaint: '/quality/complaints/', change: '/quality/changes/',
+  risk_file: '/quality/risk/', production: '/quality/production/', recall: '/quality/recalls/', review: '/quality/reviews/',
+  iqc: '/quality/iqc/', gauge: '/quality/gauges/', asl: '/quality/suppliers#a', document: '/documents/' }
+function record(key) {
+  const [kind, id, ...name] = key.split('/')
+  return PATHS[kind] ? { link: PATHS[kind] + id, text: name.join('/') || `${kind} ${id}` } : { text: key }
+}
 const props = defineProps({ text: String, unverified: { type: Array, default: () => [] } })
 const parts = computed(() => {
   const out = []
@@ -12,7 +20,7 @@ const parts = computed(() => {
     let last = 0
     for (const m of line.matchAll(/\[([A-Za-z]+):([^\]]+)\]/g)) {
       if (m.index > last) pieces.push({ text: line.slice(last, m.index) })
-      pieces.push({ link: objectPath(m[1], m[2]), text: m[2] })
+      pieces.push(m[1] === 'Record' ? record(m[2]) : { link: objectPath(m[1], m[2]), text: m[2] })
       last = m.index + m[0].length
     }
     if (last < line.length) pieces.push({ text: line.slice(last) })

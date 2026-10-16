@@ -1,6 +1,6 @@
 <script setup>
 // Ask the assistant (ADR-0008). It reads with your permissions and can only prepare drafts.
-import { onMounted, ref } from 'vue'
+import { inject, onMounted, ref } from 'vue'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import { api } from '../api'
@@ -12,12 +12,14 @@ const question = ref('')
 const busy = ref(false)
 const runs = ref([])
 const error = ref('')
+const chats = ref([])
+const openChat = inject('openChat')
 const EXAMPLES = ['Which orders are late, and why?', 'What is short for open orders?',
   'How are our suppliers doing on time?', 'What needs my attention today?']
 
 async function load() { runs.value = await api('/api/ai/runs?limit=20') }
 onMounted(async () => {
-  try { status.value = await api('/api/ai/status'); await load() } catch (e) { error.value = e.message }
+  try { status.value = await api('/api/ai/status'); await load(); chats.value = await api('/api/ai/chats') } catch (e) { error.value = e.message }
 })
 async function ask(q) {
   if (q) question.value = q
@@ -52,6 +54,17 @@ async function rate(r, useful) {
   <div data-help="assistant-examples" class="mt-3 flex flex-wrap gap-2">
     <Button v-for="e in EXAMPLES" :key="e" size="sm" variant="outline" :label="e" @click="ask(e)" />
   </div>
+  <section v-if="chats.length" data-help="assistant-chats" class="wq-panel mt-5 p-4">
+    <h2 class="wq-h2">Conversations</h2>
+    <p class="wq-muted mb-2">Your conversations from the <em>Ask AI</em> panel, on any page. Open one to go on with it.</p>
+    <ul class="divide-y divide-outline-gray-1">
+      <li v-for="h in chats" :key="h.id" class="flex items-center justify-between gap-3 py-2">
+        <span class="truncate text-base text-ink-gray-8">{{ h.title || 'New conversation' }}</span>
+        <span class="flex shrink-0 items-center gap-3"><span class="wq-muted">{{ h.turns }} questions, {{ ago(h.updated_at) }}</span>
+          <Button size="sm" label="Open" @click="openChat(h.id)" /></span>
+      </li>
+    </ul>
+  </section>
   <p v-if="error" class="wq-error mt-4">{{ error }}</p>
   <article v-for="r in runs" :key="r.id" class="turn wq-panel mt-4 p-5">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
