@@ -541,7 +541,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     if has_web:
         for path in ("/objects", "/o/{rest:path}", "/anomalies", "/anomalies/{rest:path}", "/drafts", "/assistant",
                      "/quality", "/quality/{rest:path}", "/help", "/help/{rest:path}", "/account", "/people",
-                     "/documents", "/documents/{rest:path}", "/system", "/system/{rest:path}"):
+                     "/documents", "/documents/{rest:path}", "/system", "/system/{rest:path}", "/wall"):
             app.add_api_route(path, spa_page, methods=["GET"], include_in_schema=False)
 
     @app.get("/", response_class=HTMLResponse)

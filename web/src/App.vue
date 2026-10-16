@@ -52,7 +52,8 @@ const menu = computed(() => [
 <template>
   <FrappeUIProvider>
     <div v-if="error && !ws" class="p-8 text-base text-ink-red-7">{{ error }}</div>
-    <DesktopShell v-if="ws">
+    <RouterView v-if="ws && route.meta.bare" />
+    <DesktopShell v-else-if="ws">
       <template #sidebar>
         <Sidebar class="bg-surface-sidebar border-e border-outline-gray-1">
           <SidebarHeader :title="ws.company" :subtitle="ws.demo ? 'Fictional demo' : 'WenQuest Ops'" :menu-items="menu" />
