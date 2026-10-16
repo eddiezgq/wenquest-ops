@@ -50,3 +50,19 @@ types:
       warehouse: {to: Warehouse, l: Warehouse, inv: Stock movements}
       delivery_note: {to: DeliveryNote, l: Delivery, inv: Stock movements}
       purchase_receipt: {to: PurchaseReceipt, l: Receipt, inv: Stock movements}
+  BatchBundle:
+    label: Batch and serial bundle
+    maturity: have
+    source: ERPNext Serial and Batch Bundle
+    key: ERPNext bundle number
+    title: "{key} {item_code}"
+    props:
+      item_code: {t: str, l: Item}
+      voucher_type: {t: str, l: Document type}
+      voucher_no: {t: str, l: Document}
+      type_of_transaction: {t: str, l: In or out}
+      docstatus: {t: int, l: Document state}
+      is_cancelled: {t: bool, l: Cancelled}
+      entries: {t: json, l: Batches and serial numbers}
+    links:
+      item: {to: Item, l: Item, inv: Batch bundles}

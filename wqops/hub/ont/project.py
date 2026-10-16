@@ -382,6 +382,25 @@ def purchase_invoice(d):
     return _invoice(d, "PurchaseInvoice", "supplier")
 
 
+def batch_bundle(d):
+    """ERPNext's Serial and Batch Bundle: the batches and serial numbers one line of a stock document moved."""
+    entries = []
+    for row in d.get("entries") or []:
+        e = _clean({"batch_no": _str(row.get("batch_no")), "serial_no": _str(row.get("serial_no")),
+                    "qty": _num(row.get("qty"))})
+        if e:
+            entries.append(e)
+    return Obj(
+        "BatchBundle",
+        d["name"],
+        _clean({"item_code": d.get("item_code"), "voucher_type": d.get("voucher_type"),
+                "voucher_no": d.get("voucher_no"), "type_of_transaction": d.get("type_of_transaction"),
+                "docstatus": d.get("docstatus"), "is_cancelled": _bool(d.get("is_cancelled") or 0),
+                "entries": entries}),
+        _many("item", "Item", [d.get("item_code")]),
+    )
+
+
 MAPPERS: dict[str, tuple[str, Callable[[dict], Obj]]] = {
     "Item": ("Item", item),
     "Warehouse": ("Warehouse", warehouse),
@@ -395,6 +414,7 @@ MAPPERS: dict[str, tuple[str, Callable[[dict], Obj]]] = {
     "Quality Inspection": ("QualityInspection", quality_inspection),
     "Sales Invoice": ("SalesInvoice", sales_invoice),
     "Purchase Invoice": ("PurchaseInvoice", purchase_invoice),
+    "Serial and Batch Bundle": ("BatchBundle", batch_bundle),
 }
 
 
