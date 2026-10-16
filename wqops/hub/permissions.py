@@ -15,6 +15,7 @@ PERMISSIONS = {
     "documents:edit": "Upload documents, confirm their classification and send them for approval",
     "workflows:configure": "Change quality workflows and enable versions others changed",
     "qms:configure": "Adopt quality standards, say what does not apply and link evidence",
+    "data:import": "Import items, customers, suppliers, opening stock and open orders from another system (ADR-0020)",
     "ai:use": "Ask the AI assistant and receive drafts",
     "ai:configure": "Configure the AI assistant",
     "users:view": "See who has access",
@@ -26,7 +27,8 @@ _VIEW = {"dashboard:view", "inventory:view", "sales:view", "purchasing:view", "q
 _DOCS = {"documents:view", "documents:edit"}
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "owner": frozenset(PERMISSIONS),
-    "ops_manager": frozenset(_VIEW | _DOCS | {"purchasing:draft", "quality:edit", "ai:use", "users:view"}),
+    "ops_manager": frozenset(_VIEW | _DOCS | {"purchasing:draft", "quality:edit", "ai:use", "users:view",
+                                             "data:import"}),
     "warehouse": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "quality:view", "ai:use",
                             "documents:view"}),
     "purchasing": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "purchasing:draft",
