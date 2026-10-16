@@ -11,7 +11,9 @@ import Assistant from './pages/Assistant.vue'
 import Quality from './pages/Quality.vue'
 import NcrPage from './pages/NcrPage.vue'
 import CapaPage from './pages/CapaPage.vue'
-import Help from './pages/Help.vue'
+import HelpHome from './pages/HelpHome.vue'
+import HelpTopic from './pages/HelpTopic.vue'
+import HelpChecklist from './pages/HelpChecklist.vue'
 import Account from './pages/Account.vue'
 import People from './pages/People.vue'
 import Documents from './pages/Documents.vue'
@@ -91,7 +93,11 @@ const router = createRouter({
     { path: '/system/gaps', component: QualityGaps, meta: { title: 'Gap report' } },
     { path: '/system/audit', component: AuditChecklist, meta: { title: 'Audit checklist' } },
     { path: '/system/setup', component: QualitySetup, meta: { title: 'Set up' } },
-    { path: '/help/:topic?', component: Help, meta: { title: 'Help' } },
+    { path: '/help', component: HelpHome, meta: { title: 'Help' } },
+    { path: '/help/checklist', component: HelpChecklist, meta: { title: 'Test checklist' } },
+    { path: '/help/quality', redirect: '/help/nonconformances' },   // pages of the help before ADR-0019
+    { path: '/help/faq', redirect: '/help/questions' },
+    { path: '/help/:topic', component: HelpTopic, meta: { title: 'Help' } },
     { path: '/account', component: Account, meta: { title: 'My account' } },
     { path: '/people', component: People, meta: { title: 'People' } },
     { path: '/documents', component: Documents, meta: { title: 'Documents' } },
@@ -99,7 +105,7 @@ const router = createRouter({
     { path: '/documents/ledger/:id', component: LedgerPage, meta: { title: 'Import a ledger' } },
     { path: '/documents/:id', component: DocumentPage, meta: { title: 'Document' } },
   ],
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior: (to) => (to.hash ? false : { top: 0 }),   // a help topic scrolls to its own anchors
 })
 router.afterEach((to) => { document.title = `${to.meta.title} · WenQuest Ops` })
 

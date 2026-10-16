@@ -1,4 +1,9 @@
-# Anomalies and root causes
+---
+title: Anomalies and root causes
+group: Daily work
+order: 2
+summary: Problems the rules find, with their causes and what they affect.
+---
 
 After every sync, rules look for problems:
 

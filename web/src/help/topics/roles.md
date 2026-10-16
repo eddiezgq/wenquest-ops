@@ -1,4 +1,9 @@
-# Roles
+---
+title: Roles
+group: Start here
+order: 2
+summary: What each role sees and can do, your password, and people.
+---
 
 | Role | Sees | Can |
 | --- | --- | --- |

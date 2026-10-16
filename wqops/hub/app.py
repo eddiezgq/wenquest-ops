@@ -420,6 +420,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import review_api as MRA  # noqa: PLC0415
 
     MRA.mount(app, conn, current_user, company)
+    from wqops.hub import help_api as HA  # noqa: PLC0415
+
+    HA.mount(app, conn, current_user)
     from wqops.hub.docs import api as DA  # noqa: PLC0415
 
     DA.mount(app, conn, current_user, company, ai_model, db_url)

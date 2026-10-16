@@ -15,12 +15,16 @@ const route = useRoute()
 const ws = ref(null)
 const error = ref('')
 const touring = ref(false)
+const tourSteps = ref(null)
+const tourName = ref('')
 provide('workspace', ws)
-const startTour = () => { touring.value = true }
+// no steps: the guided tour; a help topic passes its own (ADR-0019)
+const startTour = (steps = null, name = '') => { tourSteps.value = steps; tourName.value = name; touring.value = false; setTimeout(() => { touring.value = true }) }
 provide('startTour', startTour)
 const TOUR_KEY = 'wqo-tour-done'
 function tourDone() {
   touring.value = false
+  if (tourSteps.value) return
   try { localStorage.setItem(TOUR_KEY, '1') } catch { /* the tour just shows again next time */ }
 }
 
@@ -44,7 +48,7 @@ const can = (p) => ws.value?.user.permissions.includes(p)
 const menu = computed(() => [
   { label: 'My account', icon: 'lucide-user', route: '/account' },
   { label: 'Help', icon: 'lucide-circle-help', route: '/help' },
-  { label: 'Take the guided tour', icon: 'lucide-map', onClick: startTour },
+  { label: 'Take the guided tour', icon: 'lucide-map', onClick: () => startTour() },
   { label: 'Sign out', icon: 'lucide-log-out', onClick: signOut },
 ])
 </script>
@@ -96,7 +100,7 @@ const menu = computed(() => [
       <main class="page">
         <RouterView />
       </main>
-      <Tour v-if="touring" :permissions="ws.user.permissions" @done="tourDone" />
+      <Tour v-if="touring" :permissions="ws.user.permissions" :steps="tourSteps" :name="tourName" @done="tourDone" />
     </DesktopShell>
   </FrappeUIProvider>
 </template>

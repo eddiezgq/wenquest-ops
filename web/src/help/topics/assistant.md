@@ -1,4 +1,9 @@
-# Assistant
+---
+title: Assistant
+group: Daily work
+order: 3
+summary: Ask in plain English; answers cite your records.
+---
 
 Ask in plain English: *Which orders are late, and why?*, *What is short?*, *How is Gulf Fasteners doing?*,
 *What is wrong with PO-0031?*

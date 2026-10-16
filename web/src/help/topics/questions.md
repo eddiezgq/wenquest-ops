@@ -1,4 +1,9 @@
-# Questions
+---
+title: Questions
+group: Help
+order: 1
+summary: Answers to common questions.
+---
 
 **Why does a number say "unknown"?** The records needed to count it are missing — for example, no deliveries in the
 period. The system never shows 0 for missing data.
