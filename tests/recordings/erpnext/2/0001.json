@@ -2,7 +2,7 @@
  "method": "GET",
  "path": "/api/resource/Item",
  "params": {
-  "filters": "[[\"modified\", \"=\", \"2026-10-15 22:38:28.914757\"], [\"name\", \">\", \"CI-WIDGET-01\"]]",
+  "filters": "[[\"modified\", \"=\", \"2026-10-16 14:07:18.453329\"], [\"name\", \">\", \"CI-WIDGET-01\"]]",
   "fields": "[\"*\"]",
   "order_by": "name asc",
   "limit_start": "0",

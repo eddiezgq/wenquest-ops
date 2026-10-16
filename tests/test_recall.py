@@ -221,3 +221,24 @@ def test_review_fixes(world):
     with pytest.raises(psycopg.errors.RaiseException, match="keeps everyone who owned it"):
         world.execute("update recalls set owners = '{}' where id = %s", (rc["id"],))
     assert RC.close(world, u(world, SAM), rc["id"], PW, today=T)["closed_on"] == T
+
+
+def test_batch_bundles():
+    """ERPNext keeps a line's batches in a Serial and Batch Bundle: once read, it decides the match and the quantity."""
+    notes = [{"key": "A", "props": {"docstatus": 1, "posting_date": "2026-10-01", "lines": [
+        {"item_code": "W", "qty": 5, "serial_and_batch_bundle": "SABB-1"},
+        {"item_code": "W", "qty": 1, "serial_and_batch_bundle": "SABB-2"}]}}]
+    held = {"SABB-1": [{"batch_no": "l-1", "qty": -3}, {"batch_no": "L-2", "qty": -2}],
+            "SABB-2": [{"serial_no": "SN-9", "qty": -1}]}
+    got = TR.deliveries(notes, "W", "L-1", bundles=held)
+    assert [(g["batch_match"], g["qty"], g["line"]) for g in got] == [("batch", 3.0, 0)]
+    assert TR.deliveries(notes, "W", "L-3", bundles=held) == []                 # read, and the lot is not in it
+    assert [g["qty"] for g in TR.deliveries(notes, "W", "SN-9", bundles=held)] == [1.0]
+    # a bundle read before the lot started still counts: the batch number says so, not the day
+    assert TR.deliveries(notes, "W", "L-1", since="2026-12-01", bundles=held)[0]["batch_match"] == "batch"
+    assert TR.deliveries(notes, "W", "L-1")[0]["batch_match"] == "bundle"     # not read yet: may hold it
+    o = OP.batch_bundle({"name": "SABB-1", "item_code": "W", "voucher_type": "Delivery Note", "voucher_no": "A",
+                         "type_of_transaction": "Outward", "docstatus": 1, "is_cancelled": 0,
+                         "entries": [{"batch_no": "L-1", "qty": -3, "serial_no": None}, {}]})
+    assert o.type == "BatchBundle" and o.props["entries"] == [{"batch_no": "L-1", "qty": -3.0}]
+    assert o.props["is_cancelled"] is False and o.links == [("item", "Item", "W")]

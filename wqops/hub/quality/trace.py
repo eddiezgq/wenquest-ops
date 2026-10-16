@@ -22,6 +22,12 @@ def _iso(row: dict) -> dict:
     return PRD._iso(row)
 
 
+def bundles(conn) -> dict[str, list[dict]]:
+    """The entries of each submitted, not cancelled Serial and Batch Bundle read from ERPNext."""
+    return {o["key"]: o["props"].get("entries") or [] for o in M._objs(conn, "BatchBundle")
+            if int(o["props"].get("docstatus") or 0) == 1 and not o["props"].get("is_cancelled")}
+
+
 def notes(conn) -> list[dict]:
     """ERPNext delivery notes with their customer."""
     cust = {r["src_key"]: r["dst_key"] for r in conn.execute(
@@ -45,9 +51,10 @@ def complaints_about(conn, item_code: str, lot_no: str) -> list[dict]:
 def shipped(conn, recs: list[dict], dns: list[dict] | None = None) -> list[dict]:
     dns = notes(conn) if dns is None else dns
     out = []
+    held = bundles(conn)
     for r in recs:
         since = (r["created_at"] - dt.timedelta(days=1)).date().isoformat()    # a day early: any time zone
-        for d in TR.deliveries(dns, r["item_code"], r["lot_no"], since):
+        for d in TR.deliveries(dns, r["item_code"], r["lot_no"], since, held):
             out.append({**d, "record_id": r["id"], "record": r["name"]})
     return TR.merge(out)
 

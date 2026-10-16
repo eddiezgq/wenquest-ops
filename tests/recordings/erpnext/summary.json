@@ -13,6 +13,7 @@
    "Quality Inspection": 0,
    "Sales Invoice": 0,
    "Purchase Invoice": 0,
+   "Serial and Batch Bundle": 0,
    "deleted": 0
   },
   {
@@ -28,6 +29,7 @@
    "Quality Inspection": 0,
    "Sales Invoice": 0,
    "Purchase Invoice": 0,
+   "Serial and Batch Bundle": 0,
    "deleted": 1
   },
   {
@@ -43,6 +45,7 @@
    "Quality Inspection": 0,
    "Sales Invoice": 0,
    "Purchase Invoice": 0,
+   "Serial and Batch Bundle": 0,
    "deleted": 0
   }
  ],

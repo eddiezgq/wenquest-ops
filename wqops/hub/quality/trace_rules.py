@@ -2,9 +2,11 @@
 no database, no AI, no network.
 
 Lots match by item and lot number, ignoring case and spaces at the ends. Who received a lot is read from ERPNext
-delivery notes (submitted, not returns): a line of the item with the same batch number is a match; a line of the
-item with no batch number may hold the lot too, so it is listed as "item only" (a recall reaches it rather than
-miss it).
+delivery notes (submitted, not returns): a line of the item with the same batch number is a match. ERPNext keeps the
+batches and serial numbers of a line in a Serial and Batch Bundle: when the bundle has been read, a line matches only
+if the bundle holds the lot (as a batch or a serial number), with that batch's quantity. A line with no batch number,
+or with a bundle not read yet, may hold the lot too, so it is listed ("item only" or "bundle": a recall reaches it
+rather than miss it).
 """
 
 from __future__ import annotations
@@ -22,9 +24,23 @@ def same_lot(a, b) -> bool:
     return bool(lot_key(a)) and lot_key(a) == lot_key(b)
 
 
-def deliveries(notes: list[dict], item_code: str, lot_no: str, since: str | None = None) -> list[dict]:
+def in_bundle(entries: list[dict], lot_no: str) -> float | None:
+    """The quantity of the lot in a bundle's entries (as a batch, or a serial number counted as 1), or None."""
+    qty, found = 0.0, False
+    for e in entries:
+        if same_lot(e.get("batch_no"), lot_no):
+            qty, found = qty + abs(float(e.get("qty") or 0)), True
+        elif same_lot(e.get("serial_no"), lot_no):
+            qty, found = qty + 1, True
+    return qty if found else None
+
+
+def deliveries(notes: list[dict], item_code: str, lot_no: str, since: str | None = None,
+               bundles: dict[str, list[dict]] | None = None) -> list[dict]:
     """``notes``: ERPNext delivery notes as objects ({key, props, customer}). The lines that may carry the lot; a
-    line with no batch number counts only from ``since`` (the day the lot was started) on."""
+    line with no batch number counts only from ``since`` (the day the lot was started) on. ``bundles``: the entries
+    of each Serial and Batch Bundle read from ERPNext, by name."""
+    bundles = bundles or {}
     out = []
     for n in notes:
         p = n["props"]
@@ -33,15 +49,20 @@ def deliveries(notes: list[dict], item_code: str, lot_no: str, since: str | None
         for i, ln in enumerate(p.get("lines") or []):
             if ln.get("item_code") != item_code or not ln.get("qty"):
                 continue
-            batch = ln.get("batch_no")
+            batch, bundle, qty = ln.get("batch_no"), ln.get("serial_and_batch_bundle"), ln["qty"]
             if batch and not same_lot(batch, lot_no):
                 continue
+            if not batch and bundle in bundles:
+                held = in_bundle(bundles[bundle], lot_no)
+                if held is None:
+                    continue
+                batch, qty = lot_no, held
             if not batch and since and (p.get("posting_date") or "") < since:
                 continue
-            match = "batch" if batch else "bundle" if ln.get("serial_and_batch_bundle") else "item only"
+            match = "batch" if batch else "bundle" if bundle else "item only"
             out.append({"delivery_note": n["key"], "posting_date": p.get("posting_date"),
                         "customer": n.get("customer"), "customer_name": p.get("customer_name") or "",
-                        "item_code": item_code, "lot_no": lot_no, "qty": ln["qty"], "line": i,
+                        "item_code": item_code, "lot_no": lot_no, "qty": qty, "line": i,
                         "batch_match": match})
     return sorted(out, key=lambda x: (x["posting_date"] or "", x["delivery_note"]))
 
