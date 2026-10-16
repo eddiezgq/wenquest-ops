@@ -11,6 +11,8 @@
    "Purchase Order": 1,
    "Purchase Receipt": 0,
    "Quality Inspection": 0,
+   "Sales Invoice": 0,
+   "Purchase Invoice": 0,
    "deleted": 0
   },
   {
@@ -24,6 +26,8 @@
    "Purchase Order": 1,
    "Purchase Receipt": 0,
    "Quality Inspection": 0,
+   "Sales Invoice": 0,
+   "Purchase Invoice": 0,
    "deleted": 1
   },
   {
@@ -37,6 +41,8 @@
    "Purchase Order": 0,
    "Purchase Receipt": 0,
    "Quality Inspection": 0,
+   "Sales Invoice": 0,
+   "Purchase Invoice": 0,
    "deleted": 0
   }
  ],

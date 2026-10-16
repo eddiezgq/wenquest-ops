@@ -37,8 +37,9 @@ def test_recordings_present():
 
 def test_replay_real_erpnext(conn):
     summary = json.loads((REC / "summary.json").read_text(encoding="utf-8"))
-    # the doctypes that were recorded, in the order the sync asks for them
+    # every doctype the sync reads was recorded (re-record with the CI install job when the list changes)
     specs = tuple(s for s in Y.SPECS if s.doctype in summary["runs"][0])
+    assert specs == Y.SPECS
     for n, expected in enumerate(summary["runs"], start=1):
         t = Replay(REC / str(n))
         out = Y.run(conn, ErpClient("http://erp-frontend:8080", transport=t), page=summary["page"], specs=specs)

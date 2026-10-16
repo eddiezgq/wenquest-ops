@@ -212,3 +212,20 @@ def test_object_api_and_permissions(db_url, fake):
 def test_people_without_manifest_is_harmless(conn):
     assert OP.project(conn) == {"events": 0, "objects": 0, "last_event": 0}
     assert Path(S.DIR / "README.md").is_file()
+
+
+def test_amounts_in_the_company_currency():
+    from wqops.hub.ont import project as P
+
+    si = P.sales_invoice({"name": "S", "customer": "C", "grand_total": 100, "base_grand_total": 110,
+                          "outstanding_amount": 100, "conversion_rate": 1.1, "currency": "EUR",
+                          "party_account_currency": "EUR", "docstatus": 1})
+    assert si.props["grand_total"] == 110 and si.props["outstanding_amount"] == 110.0
+    same = P.sales_invoice({"name": "S", "grand_total": 100, "outstanding_amount": 100, "conversion_rate": 1.1,
+                            "currency": "EUR", "party_account_currency": "USD", "docstatus": 1})
+    assert same.props["outstanding_amount"] == 100 and same.props["grand_total"] == 110.0
+    po = P.purchase_order({"name": "P", "status": "To Receive and Bill", "conversion_rate": 2, "docstatus": 1,
+                           "items": [{"item_code": "A", "qty": 10, "received_qty": 4, "rate": 3}]})
+    assert po.props["open_value"] == 36.0
+    closed = P.purchase_order({"name": "P", "status": "Closed", "items": [{"item_code": "A", "qty": 10, "rate": 3}]})
+    assert closed.props["open_value"] == 0.0

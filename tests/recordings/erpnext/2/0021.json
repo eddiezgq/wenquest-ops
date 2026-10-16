@@ -1,0 +1,23 @@
+{
+ "method": "GET",
+ "path": "/api/resource/Deleted Document",
+ "params": {
+  "filters": "[[\"deleted_doctype\", \"in\", [\"Item\", \"Warehouse\", \"Customer\", \"Supplier\", \"Stock Ledger Entry\", \"Sales Order\", \"Delivery Note\", \"Purchase Order\", \"Purchase Receipt\", \"Quality Inspection\", \"Sales Invoice\", \"Purchase Invoice\"]]]",
+  "fields": "[\"name\", \"modified\", \"creation\", \"deleted_doctype\", \"deleted_name\"]",
+  "order_by": "modified asc, name asc",
+  "limit_start": "0",
+  "limit_page_length": "20"
+ },
+ "status": 200,
+ "body": {
+  "data": [
+   {
+    "name": "3cf9pjhu7f",
+    "modified": "2026-10-15 22:38:31.914442",
+    "creation": "2026-10-15 22:38:31.914442",
+    "deleted_doctype": "Customer",
+    "deleted_name": "CI Short-lived Customer (Demo)"
+   }
+  ]
+ }
+}

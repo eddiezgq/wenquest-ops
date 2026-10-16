@@ -27,6 +27,7 @@ types:
       docstatus: {t: int, l: Document state}
       grand_total: {t: num, l: Total, u: currency}
       per_received: {t: num, l: Received, u: "%"}
+      open_value: {t: num, l: Still to receive, u: currency}
       lines: {t: json, l: Lines}
     links:
       supplier: {to: Supplier, l: Supplier, inv: Purchase orders}

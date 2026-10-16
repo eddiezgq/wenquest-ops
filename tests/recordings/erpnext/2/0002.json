@@ -2,7 +2,7 @@
  "method": "GET",
  "path": "/api/resource/Item",
  "params": {
-  "filters": "[[\"modified\", \">\", \"2026-10-12 15:06:56.809781\"]]",
+  "filters": "[[\"modified\", \">\", \"2026-10-15 22:38:28.914757\"]]",
   "fields": "[\"*\"]",
   "order_by": "modified asc, name asc",
   "limit_start": "0",
@@ -14,8 +14,8 @@
    {
     "name": "CI-WIDGET-01",
     "owner": "Administrator",
-    "creation": "2026-10-12 15:06:56.809781",
-    "modified": "2026-10-12 15:06:57.812822",
+    "creation": "2026-10-15 22:38:28.914757",
+    "modified": "2026-10-15 22:38:31.090586",
     "modified_by": "Administrator",
     "docstatus": 0,
     "idx": 0,

@@ -68,6 +68,15 @@ def _clean(props: dict) -> dict:
     return {k: v for k, v in props.items() if v is not None and v != ""}
 
 
+def _base(d: dict, field: str) -> float | None:
+    """An amount in the company's currency: ERPNext's base_ field, else the amount times the conversion rate."""
+    if d.get(f"base_{field}") is not None:
+        return _num(d.get(f"base_{field}"))
+    v = _num(d.get(field))
+    rate = _num(d.get("conversion_rate"))
+    return round(v * rate, 2) if v is not None and rate else v
+
+
 def _str(v) -> str | None:
     return None if v is None else str(v)
 
@@ -184,7 +193,7 @@ def sales_order(d):
                 "delivery_date": _date(d.get("delivery_date")),
                 "status": d.get("status"),
                 "docstatus": d.get("docstatus"),
-                "grand_total": _num(d.get("grand_total")),
+                "grand_total": _base(d, "grand_total"),
                 "per_delivered": _num(d.get("per_delivered")),
                 "lines": lines,
             }
@@ -216,6 +225,15 @@ def delivery_note(d):
     )
 
 
+def _open_value(d: dict, lines: list[dict]) -> float | None:
+    """What is still to be received, at the order's prices in the company's currency (closed orders: nothing)."""
+    if d.get("status") in ("Closed", "Completed", "Delivered") or not lines:
+        return 0.0 if lines else None
+    rate = _num(d.get("conversion_rate")) or 1.0
+    return round(sum(max(0.0, (x.get("qty") or 0) - (x.get("received_qty") or 0)) * (x.get("rate") or 0)
+                     for x in lines) * rate, 2)
+
+
 def purchase_order(d):
     lines = _lines(
         d,
@@ -239,7 +257,8 @@ def purchase_order(d):
                 "schedule_date": _date(d.get("schedule_date")),
                 "status": d.get("status"),
                 "docstatus": d.get("docstatus"),
-                "grand_total": _num(d.get("grand_total")),
+                "grand_total": _base(d, "grand_total"),
+                "open_value": _open_value(d, lines),
                 "per_received": _num(d.get("per_received")),
                 "lines": lines,
             }
@@ -334,8 +353,9 @@ def _invoice(d: dict, type_: str, party: str) -> Obj:
                 f"{party}_name": d.get(f"{party}_name"),
                 "posting_date": _date(d.get("posting_date")),
                 "due_date": _date(d.get("due_date")),
-                "grand_total": _num(d.get("grand_total")),          # in the invoice's currency, like the balance
-                "outstanding_amount": _num(d.get("outstanding_amount")),
+                "grand_total": _base(d, "grand_total"),
+                # the balance is kept in the party's account currency; in the company's when that is the invoice's
+                "outstanding_amount": _outstanding(d),
                 "status": d.get("status"),
                 "docstatus": d.get("docstatus"),
                 "is_return": _bool(d.get("is_return")),
@@ -343,6 +363,15 @@ def _invoice(d: dict, type_: str, party: str) -> Obj:
         ),
         _many(party, party.capitalize(), [d.get(party)]),
     )
+
+
+def _outstanding(d: dict) -> float | None:
+    v = _num(d.get("outstanding_amount"))
+    rate = _num(d.get("conversion_rate"))
+    pac = d.get("party_account_currency")
+    if v is not None and rate and pac and pac == d.get("currency"):
+        return round(v * rate, 2)
+    return v
 
 
 def sales_invoice(d):
