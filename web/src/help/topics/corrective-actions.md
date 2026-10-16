@@ -15,6 +15,7 @@ try:
       - target: '[data-help="quality-list"]'
         text: The open corrective and preventive actions, with their kind, status and owner.
   - id: read
+    demo: /quality/capa/1
     text: Open **CAPA-00001**. Read the root cause and the action given to **Pat**.
     expect: the stage "implementation" highlighted, a link to NCR-00001, and the action "Supplier to send 8D and first-article data" marked overdue.
     tour:
@@ -24,6 +25,7 @@ try:
       - target: '[data-help="capa-actions"]'
         text: Each action with its owner and due date. An action past its date is marked overdue.
   - id: too-early
+    demo: /quality/capa/1
     text: Choose *All actions done — check effectiveness*.
     expect: '"actions not done yet: Supplier to send 8D and first-article data". The stage does not change.'
     tour:

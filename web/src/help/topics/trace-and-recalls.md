@@ -41,6 +41,7 @@ try:
         text: Starts a draft recall of the lots in this trace.
         elsewhere: Trace a production lot first.
   - id: open
+    demo: /quality/recalls/1
     text: Write the reason, choose a classification, set **Sam** as the owner, and write the strategy and the regulatory decision. Choose *Save*, then *Open the recall*.
     expect: '"Open: the consignee list is fixed." and the consignee list.'
     tour:
@@ -48,6 +49,7 @@ try:
         text: The reason, the classification and the regulatory decision are people's decisions. WenQuest Ops does not make them.
         elsewhere: Open your draft recall first.
   - id: consignees
+    demo: /quality/recalls/1
     text: For each consignee, enter the day notified and how, the day they confirmed, and choose *Save* on that row. Then write the effectiveness conclusion and choose *Save*.
     expect: the shares notified and confirmed go up; "To close" lists only what is still missing.
     tour:

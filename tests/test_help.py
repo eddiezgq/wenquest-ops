@@ -55,8 +55,9 @@ def test_every_topic_is_well_formed():
         assert len(ids) == len(set(ids)), slug
         for x in t.get("try", []):
             assert re.fullmatch(r"[a-z0-9-]{1,60}", x["id"]) and x["text"].strip(), (slug, x)
-            assert set(x) <= {"id", "text", "to", "expect", "tour"}, (slug, x)
+            assert set(x) <= {"id", "text", "to", "demo", "expect", "tour"}, (slug, x)
             assert not x.get("to") or routed(x["to"]), (slug, x["to"])
+            assert not x.get("demo") or routed(x["demo"]), (slug, x["demo"])   # where the video shows it
             for s in x.get("tour", []):
                 assert s["text"].strip(), (slug, s)
                 assert set(s) <= {"target", "click", "text", "title", "path", "elsewhere"}, (slug, s)

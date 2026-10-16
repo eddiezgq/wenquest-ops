@@ -32,6 +32,7 @@ try:
       - target: '[data-help="review-inputs"]'
         text: The inputs, one box each. Under each, the meeting writes its assessment.
   - id: meeting
+    demo: /quality/reviews/1
     text: Fill in the meeting date (today), the attendees, the chair (**Dana**), an assessment under at least one input and the conclusion. Choose *Save*.
     expect: '"Saved." and, at the bottom, what is still needed before signing.'
     tour:
@@ -41,6 +42,7 @@ try:
       - target: '[data-help="review-conclusion"]'
         text: Is the quality system suitable, adequate and effective? Then Save.
   - id: action
+    demo: /quality/reviews/1
     text: Add an action with an owner (for example Pat) and a due date in a few weeks.
     tour:
       - target: '[data-help="review-actions"]'

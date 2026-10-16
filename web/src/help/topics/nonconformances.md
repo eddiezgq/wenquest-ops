@@ -15,6 +15,7 @@ try:
       - target: '[data-help="quality-list"]'
         text: The open reports. Use *Show* above the list to see closed or cancelled ones.
   - id: open-demo
+    demo: /quality/ncr/1
     text: Open **NCR-00001**. Read what was done to contain the lot and the disposition (return to supplier).
     expect: 'a box on the right that says "A major report closes when a linked corrective action is closed", and CAPA-00001 under corrective actions.'
     tour:
@@ -38,6 +39,7 @@ try:
     text: Write what was done so the boxes go no further (for example **Set aside on the receiving bench**) and choose *Save containment*.
     expect: the status "contained" and a *Disposition* box.
   - id: concession
+    demo: /quality/ncr/2
     text: Choose the disposition *Use as is (concession) (needs approval)*, quantity **20** and a reason. Choose *Submit disposition*.
     expect: 'the status "pending approval" and "You submitted it; someone else must approve it."'
     tour:
@@ -45,6 +47,7 @@ try:
         text: You submitted the disposition, so you cannot approve it here.
         elsewhere: Open your new report first.
   - id: approve-close
+    demo: /quality/ncr/1
     text: Sign out and sign in as **Sam** (Operations manager). Open the report, enter your password and choose *Approve (sign)*. Then write a closing note, enter your password again and choose *Close (sign)*.
     expect: the status "closed" and two signatures, "Disposition approved" and "Nonconformance closed".
     tour:

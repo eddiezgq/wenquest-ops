@@ -21,6 +21,8 @@ provide('workspace', ws)
 // no steps: the guided tour; a help topic passes its own (ADR-0019)
 const startTour = (steps = null, name = '') => { tourSteps.value = steps; tourName.value = name; touring.value = false; setTimeout(() => { touring.value = true }) }
 provide('startTour', startTour)
+// the help videos are recorded by driving the same tours (ADR-0019 item 7, .github/scripts/help_tours.py)
+window.wqoTour = startTour
 const TOUR_KEY = 'wqo-tour-done'
 function tourDone() {
   touring.value = false

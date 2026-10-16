@@ -228,6 +228,16 @@ jobs:
           "$RUNNER_TEMP/pw/bin/python" -I .github/scripts/help_media.py https://ops.localtest.me dana@demo.example \
             Ci-owner-pass-2026 "$RUNNER_TEMP/help-media"
           ls -la "$RUNNER_TEMP/help-media"/*
+      - name: Play every help tour on the demo company; record the help videos on manual runs (ADR-0019)
+        env:
+          HELP_FAST: ${{ (github.event_name == 'workflow_dispatch' && inputs.save_help_media) && '0' || '1' }}
+        run: |
+          exec > >(tee "$RUNNER_TEMP/tours.log") 2>&1
+          set -x -o pipefail
+          "$RUNNER_TEMP/pw/bin/pip" install -q pyyaml==6.0.3
+          if [ "$HELP_FAST" = 0 ]; then sudo apt-get install -y -qq ffmpeg > /dev/null; fi
+          "$RUNNER_TEMP/pw/bin/python" -I .github/scripts/help_tours.py https://ops.localtest.me dana@demo.example \
+            Ci-owner-pass-2026 "$RUNNER_TEMP/help-media/topics"
       - name: Phase 1 acceptance smoke test in a browser - every role, the main flows (plan item 10)
         run: |
           exec > >(tee "$RUNNER_TEMP/smoke.log") 2>&1
@@ -273,7 +283,7 @@ jobs:
       - name: Show the end of the logs as one annotation on failure
         if: failure()
         run: |
-          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log" "$RUNNER_TEMP/demo.log" "$RUNNER_TEMP/media.log" "$RUNNER_TEMP/smoke.log"; do
+          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log" "$RUNNER_TEMP/demo.log" "$RUNNER_TEMP/media.log" "$RUNNER_TEMP/tours.log" "$RUNNER_TEMP/smoke.log"; do
             [ -f "$f" ] && echo "::error title=$(basename "$f")::$(tail -n 40 "$f" | tr -d '\r' | sed ':a;N;$!ba;s/\n/%0A/g')"
           done
           docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" ps -a || true

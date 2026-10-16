@@ -25,6 +25,7 @@ try:
       - target: '[data-help="gaps-todo"]'
         path: /system/gaps
         text: Each gap has this box. Give it a to-do with an owner and a due date, change it later, mark it done or drop it.
+        elsewhere: The gap report lists control points once a standard is adopted (Quality system).
   - id: all
     text: Choose *A to-do for every gap*.
     to: /system/gaps
@@ -33,6 +34,7 @@ try:
       - target: '[data-help="gaps-todo-all"]'
         path: /system/gaps
         text: One to-do for each gap that has none yet.
+        elsewhere: This appears once a standard is adopted and has gaps.
   - id: drop
     text: On one to-do, write a note such as "Covered by QP-04" and choose *Drop*. Then tick *Show closed to-dos*.
     to: /system/gaps
@@ -41,6 +43,7 @@ try:
       - target: '[data-help="gaps-closed"]'
         path: /system/gaps
         text: Closed to-dos are kept, with who closed them and why.
+        elsewhere: This appears once a to-do has been made from a gap.
   - id: checklist
     text: Go back to *Quality system* and choose *Audit checklist*. Choose the process *Externally provided products and services*.
     to: /system/audit
@@ -64,6 +67,7 @@ try:
       - target: '[data-help="audit-register"]'
         path: /system/audit
         text: After the audit, record it here (see *Registers*).
+        elsewhere: The checklist appears once a standard is adopted (Quality system).
 blocks:
   - text: A gap has one open to-do at a time.
     test: tests/test_gaps.py::test_gaps_and_todos

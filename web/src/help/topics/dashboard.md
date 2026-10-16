@@ -41,6 +41,7 @@ try:
     tour:
       - target: '[data-help="dashboard-brief"]'
         text: Written every morning at 7:30, company time. Each role sees its own part.
+        elsewhere: The daily brief appears here once WenQuest Ops has written today's brief.
   - id: big-screen
     text: Choose *Big screen*. Press the right arrow, then space to pause, then Esc to leave.
     to: /
