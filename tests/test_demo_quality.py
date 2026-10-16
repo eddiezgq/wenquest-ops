@@ -15,7 +15,8 @@ from wqops.hub.quality import records as Q
 
 
 @pytest.fixture
-def demo(loaded):  # noqa: F811
+def demo(loaded, tmp_path, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("WQO_FILES_DIR", str(tmp_path / "files"))
     conn, fake, erp, out = loaded
     Acc.sync(conn, DEMO)
     fake.docs["Quality Inspection"][out["rejected_inspection"]]["status"] = "Rejected"
