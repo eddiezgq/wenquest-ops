@@ -55,6 +55,18 @@ class FakeErp:
             return httpx.Response(200, json={"message": "pong"})
         if path == "/api/method/frappe.auth.get_logged_user":
             return httpx.Response(200, json={"message": self.api_user})
+        if path == "/api/method/erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry":
+            args = json.loads(request.content)
+            inv = self.docs.get(args["dt"], {}).get(args["dn"])
+            if inv is None:
+                return httpx.Response(404, json={"exc_type": "DoesNotExistError"})
+            party = "Customer" if args["dt"] == "Sales Invoice" else "Supplier"
+            return httpx.Response(200, json={"message": {
+                "doctype": "Payment Entry", "name": "new-payment-entry-1", "__islocal": 1, "docstatus": 0,
+                "payment_type": "Receive" if party == "Customer" else "Pay", "party_type": party,
+                "party": inv.get(party.lower()), "paid_amount": inv.get("grand_total"),
+                "references": [{"name": "new-row-1", "reference_doctype": args["dt"], "reference_name": args["dn"],
+                                "allocated_amount": inv.get("grand_total")}]}})
         if path.startswith("/api/resource/User/") and request.method == "GET":
             name = path.removeprefix("/api/resource/User/")
             if name not in self.users:

@@ -70,3 +70,7 @@ class ErpClient:
 
     def insert(self, doc: dict) -> dict:
         return self._check(self.http.post(f"/api/resource/{doc['doctype']}", json=doc))["data"]
+
+    def call(self, method: str, **params) -> Any:
+        """A whitelisted ERPNext method (for example one that maps an invoice to a payment); returns its message."""
+        return self._check(self.http.post(f"/api/method/{method}", json=params)).get("message")

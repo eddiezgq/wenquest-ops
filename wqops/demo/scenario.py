@@ -63,7 +63,8 @@ DRIFT_FROM_DAY = 55               # bolt pitch diameter drifts upwards from here
 @dataclass
 class Doc:
     day: dt.date
-    kind: str                     # opening | po | receipt | inspection | hold | so | delivery | receipt_draft
+    kind: str                     # opening | po | receipt | inspection | hold | so | delivery | receipt_draft |
+    #                               sales_invoice | purchase_invoice | payment_in | payment_out
     ref: str                      # local id, e.g. P007
     data: dict = field(default_factory=dict)
 
@@ -191,8 +192,42 @@ def build(today: dt.date, seed: int = SEED) -> list[Doc]:  # noqa: PLR0912, PLR0
                                          "due": arrived}))
     docs.append(Doc(arrived, "receipt_draft", nid("R"), {"po": ref, "item": WAITING_ITEM, "qty": qty,
                                                          "supplier": i[3], "rate": i[4]}))
+    docs += billing(docs, today, seed)
     docs.sort(key=lambda d: (d.day, d.kind != "opening"))      # stable: same-day documents keep their order
     return docs
+
+
+TERMS_DAYS = 30
+BILLING = ("sales_invoice", "purchase_invoice", "payment_in", "payment_out")
+SLOW_PAYER = "Osprey Contracting (Demo)"   # pays late: overdue receivables to show (ADR-0018)
+
+
+def billing(docs: list[Doc], today: dt.date, seed: int = SEED) -> list[Doc]:
+    """Invoices for every delivery and every submitted receipt (30 days' terms), and the payments made by today.
+
+    Its own random numbers, so the goods simulation above stays exactly as it was. Most customers pay within a few
+    days of the due date; one pays late; the business pays its suppliers on the due date.
+    """
+    rng = random.Random(seed + 18)  # noqa: S311 - a reproducible simulation, not security
+    out: list[Doc] = []
+    for d in [x for x in docs if x.kind in ("delivery", "receipt")]:
+        due = d.day + dt.timedelta(days=TERMS_DAYS)
+        if d.kind == "delivery":
+            ref = d.ref + "I"
+            out.append(Doc(d.day, "sales_invoice", ref, {"delivery": d.ref, "customer": d.data["customer"],
+                                                         "lines": d.data["lines"], "due": due}))
+            pay = due + dt.timedelta(days=rng.randint(15, 30) if d.data["customer"] == SLOW_PAYER
+                                     else rng.randint(-5, 6))
+            if pay < today:
+                out.append(Doc(pay, "payment_in", ref + "P", {"invoice": ref}))
+        else:
+            ref = d.ref + "I"
+            out.append(Doc(d.day, "purchase_invoice", ref, {"receipt": d.ref, "supplier": d.data["supplier"],
+                                                            "item": d.data["item"], "qty": d.data["qty"],
+                                                            "rate": d.data["rate"], "due": due}))
+            if due < today:
+                out.append(Doc(due, "payment_out", ref + "P", {"invoice": ref}))
+    return out
 
 
 def summary(docs: list[Doc]) -> dict[str, int]:

@@ -1,10 +1,10 @@
 {
  "method": "GET",
- "path": "/api/resource/Deleted Document",
+ "path": "/api/resource/Sales Invoice",
  "params": {
-  "filters": "[[\"deleted_doctype\", \"in\", [\"Item\", \"Warehouse\", \"Customer\", \"Supplier\", \"Stock Ledger Entry\", \"Sales Order\", \"Delivery Note\", \"Purchase Order\", \"Purchase Receipt\", \"Quality Inspection\"]], [\"modified\", \"=\", \"2026-10-12 15:06:58.359495\"], [\"name\", \">\", \"nhnc2066r6\"]]",
-  "fields": "[\"name\", \"modified\", \"creation\", \"deleted_doctype\", \"deleted_name\"]",
-  "order_by": "name asc",
+  "filters": "[]",
+  "fields": "[\"*\"]",
+  "order_by": "modified asc, name asc",
   "limit_start": "0",
   "limit_page_length": "20"
  },

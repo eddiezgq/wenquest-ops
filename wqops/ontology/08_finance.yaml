@@ -1,29 +1,39 @@
 domain: finance
 order: 8
 label: Finance
-view: settings:edit
+view: finance:view
 types:
   SalesInvoice:
     label: Sales invoice
-    maturity: erp
+    maturity: have
     source: ERPNext Sales Invoice
     key: ERPNext sales invoice number
     title: "{key}"
     props:
+      customer_name: {t: str, l: Customer name}
       posting_date: {t: date, l: Date}
+      due_date: {t: date, l: Due}
       grand_total: {t: num, l: Total, u: currency}
       outstanding_amount: {t: num, l: Outstanding, u: currency}
+      status: {t: str, l: Status}
+      docstatus: {t: int, l: Document state}
+      is_return: {t: bool, l: Return or credit note}
     links:
       customer: {to: Customer, l: Customer, inv: Invoices}
   PurchaseInvoice:
     label: Purchase invoice
-    maturity: erp
+    maturity: have
     source: ERPNext Purchase Invoice
     key: ERPNext purchase invoice number
     title: "{key}"
     props:
+      supplier_name: {t: str, l: Supplier name}
       posting_date: {t: date, l: Date}
+      due_date: {t: date, l: Due}
       grand_total: {t: num, l: Total, u: currency}
       outstanding_amount: {t: num, l: Outstanding, u: currency}
+      status: {t: str, l: Status}
+      docstatus: {t: int, l: Document state}
+      is_return: {t: bool, l: Return or credit note}
     links:
       supplier: {to: Supplier, l: Supplier, inv: Invoices}

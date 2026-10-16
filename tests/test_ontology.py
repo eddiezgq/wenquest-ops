@@ -27,7 +27,8 @@ def test_ontology_loads_and_is_english():
     assert all(t["label"].isascii() and t["source"].isascii() for t in o.types.values())
     for doctype, (type_, _) in OP.MAPPERS.items():
         assert o.types[type_]["maturity"] == "have", doctype
-    assert {t for t, s in o.types.items() if s["maturity"] == "erp"} == {"SalesInvoice", "PurchaseInvoice"}
+    # every type is synced now: the invoices came in with ADR-0018
+    assert {t for t, s in o.types.items() if s["maturity"] == "erp"} == set()
 
 
 @pytest.mark.parametrize(("text", "msg"), [
@@ -148,8 +149,10 @@ def test_rebuild_matches_incremental(conn, erp, fake):
 def test_real_erpnext_documents_become_objects(conn):
     """The replies recorded from a real ERPNext map without errors and give the expected objects."""
     summary = json.loads((REC / "summary.json").read_text(encoding="utf-8"))
+    specs = tuple(s for s in Y.SPECS if s.doctype in summary["runs"][0])     # the doctypes that were recorded
     for n in (1, 2, 3):
-        Y.run(conn, ErpClient("http://erp-frontend:8080", transport=Replay(REC / str(n))), page=summary["page"])
+        Y.run(conn, ErpClient("http://erp-frontend:8080", transport=Replay(REC / str(n))), page=summary["page"],
+              specs=specs)
     OP.project(conn, manifest=DEMO)
     level = obj(conn, "StockLevel", "CI-WIDGET-01@Main Stock - HLS")["props"]
     assert level["actual_qty"] == 10.0 and level["stock_value"] == 25.0
@@ -209,3 +212,20 @@ def test_object_api_and_permissions(db_url, fake):
 def test_people_without_manifest_is_harmless(conn):
     assert OP.project(conn) == {"events": 0, "objects": 0, "last_event": 0}
     assert Path(S.DIR / "README.md").is_file()
+
+
+def test_amounts_in_the_company_currency():
+    from wqops.hub.ont import project as P
+
+    si = P.sales_invoice({"name": "S", "customer": "C", "grand_total": 100, "base_grand_total": 110,
+                          "outstanding_amount": 100, "conversion_rate": 1.1, "currency": "EUR",
+                          "party_account_currency": "EUR", "docstatus": 1})
+    assert si.props["grand_total"] == 110 and si.props["outstanding_amount"] == 110.0
+    same = P.sales_invoice({"name": "S", "grand_total": 100, "outstanding_amount": 100, "conversion_rate": 1.1,
+                            "currency": "EUR", "party_account_currency": "USD", "docstatus": 1})
+    assert same.props["outstanding_amount"] == 100 and same.props["grand_total"] == 110.0
+    po = P.purchase_order({"name": "P", "status": "To Receive and Bill", "conversion_rate": 2, "docstatus": 1,
+                           "items": [{"item_code": "A", "qty": 10, "received_qty": 4, "rate": 3}]})
+    assert po.props["open_value"] == 36.0
+    closed = P.purchase_order({"name": "P", "status": "Closed", "items": [{"item_code": "A", "qty": 10, "rate": 3}]})
+    assert closed.props["open_value"] == 0.0

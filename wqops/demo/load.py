@@ -94,7 +94,7 @@ class Loader:
                              "territory": territory})
 
     # ---------------------------------------------------------------- documents
-    def apply(self, d: S.Doc) -> None:
+    def apply(self, d: S.Doc) -> None:  # noqa: PLR0912 - one branch per kind of document
         day, x = str(d.day), d.data
         posting = {"posting_date": day, "set_posting_time": 1}
         if d.kind == "opening":
@@ -143,6 +143,28 @@ class Loader:
                        "items": [{"item_code": ln["item"], "qty": ln["qty"], "rate": ln["rate"],
                                   "warehouse": self.main, "against_sales_order": so["name"],
                                   "so_detail": so["rows"][ln["line"]]} for ln in x["lines"]]}, d.ref)
+        elif d.kind == "sales_invoice":
+            dn = self.names[x["delivery"]]
+            self.make({"doctype": "Sales Invoice", "customer": x["customer"], "company": self.company, **posting,
+                       "due_date": str(x["due"]),
+                       "items": [{"item_code": ln["item"], "qty": ln["qty"], "rate": ln["rate"],
+                                  "delivery_note": dn["name"], "dn_detail": dn["rows"][i]}
+                                 for i, ln in enumerate(x["lines"])]}, d.ref)
+        elif d.kind == "purchase_invoice":
+            pr = self.names[x["receipt"]]
+            self.make({"doctype": "Purchase Invoice", "supplier": x["supplier"], "company": self.company,
+                       **posting, "due_date": str(x["due"]), "bill_no": d.ref, "bill_date": day,
+                       "items": [{"item_code": x["item"], "qty": x["qty"], "rate": x["rate"],
+                                  "purchase_receipt": pr["name"], "pr_detail": pr["rows"][0]}]}, d.ref)
+        elif d.kind in ("payment_in", "payment_out"):
+            inv = self.names[x["invoice"]]["name"]
+            pe = self.erp.call("erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
+                               dt="Sales Invoice" if d.kind == "payment_in" else "Purchase Invoice", dn=inv)
+            pe = {k: v for k, v in pe.items() if k not in ("name", "__islocal", "__unsaved", "docstatus")}
+            pe["references"] = [{k: v for k, v in r.items() if k not in ("name", "parent", "__islocal", "__unsaved")}
+                                for r in pe.get("references") or []]
+            pe.update({"posting_date": day, "reference_no": f"DEMO-{d.ref}", "reference_date": day})
+            self.make(pe, d.ref)
         else:
             raise DemoError(f"unknown document kind {d.kind}")
 

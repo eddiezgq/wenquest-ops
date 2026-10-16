@@ -36,6 +36,7 @@ SPECS: tuple[Spec, ...] = (
     Spec("Item"), Spec("Warehouse"), Spec("Customer"), Spec("Supplier"), Spec("Stock Ledger Entry"),
     Spec("Sales Order", full=True), Spec("Delivery Note", full=True), Spec("Purchase Order", full=True),
     Spec("Purchase Receipt", full=True), Spec("Quality Inspection", full=True),
+    Spec("Sales Invoice"), Spec("Purchase Invoice"),          # ADR-0018: sales and receivables, payables
 )
 DELETED = "Deleted Document"
 LOCK_ID = 0x5751_0006

@@ -2,7 +2,7 @@
  "method": "GET",
  "path": "/api/resource/Customer",
  "params": {
-  "filters": "[[\"modified\", \"=\", \"2026-10-12 15:06:56.978563\"], [\"name\", \">\", \"CI Short-lived Customer (Demo)\"]]",
+  "filters": "[[\"modified\", \"=\", \"2026-10-15 22:38:29.128787\"], [\"name\", \">\", \"CI Short-lived Customer (Demo)\"]]",
   "fields": "[\"*\"]",
   "order_by": "name asc",
   "limit_start": "0",

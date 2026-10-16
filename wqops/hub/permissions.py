@@ -8,6 +8,7 @@ PERMISSIONS = {
     "sales:view": "See customers and sales orders",
     "purchasing:view": "See suppliers and purchase orders",
     "purchasing:draft": "Draft purchase orders for someone to confirm",
+    "finance:view": "See invoices, receivables and payables (ADR-0018)",
     "quality:view": "See inspections, nonconformances and CAPA",
     "quality:edit": "Record inspections, nonconformances, 8D and CAPA",
     "documents:view": "See the document library",

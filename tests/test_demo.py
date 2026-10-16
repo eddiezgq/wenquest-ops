@@ -32,6 +32,23 @@ def test_repeatable_and_in_date_order(docs):
     assert all("(Demo)" in c for c in S.CUSTOMERS) and all("(Demo)" in s for s in S.SUPPLIERS)
 
 
+def test_billing(docs):
+    """ADR-0018: an invoice for each delivery and submitted receipt, payments only by today, a slow payer overdue."""
+    n = S.summary(docs)
+    assert n["sales_invoice"] == n["delivery"] and n["purchase_invoice"] == n["receipt"]
+    assert 0 < n["payment_in"] < n["sales_invoice"] and 0 < n["payment_out"] < n["purchase_invoice"]
+    by = {d.ref: d for d in docs}
+    for d in docs:
+        if d.kind in ("payment_in", "payment_out"):
+            assert d.day < TODAY and by[d.data["invoice"]].day < d.day
+    paid = {d.data["invoice"] for d in docs if d.kind == "payment_in"}
+    late = [d for d in docs if d.kind == "sales_invoice" and d.ref not in paid and d.data["due"] < TODAY]
+    assert late and any(d.data["customer"] == S.SLOW_PAYER for d in late)
+    # the goods simulation is the same with or without the invoices
+    goods = [d.ref for d in docs if d.kind not in S.BILLING]
+    assert goods == [d.ref for d in S.build(TODAY) if d.kind not in S.BILLING]
+
+
 def test_stock_never_negative_and_receipts_follow_orders(docs):
     stock: dict[str, float] = {}
     seen: set[str] = set()
@@ -117,6 +134,11 @@ def test_writes_everything_in_order(loaded):
     assert qi["reference_type"] == "Purchase Receipt" and len(qi["readings"]) == 1
     assert fake.docs["Item"]["CBL-12-50"]["inspection_required_before_purchase"] == 1
     assert fake.docs["Stock Settings"]["Stock Settings"]["action_if_quality_inspection_is_rejected"] == "Warn"
+    si = next(iter(fake.docs["Sales Invoice"].values()))
+    assert si["items"][0]["delivery_note"] in fake.docs["Delivery Note"] and si["docstatus"] == 1
+    assert len(fake.docs["Payment Entry"]) == n["payment_in"] + n["payment_out"]
+    pe = next(iter(fake.docs["Payment Entry"].values()))
+    assert "__islocal" not in pe and pe["references"][0]["reference_name"] and pe["reference_no"].startswith("DEMO-")
     with pytest.raises(LD.DemoError, match="already loaded"):
         LD.Loader(erp, DEMO, TODAY).run()
 
