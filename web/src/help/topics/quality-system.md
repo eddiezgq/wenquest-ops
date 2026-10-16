@@ -3,6 +3,7 @@ title: Quality system
 group: Quality system
 order: 1
 summary: Check the company against ISO 9001 or ISO 13485.
+video: quality-system
 needs: quality:view
 try:
   - id: adopt

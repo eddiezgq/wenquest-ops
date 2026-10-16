@@ -3,6 +3,7 @@ title: Production records
 group: Regulated modules
 order: 5
 summary: Templates, lots, steps, materials and release.
+video: production
 needs: quality:view
 try:
   - id: template
@@ -28,6 +29,7 @@ try:
         text: Only the next step can be recorded, with the operator's password. WenQuest Ops judges a measurement against the limits.
         elsewhere: Open the KIT-M8 lot in production first.
   - id: material
+    demo: /quality/production/2
     text: Under *Materials*, choose the released BOX-12 lot and the quantity used (**20**, or what is left if less). Choose *Add*.
     expect: '"Material recorded." and the lot with its supplier in the list.'
     tour:
@@ -35,6 +37,7 @@ try:
         text: Only lots that incoming inspection released can be chosen, never more than a lot held in all.
         elsewhere: Open the KIT-M8 lot in production first.
   - id: submit
+    demo: /quality/production/2
     text: Enter **20** good and **0** scrapped, choose *Save*, then *Submit for review*.
     expect: the status "qa review".
     tour:

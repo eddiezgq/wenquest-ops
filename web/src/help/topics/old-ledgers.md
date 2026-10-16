@@ -3,6 +3,7 @@ title: Old ledgers
 group: Documents
 order: 3
 summary: Bring an old NCR log, CAPA log or supplier list in.
+video: old-ledgers
 needs: quality:view
 try:
   - id: open

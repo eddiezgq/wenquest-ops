@@ -3,6 +3,7 @@ title: Measuring equipment
 group: Regulated modules
 order: 2
 summary: Gauges, calibrations, and what a failed calibration affects.
+video: measuring-equipment
 needs: quality:view
 try:
   - id: list
@@ -13,6 +14,7 @@ try:
       - target: '[data-help="gauges-list"]'
         text: Each piece of equipment with its status, its last good calibration and when the next one is due.
   - id: overdue
+    demo: /quality/gauges/3
     text: Open **TW-02**.
     expect: '"Cannot be used: TW-02 was due for calibration on" and the date.'
     tour:
@@ -20,6 +22,7 @@ try:
         text: Whether the equipment can be used today, and why not.
         elsewhere: Open TW-02 from the list first.
   - id: record
+    demo: /quality/gauges/3
     text: Sign in as **Jordan** (Quality). On TW-02, record a calibration with today's date, by **Bay Calibration Lab (Demo)**, result *pass*. Choose *Record*.
     expect: '"Calibration recorded: someone else approves it." and a new row "recorded by" Jordan.'
     tour:
@@ -27,6 +30,7 @@ try:
         text: The date, who calibrated it, the certificate, pass or out of tolerance, as found and as left.
         elsewhere: Open TW-02 first.
   - id: approve
+    demo: /quality/gauges/3
     text: Sign out and sign in as **Dana** (Owner). Open TW-02 and approve the new calibration with your password.
     expect: the status "in service", "Can be used" and a next due date six months after today.
     tour:

@@ -51,7 +51,7 @@ function show(item) {
       <p class="lede">{{ topic.summary }}</p>
 
       <section v-if="topic.video" id="watch" class="mb-8">
-        <video :src="topic.video" controls muted playsinline preload="metadata" class="w-full rounded-5 border border-outline-gray-2" />
+        <video :src="`${topic.video}#t=4`" controls muted playsinline preload="metadata" class="w-full rounded-5 border border-outline-gray-2" />
       </section>
 
       <h2 id="what-it-is" class="sec">What it is</h2>

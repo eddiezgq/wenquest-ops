@@ -3,6 +3,7 @@ title: Approved suppliers
 group: Quality
 order: 4
 summary: Who you may buy what from, on what basis, until when.
+video: approved-suppliers
 needs: quality:view
 try:
   - id: open
@@ -29,6 +30,7 @@ try:
     text: Open Summit Tools (Demo) again, write a reason (for example **Late certificates**) and choose *Suspend*.
     expect: '"Suspended." Lots from Summit Tools (Demo) can no longer be inspected until it is approved again.'
   - id: settings
+    demo: /quality/suppliers
     text: Read the two settings at the bottom of the page. Leave them as they are.
     expect: the list is enforced at incoming inspection, and approval is by someone other than whoever entered or last changed the entry.
     tour:

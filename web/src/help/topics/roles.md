@@ -3,6 +3,7 @@ title: Roles
 group: Start here
 order: 2
 summary: What each role sees and can do, your password, and people.
+video: roles
 try:
   - id: my-account
     text: Sign in as **Lee** (Warehouse) and open *My account* (your name at the bottom of the sidebar).

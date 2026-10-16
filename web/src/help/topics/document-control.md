@@ -3,6 +3,7 @@ title: Controlled documents and reading
 group: Documents
 order: 2
 summary: Approval, taking effect, reading confirmations and periodic review.
+video: document-control
 try:
   - id: confirm-reading
     text: Sign in as **Lee** (Warehouse) and open *My reading* in the sidebar. Next to **QP-05** Receiving Inspection, type your password and choose *I have read and understood it*.

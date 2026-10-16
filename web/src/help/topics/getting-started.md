@@ -3,6 +3,7 @@ title: Getting started
 group: Start here
 order: 1
 summary: What WenQuest Ops does next to ERPNext, and the three rules it keeps.
+video: getting-started
 try:
   - id: sign-in
     text: Sign in as **Dana** (Owner) with dana@demo.example and the password you were given.

@@ -3,6 +3,7 @@ title: Signatures and workflows
 group: Quality
 order: 6
 summary: How signing works and how a company tightens its workflows.
+video: signatures-and-workflows
 needs: quality:view
 try:
   - id: password
@@ -21,6 +22,7 @@ try:
         text: For each step, where it starts and ends, what it needs, whether it is signed, who may not do it and who may.
         elsewhere: Choose the Workflows tab first.
   - id: draft
+    demo: /quality?tab=workflows
     text: Under the nonconformance report, choose *Change this workflow*.
     expect: a draft page, "Nonconformance report workflow · version 2".
     tour:

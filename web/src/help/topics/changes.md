@@ -3,6 +3,7 @@ title: Changes
 group: Regulated modules
 order: 3
 summary: Assess, approve, implement and check a change.
+video: changes
 needs: quality:view
 try:
   - id: open-closed
@@ -21,6 +22,7 @@ try:
         text: Four questions a person answers. A yes to the regulatory question needs the regulatory decision; a yes to validation needs the plan.
         elsewhere: Open the draft change first.
   - id: refused
+    demo: /quality/changes/2
     text: Sign in as **Jordan** (Quality). Open **Move QC Hold to the mezzanine cage**, which Jordan raised and submitted, and try to approve it with your password.
     expect: a refusal. Someone who did not raise, own, submit or edit the change approves it.
     tour:
@@ -31,6 +33,7 @@ try:
     text: Sign out, sign in as **Dana** (Owner), open the same change and approve it with your password.
     expect: the status "approved" and Dana's signature.
   - id: implement
+    demo: /quality/changes/1
     text: Sign in as **Sam** (Operations manager), the owner. Write how it was implemented, choose *Save*, then *Mark implemented*.
     expect: the status "implemented" and an *Effectiveness check* box.
     tour:

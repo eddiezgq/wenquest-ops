@@ -3,6 +3,7 @@ title: Registers
 group: Quality system
 order: 2
 summary: Training, audits, objectives, risks and other records the standard asks for.
+video: registers
 needs: quality:view
 try:
   - id: open

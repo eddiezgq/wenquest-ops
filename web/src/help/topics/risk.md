@@ -3,6 +3,7 @@ title: Risk management
 group: Regulated modules
 order: 4
 summary: Risk criteria, risk files, hazards and residual risk.
+video: risk
 needs: quality:view
 try:
   - id: criteria
@@ -35,6 +36,7 @@ try:
         text: A risk that is not acceptable needs controls, how they were verified, and the residual severity and probability.
         elsewhere: Open the Packaging (BOX-12) draft first.
   - id: conclusion
+    demo: /quality/risk/2
     text: Write the overall residual risk and choose *Save*.
     expect: nothing left under "To approve".
     tour:
@@ -42,6 +44,7 @@ try:
         text: The file's overall residual risk conclusion. It is needed before approval.
         elsewhere: Open the Packaging (BOX-12) draft first.
   - id: approve
+    demo: /quality/risk/2
     text: Sign out, sign in as **Dana** (Owner), open the draft and approve it with your password.
     expect: '"Approved: the file is fixed now." and a fingerprint.'
     tour:

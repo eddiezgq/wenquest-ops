@@ -3,6 +3,7 @@ title: Incoming inspection
 group: Quality
 order: 3
 summary: Sampling table, inspection plans, inspecting a lot and deciding.
+video: incoming-inspection
 needs: quality:view
 try:
   - id: open
@@ -33,6 +34,7 @@ try:
         text: Every plan and version. A plan in use is frozen; a change is a new version.
         elsewhere: Choose the Plans tab first.
   - id: decide-own
+    demo: /quality/iqc/3
     text: Go back to *Inspections* and open the BOX-12 lot that is *signed, to decide*. You signed it. Enter your password and choose *Release (sign)*.
     expect: '"someone other than the inspector who signed releases or rejects the lot". The lot stays undecided.'
     tour:
@@ -45,6 +47,7 @@ try:
     text: Sign out and sign in as **Dana** (Owner). Open the same inspection, write a note, enter your password and choose *Release (sign)*.
     expect: the status "released" and a link to an ERPNext draft waiting on the Drafts page.
   - id: finish
+    demo: /quality/iqc/4
     text: Sign in as **Jordan** again and open the OUTLET-DUP lot *in progress*. Choose **pass** for every reading, choose *Save the readings*, then enter your password and choose *Sign (judge the lot)*.
     expect: the status "signed, to decide" with the result "accept".
     tour:

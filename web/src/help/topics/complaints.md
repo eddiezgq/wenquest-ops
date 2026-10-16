@@ -3,6 +3,7 @@ title: Complaints
 group: Regulated modules
 order: 1
 summary: Receive, investigate, assess reportability, answer, close.
+video: complaints
 needs: quality:view
 try:
   - id: open-closed
@@ -23,6 +24,7 @@ try:
         click: '[data-help="complaints-new"]'
         text: When it was received and when the company first knew, from whom, the product, what happened, whether anyone was hurt and whether the product failed.
   - id: start
+    demo: /quality/complaints/3
     text: Set yourself as the owner, the product (for example **OUTLET-DUP**) and *Anyone hurt?* to **no**. Choose *Save*, then *Start the investigation*.
     expect: the status "investigation", and the boxes for the root cause, the investigation and the reply to the customer.
     tour:
@@ -36,6 +38,7 @@ try:
     text: Write the root cause and the investigation and conclusion. Choose *Save*.
     expect: '"Saved."'
   - id: decide
+    demo: /quality/complaints/2
     text: Sign out and sign in as **Jordan** (Quality). Open the complaint, answer the three questions **no**, choose *need not be reported*, give the reason and sign with your password.
     expect: the status "assessed"; the investigation and the answers can no longer be changed.
     tour:

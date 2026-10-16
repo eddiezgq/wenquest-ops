@@ -3,6 +3,7 @@ title: Dashboard
 group: Daily work
 order: 1
 summary: The whole business at a glance, and the big screen for visitors.
+video: dashboard
 try:
   - id: as-of
     text: Sign in as **Dana** (Owner) and open the *Dashboard*. In a wide window, read the line next to the page title.
@@ -41,6 +42,7 @@ try:
     tour:
       - target: '[data-help="dashboard-brief"]'
         text: Written every morning at 7:30, company time. Each role sees its own part.
+        elsewhere: The daily brief appears here once WenQuest Ops has written today's brief.
   - id: big-screen
     text: Choose *Big screen*. Press the right arrow, then space to pause, then Esc to leave.
     to: /
