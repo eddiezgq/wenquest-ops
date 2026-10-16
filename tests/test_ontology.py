@@ -149,8 +149,10 @@ def test_rebuild_matches_incremental(conn, erp, fake):
 def test_real_erpnext_documents_become_objects(conn):
     """The replies recorded from a real ERPNext map without errors and give the expected objects."""
     summary = json.loads((REC / "summary.json").read_text(encoding="utf-8"))
+    specs = tuple(s for s in Y.SPECS if s.doctype in summary["runs"][0])     # the doctypes that were recorded
     for n in (1, 2, 3):
-        Y.run(conn, ErpClient("http://erp-frontend:8080", transport=Replay(REC / str(n))), page=summary["page"])
+        Y.run(conn, ErpClient("http://erp-frontend:8080", transport=Replay(REC / str(n))), page=summary["page"],
+              specs=specs)
     OP.project(conn, manifest=DEMO)
     level = obj(conn, "StockLevel", "CI-WIDGET-01@Main Stock - HLS")["props"]
     assert level["actual_qty"] == 10.0 and level["stock_value"] == 25.0
