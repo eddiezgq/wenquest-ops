@@ -428,7 +428,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     DA.mount(app, conn, current_user, company, ai_model, db_url)
     from wqops.hub.docs import ledger_api as LA  # noqa: PLC0415
 
-    LA.mount(app, conn, current_user, company, ai_model, db_url)
+    LA.mount(app, conn, current_user, company, ai_model, db_url, erp_client=erp_client)
     from wqops.hub.quality import proposal_api as PA  # noqa: PLC0415
 
     PA.mount(app, conn, current_user, company, ai_model, db_url)

@@ -7,7 +7,7 @@ import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
 import { CONF } from '../ui/themes'
-import { api } from '../api'
+import { api, objectPath } from '../api'
 
 const ws = inject('workspace')
 const route = useRoute()
@@ -24,17 +24,31 @@ const pv = computed(() => L.value?.preview)
 const ENGINE = { ai: 'AI', rules: 'rules (limited accuracy)', person: 'you' }
 const KEYS = { ncr: ['external_no', 'reported_on', 'title', 'description', 'severity', 'disposition', 'status'],
   capa: ['external_no', 'reported_on', 'kind', 'title', 'ncr', 'owner', 'status'],
-  supplier: ['supplier_name', 'supplies', 'approved_on', 'certificate', 'approval'] }
+  supplier: ['supplier_name', 'supplies', 'approved_on', 'certificate', 'approval'],
+  // another system's exports into ERPNext (ADR-0020, 20a)
+  erp_item: ['item_code', 'item_name', 'stock_uom', 'is_stock_item', 'standard_rate', 'valuation_rate'],
+  erp_customer: ['customer_name', 'customer_group', 'email_id', 'mobile_no', 'tax_id'],
+  erp_supplier: ['supplier_name', 'supplier_group', 'country', 'email_id', 'tax_id'],
+  erp_opening_stock: ['item_code', 'warehouse', 'qty', 'valuation_rate', 'batch_no'],
+  erp_sales_order: ['order_no', 'customer', 'transaction_date', 'delivery_date', 'item_code', 'qty', 'rate'],
+  erp_purchase_order: ['order_no', 'supplier', 'transaction_date', 'schedule_date', 'item_code', 'qty', 'rate'] }
 const PERM = { ncr: 'quality:edit', capa: 'quality:edit', supplier: 'purchasing:draft' }
 // a quality register (ADR-0016, 16b) is kept by those who edit quality records; its columns are its first fields
-const permOf = (t) => PERM[t] || (t?.startsWith('reg_') ? 'quality:edit' : null)
+const permOf = (t) => PERM[t] || (t?.startsWith('reg_') ? 'quality:edit' : t?.startsWith('erp_') ? 'data:import' : null)
+const toErp = computed(() => L.value?.target?.startsWith('erp_'))
+const drafts = computed(() => ['erp_opening_stock', 'erp_sales_order', 'erp_purchase_order'].includes(L.value?.target))
+const submit = ref(false)
+// a record created in ERPNext ("Item:GADGET-1"): its page in the ops hub, for the types the hub reads
+const ONT = { Item: 'Item', Customer: 'Customer', Supplier: 'Supplier', 'Sales Order': 'SalesOrder', 'Purchase Order': 'PurchaseOrder' }
 const keysOf = (t) => KEYS[t] || Object.keys(pv.value?.fields || {}).slice(0, 6)
 const canImport = computed(() => L.value && ws.value?.user.permissions.includes(permOf(L.value.target)) && L.value.status === 'proposed')
-const REF = (r) => (r?.startsWith('NCR-') ? '/quality?tab=ncrs' : r?.startsWith('CAPA-') ? '/quality?tab=capas' : r?.startsWith('draft') ? '/drafts'
+const REF = (r) => (r && ONT[r.split(':')[0]] && r.includes(':') ? objectPath(ONT[r.split(':')[0]], r.slice(r.indexOf(':') + 1))
+  : r?.startsWith('NCR-') ? '/quality?tab=ncrs' : r?.startsWith('CAPA-') ? '/quality?tab=capas' : r?.startsWith('draft') ? '/drafts'
   : r?.startsWith('entry ') && L.value?.target?.startsWith('reg_') ? `/system/registers/${L.value.target.slice(4)}#e${r.slice(6)}` : null)
 
 function set(x) {
   L.value = x
+  submit.value = !!x.preview?.submit
   pick.value = Object.fromEntries(Object.keys(x.preview.fields).map((f) => {
     const m = x.mapping[f]
     return [f, m ? (m.column !== undefined ? `c:${m.column}` : `v:${m.value}`) : '']
@@ -81,16 +95,17 @@ const changeSheet = () => retable(null)
 async function doImport() {
   busy.value = true; error.value = ''; done.value = ''
   try {
-    set(await api(`/api/ledgers/${L.value.id}/import`, { method: 'POST', body: { password: password.value } }))
+    set(await api(`/api/ledgers/${L.value.id}/import`, { method: 'POST', body: { password: password.value, submit: submit.value, seen: pv.value.print } }))
     const r = L.value.result
-    done.value = `Imported: ${r.imported} records, ${r.drafted} drafts, ${r.skipped} rows skipped.`
+    done.value = toErp.value ? `Into ERPNext: ${r.imported} created, ${r.drafted} as drafts there, ${r.skipped} rows skipped (see why below).`
+      : `Imported: ${r.imported} records, ${r.drafted} drafts, ${r.skipped} rows skipped.`
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
 const show = (r, f) => r.values[f] ?? ''
 </script>
 
 <template>
-  <PageTop :title="pv ? `Import ${pv.target_label.toLowerCase()}` : 'Import a ledger'"
+  <PageTop :title="pv ? `Import ${pv.target_label.toLowerCase().replace('erpnext', 'ERPNext')}` : 'Import a ledger'"
            :crumbs="pv ? [{ label: 'Documents', to: '/documents?tab=library' }, { label: pv.document.name, to: `/documents/${pv.document.id}` }] : []">
     <Badge v-if="L" :theme="L.status === 'imported' ? 'green' : 'amber'" size="lg" :label="L.status === 'imported' ? 'imported' : 'to check'" />
   </PageTop>
@@ -147,6 +162,7 @@ const show = (r, f) => r.values[f] ?? ''
             <td>{{ r.row }}</td>
             <td v-for="k in keysOf(L.target)" :key="k" class="max-w-64">{{ show(r, k) }}</td>
             <td class="max-w-80"><span v-if="r.done" class="text-ink-gray-6">imported as {{ r.done }}</span>
+              <span v-if="r.exists && !r.done" class="block text-ink-gray-6">{{ r.exists }}: skipped</span>
               <span v-for="(p, i) in r.problems" :key="i" class="block" :class="r.ok ? 'text-ink-amber-7' : 'text-ink-red-7'">{{ p }}</span></td>
           </tr></tbody>
         </table>
@@ -155,7 +171,12 @@ const show = (r, f) => r.values[f] ?? ''
 
     <section v-if="canImport" data-help="ledger-import" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">Import</h2>
-      <p class="wq-muted mb-3">{{ L.target === 'supplier' ? 'Each new supplier becomes a draft in Drafts; it is created in ERPNext when someone confirms it. Suppliers already in ERPNext are skipped.'
+      <p v-if="toErp" class="wq-muted mb-3">Each ready row is written into ERPNext now. Records already there are skipped, not doubled; a row
+        ERPNext refuses is skipped with its reason, and you can import the file again later for the rest.
+        {{ drafts ? 'Opening stock and orders are created as drafts in ERPNext: check them there and submit them.' : '' }} Sign with your password.</p>
+      <label v-if="drafts" class="mb-3 flex items-center gap-2 text-base text-ink-gray-8"><input v-model="submit" type="checkbox" class="form-checkbox">
+        Submit them in ERPNext at once instead (they then count in stock and orders straight away)</label>
+      <p v-if="!toErp" class="wq-muted mb-3">{{ L.target === 'supplier' ? 'Each new supplier becomes a draft in Drafts; it is created in ERPNext when someone confirms it. Suppliers already in ERPNext are skipped.'
         : 'Each ready row becomes a record that names this file and row. Rows closed in the ledger are kept as closed before WenQuest Ops; open ones continue here.' }}
         Sign with your password.</p>
       <div class="flex flex-wrap items-center gap-2">
@@ -171,7 +192,7 @@ const show = (r, f) => r.values[f] ?? ''
         <table class="wq-table text-sm"><thead><tr><th>Row</th><th>Outcome</th><th>Record</th><th>Note</th></tr></thead>
           <tbody><tr v-for="o in L.outcomes" :key="o.row_no"><td>{{ o.row_no }}</td>
             <td><Badge :theme="o.outcome === 'skipped' ? 'gray' : 'green'" :label="o.outcome" /></td>
-            <td><RouterLink v-if="REF(o.ref)" :to="REF(o.ref)" class="wq-link">{{ o.ref }}</RouterLink></td>
+            <td><RouterLink v-if="REF(o.ref)" :to="REF(o.ref)" class="wq-link">{{ o.ref }}</RouterLink><span v-else>{{ o.ref }}</span></td>
             <td class="text-ink-gray-6">{{ o.note }}</td></tr></tbody></table>
       </div>
       <h2 class="wq-h2">Signature</h2>

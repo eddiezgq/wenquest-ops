@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import logging
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
@@ -21,12 +22,15 @@ from wqops.hub.ont import api as OA
 from wqops.hub.ont import project as OP
 from wqops.hub.quality import records as Q
 
+log = logging.getLogger(__name__)
+
 
 def _iso(row: dict) -> dict:
     return {k: v.isoformat() if isinstance(v, (dt.date, dt.datetime)) else v for k, v in row.items()}
 
 
-def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0915, PLR0917
+def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None,  # noqa: PLR0915, PLR0917
+          erp_client=None) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
             raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
@@ -98,7 +102,10 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     @app.get("/api/ledgers/{lid}")
     def one(lid: int, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "documents:view")
-        return view(c, run(lambda: LS.get(c, lid)))
+        imp = run(lambda: LS.get(c, lid))
+        if imp["target"].startswith("erp_"):            # customers' and suppliers' contact details and tax ids
+            need(u, LG.TARGETS[imp["target"]]["perm"])
+        return view(c, imp)
 
     # plain functions: FastAPI runs them in its thread pool, so reading a large sheet does not hold up other requests
     @app.put("/api/ledgers/{lid}")
@@ -114,6 +121,25 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     def do_import(lid: int, d: dict, u=Depends(user_dep), c=Depends(conn_dep)):
         imp = run(lambda: LS.get(c, lid))
         need(u, LG.TARGETS[imp["target"]]["perm"])
+        if imp["target"].startswith("erp_"):            # another system's rows into ERPNext (ADR-0020, 20a)
+            from wqops.hub import erp_import as EI  # noqa: PLC0415
+            from wqops.hub import sync as Y  # noqa: PLC0415
+
+            m = company()[0] or {}
+            try:
+                erp = erp_client()
+            except Exception as exc:
+                raise HTTPException(503, "ERPNext is not set up for WenQuest Ops; ask whoever runs the system") from exc
+            out = run(lambda: EI.run(c, erp, u, lid, str(d.get("password", "")),
+                                     company=(m.get("company") or {}).get("name", ""), today=OA.today(m),
+                                     submit=d.get("submit") is True, seen=d.get("seen")))
+            # what was created shows at once; if not, the regular sync brings it (earlier imports are known anyway)
+            for step in (lambda: Y.run(c, erp, trigger="import"), lambda: OP.project(c, manifest=m)):
+                try:
+                    step()
+                except Exception:  # logged; the regular sync catches up
+                    log.exception("after the ERPNext import %s", lid)
+            return view(c, out)
         out = run(lambda: LS.run_import(c, u, lid, str(d.get("password", ""))))
         if imp["target"] != "supplier":
             OP.project(c, manifest=company()[0])      # imported NCRs and CAPAs show in the ops hub at once

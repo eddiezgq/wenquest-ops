@@ -12,6 +12,7 @@ import datetime as dt
 from psycopg.types.json import Jsonb
 
 from wqops.hub import drafts as D
+from wqops.hub.docs import erp_rows as ER
 from wqops.hub.docs import ledger as LG
 from wqops.hub.docs import library as LIB
 from wqops.hub.docs import store as F
@@ -70,6 +71,15 @@ def create(conn, email: str, doc: dict, target: str, t: LG.Table, proposal: dict
          checked["confidence"], notes.strip()[:2000], ai_run, email)).fetchone()
 
 
+def mapping_print(imp: dict) -> str:
+    """The fingerprint of what a person checks before signing: the sheet, header row, mapping and words."""
+    import hashlib  # noqa: PLC0415
+    import json  # noqa: PLC0415
+
+    return hashlib.sha256(json.dumps([imp["sheet"], imp["header_row"], imp["mapping"], imp["values_map"]],
+                                     sort_keys=True).encode()).hexdigest()[:16]
+
+
 def get(conn, lid: int) -> dict:
     row = conn.execute("select * from ledger_imports where id = %s", (lid,)).fetchone()
     if row is None:
@@ -87,7 +97,7 @@ def preview(conn, imp: dict) -> dict:
     doc = LIB.get(conn, imp["document_id"])
     t = table_of(conn, doc, imp["sheet"], imp["header_row"])
     spec = flds(conn, imp["target"])
-    rows = LG.rows(t, spec, imp["mapping"], imp["values_map"])
+    rows = ER.annotate(conn, imp["target"], LG.rows(t, spec, imp["mapping"], imp["values_map"]))
     done = _done_rows(conn, doc["id"], imp["target"], t.sheet)
     for r in rows:
         if r["row"] in done:
@@ -100,9 +110,11 @@ def preview(conn, imp: dict) -> dict:
             "fields": {k: {"label": v.label, "kind": v.kind, "required": v.required, "choices": list(v.choices)}
                        for k, v in spec.items()},
             "choice_values": columns, "rows": rows[:PREVIEW], "total": len(rows),
-            "ready": sum(r["ok"] and "done" not in r for r in rows), "with_problems": sum(bool(r["problems"])
-                                                                                         for r in rows),
-            "already": sum("done" in r for r in rows), "target_label": LG.TARGETS[imp["target"]]["label"],
+            "ready": sum(r["ok"] and "done" not in r and "exists" not in r for r in rows),
+            "with_problems": sum(bool(r["problems"]) for r in rows),
+            "already": sum("done" in r or "exists" in r for r in rows), "submit": imp.get("submit", False),
+            "print": mapping_print(imp),
+            "target_label": LG.TARGETS[imp["target"]]["label"],
             "document": {"id": doc["id"], "name": doc["original_name"], "title": doc["title"]}}
 
 
@@ -278,6 +290,8 @@ def run_import(conn, user: dict, lid: int, password: str) -> dict:
     imp = get(conn, lid)
     if imp["status"] != "proposed":
         raise LedgerError("this ledger is already imported")
+    if imp["target"].startswith("erp_"):
+        raise LedgerError("rows for ERPNext are written by the ERPNext import (wqops/hub/erp_import.py)")
     doc = LIB.get(conn, imp["document_id"])
     t = table_of(conn, doc, imp["sheet"], imp["header_row"])
     rows = LG.rows(t, flds(conn, imp["target"]), imp["mapping"], imp["values_map"])

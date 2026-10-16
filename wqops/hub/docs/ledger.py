@@ -32,6 +32,7 @@ class Field:
     choices: tuple[str, ...] = ()
     synonyms: tuple[str, ...] = ()
     help: str = ""
+    zero: bool = False                         # a number field: 0 is a value (a price or cost), not a missing one
 
 
 NCR_STATUS = ("open", "closed", "cancelled")
@@ -90,6 +91,96 @@ TARGETS: dict[str, dict] = {
         "approval": Field("Approval status", synonyms=("status", "approval status", "approval")),
     }},
 }
+
+
+# ---------------------------------------------------------------- another system's exports (ADR-0020, 20a)
+# The synonyms include the column names of the usual exports: QuickBooks, NetSuite, SAP Business One and Odoo.
+YESNO = ("yes", "no")
+ITEM = ("item code", "itemcode", "sku", "internal reference", "item no", "item number", "part number", "part no",
+        "product code", "product/service name", "product/service", "item id", "item")
+QTY = ("qty", "quantity", "ordered qty", "quantity ordered")
+RATE = ("rate", "price", "unit price", "price/unit", "sales price", "unit cost")
+TARGETS.update({
+    "erp_item": {"label": "Items (into ERPNext)", "perm": "data:import", "doctype": "Item", "fields": {
+        "item_code": Field("Item code", required=True, synonyms=(*ITEM, "name")),
+        "item_name": Field("Item name", synonyms=("item name", "itemname", "display name", "product name", "name")),
+        "description": Field("Description", synonyms=("description", "sales description", "item description")),
+        "item_group": Field("Item group", synonyms=("item group", "itmsgrpcod", "product category", "category")),
+        "stock_uom": Field("Unit of measure", synonyms=("uom", "unit", "unit of measure", "stock uom", "invntryuom",
+                                                        "units type", "units", "sales unit")),
+        "is_stock_item": Field("Stock item", "choice", choices=YESNO, synonyms=("maintain stock", "inventory item",
+                                                                               "invntitem", "stock item",
+                                                                               "track inventory", "type",
+                                                                               "product type", "item type")),
+        "standard_rate": Field("Selling price", "number", zero=True, synonyms=("sales price", "sales price / rate",
+                                                                    "base price", "standard rate", "price")),
+        "valuation_rate": Field("Cost", "number", zero=True, synonyms=("cost", "purchase cost", "purchase price",
+                                                                      "avgprice", "valuation rate", "unit cost")),
+    }},
+    "erp_customer": {"label": "Customers (into ERPNext)", "perm": "data:import", "doctype": "Customer", "fields": {
+        "customer_name": Field("Customer name", required=True, synonyms=("customer name", "customer", "cardname",
+                                                                        "display name", "company name", "company",
+                                                                        "name")),
+        "customer_group": Field("Customer group", synonyms=("customer group", "groupcode", "customer type",
+                                                            "category")),
+        "territory": Field("Territory", synonyms=("territory", "region", "sales territory")),
+        "tax_id": Field("Tax id", synonyms=("tax id", "federal tax id", "ein", "vat", "lictradnum", "tax number")),
+        "email_id": Field("Email", synonyms=("email", "e-mail", "e_mail", "email address", "main email")),
+        "mobile_no": Field("Phone", synonyms=("phone", "mobile", "phone1", "cellular", "main phone", "telephone")),
+    }},
+    "erp_supplier": {"label": "Suppliers (into ERPNext)", "perm": "data:import", "doctype": "Supplier", "fields": {
+        "supplier_name": Field("Supplier name", required=True, synonyms=("supplier name", "supplier", "vendor name",
+                                                                        "vendor", "cardname", "company name",
+                                                                        "company", "name")),
+        "supplier_group": Field("Supplier group", synonyms=("supplier group", "vendor type", "groupcode",
+                                                            "category")),
+        "country": Field("Country", synonyms=("country",)),
+        "tax_id": Field("Tax id", synonyms=("tax id", "federal tax id", "ein", "vat", "lictradnum", "tax number")),
+        "website": Field("Website", synonyms=("website", "web", "url")),
+        "email_id": Field("Email", synonyms=("email", "e-mail", "email address", "main email")),
+        "mobile_no": Field("Phone", synonyms=("phone", "mobile", "phone1", "main phone", "telephone")),
+    }},
+    "erp_opening_stock": {"label": "Opening stock (into ERPNext)", "perm": "data:import",
+                          "doctype": "Stock Reconciliation", "fields": {
+        "item_code": Field("Item code", required=True, synonyms=ITEM),
+        "warehouse": Field("Warehouse", required=True, synonyms=("warehouse", "location", "whscode", "site", "bin")),
+        "qty": Field("Quantity on hand", "number", required=True, synonyms=("quantity on hand", "qty on hand",
+                                                                           "on hand", "onhand", "in stock",
+                                                                           "available", *QTY)),
+        "valuation_rate": Field("Cost per unit", "number", zero=True, synonyms=("cost", "unit cost", "valuation rate",
+                                                                    "avg cost", "average cost", "avgprice")),
+        "batch_no": Field("Batch or lot", synonyms=("batch", "batch no", "lot", "lot no", "lot number")),
+    }},
+    "erp_sales_order": {"label": "Open sales orders (into ERPNext)", "perm": "data:import", "doctype": "Sales Order",
+                        "fields": {
+        "order_no": Field("Order number", synonyms=("order no", "order number", "so number", "so no", "docnum",
+                                                    "num", "sales order", "order #", "reference")),
+        "customer": Field("Customer", required=True, synonyms=("customer", "customer name", "cardname", "name")),
+        "transaction_date": Field("Order date", "date", required=True, synonyms=("order date", "date", "docdate",
+                                                                  "transaction date")),
+        "delivery_date": Field("Delivery date", "date", required=True, synonyms=("delivery date", "ship date",
+                                                                                 "due date", "docduedate",
+                                                                                 "expected ship date")),
+        "item_code": Field("Item code", required=True, synonyms=ITEM),
+        "qty": Field("Quantity", "number", required=True, synonyms=QTY),
+        "rate": Field("Price", "number", zero=True, synonyms=RATE),
+    }},
+    "erp_purchase_order": {"label": "Open purchase orders (into ERPNext)", "perm": "data:import",
+                           "doctype": "Purchase Order", "fields": {
+        "order_no": Field("Order number", synonyms=("po number", "po no", "order no", "order number", "docnum",
+                                                    "num", "purchase order", "po #", "reference")),
+        "supplier": Field("Supplier", required=True, synonyms=("supplier", "vendor", "vendor name", "cardname",
+                                                               "name")),
+        "transaction_date": Field("Order date", "date", required=True, synonyms=("order date", "date", "docdate",
+                                                                  "transaction date")),
+        "schedule_date": Field("Required by", "date", required=True, synonyms=("required by", "expected date",
+                                                                               "receipt date", "due date",
+                                                                               "docduedate", "delivery date")),
+        "item_code": Field("Item code", required=True, synonyms=ITEM),
+        "qty": Field("Quantity", "number", required=True, synonyms=QTY),
+        "rate": Field("Price", "number", zero=True, synonyms=RATE),
+    }},
+})
 
 
 REGISTER_KINDS = {"text": "text", "longtext": "text", "number": "number", "date": "date", "choice": "choice",
@@ -243,6 +334,9 @@ CHOICE_WORDS = {
     "effectiveness": ("effectiveness", "verification", "verify", "effectiveness check"),
     "corrective": ("corrective", "ca", "car", "corrective action"), "preventive": ("preventive", "pa", "preventative"),
     "low": ("low", "l"), "medium": ("medium", "med", "m"), "high": ("high", "h"),
+    "yes": ("yes", "y", "true", "1", "x", "inventory", "stock", "tinventory"), "no": ("no", "n", "false", "0",
+                                                                                     "service", "non-inventory",
+                                                                                     "non inventory"),
     "use_as_is": ("use as is", "use-as-is", "uai", "accept", "concession"), "rework": ("rework", "repair", "sort"),
     "return_to_supplier": ("return to supplier", "rts", "return", "returned"), "scrap": ("scrap", "scrapped"),
 }
@@ -340,8 +434,9 @@ def parse_date(s: str) -> dt.date | None:
 
 def parse_number(s: str) -> float | None:
     """A plain quantity: 12, 12.5, 1,200 or 1,200.5 (a comma only between groups of three digits), with an optional
-    unit after it; "12,5" could be twelve and a half or a typo, so it is not read."""
-    m = re.fullmatch(r"\s*(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([a-zA-Z]{0,5})\s*", s or "")
+    currency sign before it and an optional unit after it; "12,5" could be twelve and a half or a typo, so it is not
+    read."""
+    m = re.fullmatch(r"\s*[$€£¥]?\s*(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([a-zA-Z]{0,5})\s*", s or "")
     return float(m.group(1).replace(",", "")) if m else None
 
 
@@ -367,8 +462,9 @@ def rows(t: Table, flds: dict[str, Field], mapping: dict, values: dict) -> list[
                     vals[f] = d.isoformat()
             elif spec.kind == "number":
                 x = parse_number(raw)
-                if x is None or x <= 0:
-                    problems.append(f"{spec.label}: {raw!r} is not a quantity above 0")
+                if x is None or x < 0 or (x == 0 and not spec.zero):
+                    problems.append(f"{spec.label}: {raw!r} is not " + ("a number of 0 or more" if spec.zero
+                                                                         else "a quantity above 0"))
                 else:
                     vals[f] = x
             elif spec.kind == "choice":
