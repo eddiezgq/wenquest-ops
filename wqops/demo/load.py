@@ -5,8 +5,9 @@
 Runs only for a company manifest marked ``demo: true``, once (it stops if the demo customers already exist). This is an
 installation tool run by IT, not an AI write-back. Documents are created and submitted in date order with their
 historical posting dates; then the hub syncs, and a quality record set (NCR, corrective action with an overdue step)
-is added for the rejected lot. Last, a folder of fictional quality documents is imported into the document library
-and classified, waiting for people to review it (wqops/demo/documents.py).
+is added for the rejected lot. Then a folder of fictional quality documents is imported into the document library
+and classified, waiting for people to review it (wqops/demo/documents.py), and last the regulated quality modules get
+sample records (wqops/demo/quality.py).
 """
 
 from __future__ import annotations
@@ -256,6 +257,12 @@ def main(argv=None) -> int:
         from wqops.demo import documents as DOCS  # noqa: PLC0415
 
         out["documents"] = DOCS.load(conn, manifest, today, L.Anthropic())
+        from wqops.demo import quality as DQ  # noqa: PLC0415
+        from wqops.hub import accounts as Acc  # noqa: PLC0415
+
+        Acc.sync(conn, manifest)
+        out["quality_samples"] = DQ.load(conn, manifest, today)
+        OP.project(conn, manifest=manifest)
     print(json.dumps(out, indent=2))
     return 0
 

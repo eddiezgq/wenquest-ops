@@ -195,6 +195,8 @@ jobs:
           R=(--resolve ops.localtest.me:443:127.0.0.1)
           dc() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" "$@"; }
           time dc exec -T hub python -m wqops.demo.load | tee demo.json
+          python3 -c "import json; t = open('demo.json').read().splitlines(); q = json.loads(chr(10).join(t[t.index('{'):]))['quality_samples']; print(q)
+          bad = {k: v for k, v in q.items() if v.startswith(('not loaded', 'skipped'))}; assert not bad, bad"   # ADR-0019
           dc exec -T hub python - < .github/scripts/erp_consistency.py   # the hub matches ERPNext after a sync
           curl -fsk "${R[@]}" -c jar -H 'content-type: application/json' \
                -d '{"email":"dana@demo.example","password":"Ci-owner-pass-2026"}' https://ops.localtest.me/api/login
