@@ -27,7 +27,8 @@ def test_ontology_loads_and_is_english():
     assert all(t["label"].isascii() and t["source"].isascii() for t in o.types.values())
     for doctype, (type_, _) in OP.MAPPERS.items():
         assert o.types[type_]["maturity"] == "have", doctype
-    assert {t for t, s in o.types.items() if s["maturity"] == "erp"} == {"SalesInvoice", "PurchaseInvoice"}
+    # every type is synced now: the invoices came in with ADR-0018
+    assert {t for t, s in o.types.items() if s["maturity"] == "erp"} == set()
 
 
 @pytest.mark.parametrize(("text", "msg"), [

@@ -325,6 +325,34 @@ def quality_inspection(d):
     )
 
 
+def _invoice(d: dict, type_: str, party: str) -> Obj:
+    return Obj(
+        type_,
+        d["name"],
+        _clean(
+            {
+                f"{party}_name": d.get(f"{party}_name"),
+                "posting_date": _date(d.get("posting_date")),
+                "due_date": _date(d.get("due_date")),
+                "grand_total": _num(d.get("grand_total")),          # in the invoice's currency, like the balance
+                "outstanding_amount": _num(d.get("outstanding_amount")),
+                "status": d.get("status"),
+                "docstatus": d.get("docstatus"),
+                "is_return": _bool(d.get("is_return")),
+            }
+        ),
+        _many(party, party.capitalize(), [d.get(party)]),
+    )
+
+
+def sales_invoice(d):
+    return _invoice(d, "SalesInvoice", "customer")
+
+
+def purchase_invoice(d):
+    return _invoice(d, "PurchaseInvoice", "supplier")
+
+
 MAPPERS: dict[str, tuple[str, Callable[[dict], Obj]]] = {
     "Item": ("Item", item),
     "Warehouse": ("Warehouse", warehouse),
@@ -336,6 +364,8 @@ MAPPERS: dict[str, tuple[str, Callable[[dict], Obj]]] = {
     "Purchase Order": ("PurchaseOrder", purchase_order),
     "Purchase Receipt": ("PurchaseReceipt", purchase_receipt),
     "Quality Inspection": ("QualityInspection", quality_inspection),
+    "Sales Invoice": ("SalesInvoice", sales_invoice),
+    "Purchase Invoice": ("PurchaseInvoice", purchase_invoice),
 }
 
 
