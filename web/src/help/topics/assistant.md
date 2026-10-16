@@ -5,6 +5,13 @@ order: 3
 summary: Ask in plain English; answers cite your records.
 video: assistant
 try:
+  - id: panel
+    text: Open **NCR-00001** and choose *Ask AI* at the bottom right (or press Ctrl+J). Choose *Summarize this report*, then ask a follow-up question.
+    demo: /quality/ncr/1
+    expect: the panel slides out, knows you are looking at a nonconformance report, and answers with a link to it. The conversation stays open as you move between pages.
+    tour:
+      - target: '[data-help="chat-open"]'
+        text: The assistant is on every page. It knows the page and the record you have open.
   - id: open
     text: Sign in as **Sam** (Operations manager) and open *Assistant*. Read the line under the title.
     to: /assistant
@@ -49,6 +56,10 @@ try:
     to: /assistant
     expect: an answer saying Alex's role cannot see supplier on-time figures.
 blocks:
+  - text: The panel shows only the records your role may see; asked about a quality record without quality access, it says so.
+    test: tests/test_ai_chat.py::test_record_tool_and_rules
+  - text: Someone else's conversation cannot be opened.
+    test: tests/test_ai_chat.py::test_chat_api
   - text: The assistant reads only what your role may see, also when an AI model answers.
     test: tests/test_ai.py::test_model_cannot_read_past_the_role
   - text: A sentence with a number that is not in the data the assistant looked at is marked unverified.
