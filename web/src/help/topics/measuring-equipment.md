@@ -3,6 +3,7 @@ title: Measuring equipment
 group: Regulated modules
 order: 2
 summary: Gauges, calibrations, and what a failed calibration affects.
+video: measuring-equipment
 needs: quality:view
 try:
   - id: list

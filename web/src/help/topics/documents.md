@@ -3,6 +3,7 @@ title: Document library
 group: Documents
 order: 1
 summary: Bring your files in, check what the AI proposes, find problems.
+video: documents
 try:
   - id: overview
     text: Sign in as **Jordan** (Quality) and open *Documents* in the sidebar. Read the *Overview* tab.

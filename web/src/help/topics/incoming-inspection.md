@@ -3,6 +3,7 @@ title: Incoming inspection
 group: Quality
 order: 3
 summary: Sampling table, inspection plans, inspecting a lot and deciding.
+video: incoming-inspection
 needs: quality:view
 try:
   - id: open

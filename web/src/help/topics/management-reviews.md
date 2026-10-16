@@ -3,6 +3,7 @@ title: Management reviews
 group: Regulated modules
 order: 7
 summary: Inputs counted from your records, the meeting, the chair signs.
+video: management-reviews
 needs: quality:view
 try:
   - id: open-signed

@@ -3,6 +3,7 @@ title: Drafts
 group: Daily work
 order: 4
 summary: Nothing is written to ERPNext or sent until a person confirms.
+video: drafts
 try:
   - id: open
     text: Sign in as **Pat** (Purchasing) and open *Drafts*.

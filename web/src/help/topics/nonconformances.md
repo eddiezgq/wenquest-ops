@@ -3,6 +3,7 @@ title: Nonconformance reports and 8D
 group: Quality
 order: 1
 summary: Report, contain, decide what to do with the product, sign.
+video: nonconformances
 needs: quality:view
 try:
   - id: open-list

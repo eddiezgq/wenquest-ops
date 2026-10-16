@@ -3,6 +3,7 @@ title: Complaints
 group: Regulated modules
 order: 1
 summary: Receive, investigate, assess reportability, answer, close.
+video: complaints
 needs: quality:view
 try:
   - id: open-closed

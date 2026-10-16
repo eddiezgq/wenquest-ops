@@ -3,6 +3,7 @@ title: Questions
 group: Help
 order: 1
 summary: Answers to common questions.
+video: questions
 try:
   - id: freshness
     text: Sign in as **Dana** (Owner) and open the *Dashboard*. In a wide window, read the line next to the page title.

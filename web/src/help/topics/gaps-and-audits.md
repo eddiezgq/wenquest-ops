@@ -3,6 +3,7 @@ title: Gap report and audit checklist
 group: Quality system
 order: 3
 summary: What is missing, a to-do for each gap, and the audit checklist.
+video: gaps-and-audits
 needs: quality:view
 try:
   - id: open

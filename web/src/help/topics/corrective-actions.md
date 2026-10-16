@@ -3,6 +3,7 @@ title: Corrective and preventive actions
 group: Quality
 order: 2
 summary: Find the cause, plan the actions, check they worked.
+video: corrective-actions
 needs: quality:view
 try:
   - id: open-list

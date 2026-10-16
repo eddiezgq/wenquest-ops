@@ -3,6 +3,7 @@ title: Dashboard
 group: Daily work
 order: 1
 summary: The whole business at a glance, and the big screen for visitors.
+video: dashboard
 try:
   - id: as-of
     text: Sign in as **Dana** (Owner) and open the *Dashboard*. In a wide window, read the line next to the page title.

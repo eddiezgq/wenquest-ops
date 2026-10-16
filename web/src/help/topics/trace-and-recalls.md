@@ -3,6 +3,7 @@ title: Trace and recalls
 group: Regulated modules
 order: 6
 summary: Where a lot came from and went, and recalling it.
+video: trace-and-recalls
 needs: quality:view
 try:
   - id: drill

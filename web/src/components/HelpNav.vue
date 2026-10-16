@@ -40,9 +40,11 @@ function key(e) {
         </li>
       </ol>
     </div>
-    <button class="item w-full lg:hidden" :aria-expanded="open" @click="open = !open">
-      <span>All help topics</span><span :class="open ? 'lucide-chevron-up' : 'lucide-chevron-down'" class="size-4" aria-hidden="true" />
-    </button>
+    <div class="lg:hidden">
+      <button class="item w-full" :aria-expanded="open" @click="open = !open">
+        <span>All help topics</span><span :class="open ? 'lucide-chevron-up' : 'lucide-chevron-down'" class="size-4" aria-hidden="true" />
+      </button>
+    </div>
     <div :class="open ? 'block' : 'hidden lg:block'">
     <RouterLink to="/help" class="item" :class="{ on: props.current === 'home' }">Help home</RouterLink>
     <RouterLink to="/help/checklist" class="item" :class="{ on: props.current === 'checklist' }">Test checklist</RouterLink>

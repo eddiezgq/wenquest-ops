@@ -3,6 +3,7 @@ title: Approved suppliers
 group: Quality
 order: 4
 summary: Who you may buy what from, on what basis, until when.
+video: approved-suppliers
 needs: quality:view
 try:
   - id: open

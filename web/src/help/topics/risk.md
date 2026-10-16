@@ -3,6 +3,7 @@ title: Risk management
 group: Regulated modules
 order: 4
 summary: Risk criteria, risk files, hazards and residual risk.
+video: risk
 needs: quality:view
 try:
   - id: criteria

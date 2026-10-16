@@ -3,6 +3,7 @@ title: Anomalies and root causes
 group: Daily work
 order: 2
 summary: Problems the rules find, with their causes and what they affect.
+video: anomalies
 try:
   - id: list
     text: Sign in as **Sam** (Operations manager) and open *Anomalies*.

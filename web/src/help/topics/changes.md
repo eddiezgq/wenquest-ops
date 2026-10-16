@@ -3,6 +3,7 @@ title: Changes
 group: Regulated modules
 order: 3
 summary: Assess, approve, implement and check a change.
+video: changes
 needs: quality:view
 try:
   - id: open-closed

@@ -3,6 +3,7 @@ title: Signatures and workflows
 group: Quality
 order: 6
 summary: How signing works and how a company tightens its workflows.
+video: signatures-and-workflows
 needs: quality:view
 try:
   - id: password

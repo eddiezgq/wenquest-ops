@@ -3,6 +3,7 @@ title: Setting up the quality system
 group: Quality system
 order: 4
 summary: Answer a few questions; the system suggests the settings.
+video: quality-system-setup
 needs: quality:view
 try:
   - id: open

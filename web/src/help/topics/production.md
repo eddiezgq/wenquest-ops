@@ -3,6 +3,7 @@ title: Production records
 group: Regulated modules
 order: 5
 summary: Templates, lots, steps, materials and release.
+video: production
 needs: quality:view
 try:
   - id: template

@@ -3,6 +3,7 @@ title: Supplier quality and control charts
 group: Quality
 order: 5
 summary: Facts per supplier and control charts of your measurements.
+video: supplier-quality
 needs: quality:view
 try:
   - id: suppliers

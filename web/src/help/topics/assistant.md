@@ -3,6 +3,7 @@ title: Assistant
 group: Daily work
 order: 3
 summary: Ask in plain English; answers cite your records.
+video: assistant
 try:
   - id: open
     text: Sign in as **Sam** (Operations manager) and open *Assistant*. Read the line under the title.
