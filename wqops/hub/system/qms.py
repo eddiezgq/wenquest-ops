@@ -23,6 +23,7 @@ from wqops.hub.ont import metrics as M
 from wqops.hub.quality import calibration as CAL
 from wqops.hub.quality import complaints as CMP
 from wqops.hub.quality import records as Q
+from wqops.hub.quality import review as MR
 from wqops.hub.system import rules as R
 
 PACKS = Path(__file__).resolve().parent / "packs"
@@ -252,6 +253,7 @@ def facts(conn, pack: dict, standard: str, today: dt.date, tz: str = "UTC",  # n
                                                    "signed", "imported": r["source_doc"] is not None})
     regs.setdefault("complaints", []).extend(CMP.register_view(conn))     # the complaints module (17e) counts too
     regs.setdefault("calibration", []).extend(CAL.register_view(conn))   # the equipment list (17f) counts too
+    regs.setdefault("management_reviews", []).extend(MR.register_view(conn))  # signed reviews (17j) count too
     return {
         "today": today, "since": since, "registers": regs, "suppliers_used": used,
         "supplier_items_used": {k: sorted(v) for k, v in used_items.items()},
