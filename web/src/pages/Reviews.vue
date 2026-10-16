@@ -28,16 +28,16 @@ async function create() {
 <template>
   <PageTop :crumbs="[{ label: 'Quality system', to: '/system' }]">
     <template #title>Management reviews</template>
-    <Button v-if="v?.can_configure" variant="solid" icon-left="lucide-plus" label="New review" @click="show = !show" />
+    <Button v-if="v?.can_configure" data-help="new-review" variant="solid" icon-left="lucide-plus" label="New review" @click="show = !show" />
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
-  <form v-if="show" class="new wq-panel mb-5 flex flex-wrap items-end gap-3 p-5" @submit.prevent="create">
+  <form v-if="show" data-help="review-period" class="new wq-panel mb-5 flex flex-wrap items-end gap-3 p-5" @submit.prevent="create">
     <label class="wq-field grow">Title<input v-model="f.title" class="wq-input"></label>
     <label class="wq-field">From<input v-model="f.period_start" type="date" class="wq-input"></label>
     <label class="wq-field">To<input v-model="f.period_end" type="date" class="wq-input"></label>
     <Button type="submit" variant="solid" label="Start" :disabled="!f.title.trim()" />
   </form>
-  <section v-if="v" class="wq-panel p-5">
+  <section v-if="v" data-help="reviews-list" class="wq-panel p-5">
     <p class="wq-muted mb-3 max-w-3xl">Top management reviews the quality system at planned intervals. WenQuest Ops counts the inputs from your
       records for the period; the meeting writes its assessment, conclusion and actions, and the chair signs.</p>
     <p v-if="!v.reviews.length" class="wq-muted">None yet.</p>

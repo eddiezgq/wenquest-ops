@@ -54,7 +54,7 @@ async function addAction() {
   <p v-if="done" class="no-print mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
   <template v-if="r">
     <p v-if="r.intact === false" class="wq-error mb-4">The inputs no longer match their fingerprint.</p>
-    <section class="what wq-panel mb-5 grid gap-3 p-5 md:grid-cols-4">
+    <section data-help="review-meeting" class="what wq-panel mb-5 grid gap-3 p-5 md:grid-cols-4">
       <label class="wq-field md:col-span-2">Title<input v-model="f.title" class="wq-input" :disabled="!editing"></label>
       <label class="wq-field">Period from<input v-model="f.period_start" type="date" class="wq-input" :disabled="!editing || r.status !== 'draft'"></label>
       <label class="wq-field">to<input v-model="f.period_end" type="date" class="wq-input" :disabled="!editing || r.status !== 'draft'"></label>
@@ -68,11 +68,11 @@ async function addAction() {
         <h2 class="wq-h2">Inputs</h2>
         <div v-if="editing" class="no-print flex items-center gap-2">
           <span v-if="r.collected_at" class="text-sm text-ink-gray-5">Counted {{ r.inputs?.counted_on }} by {{ r.collected_by }}</span>
-          <Button :variant="r.inputs ? 'subtle' : 'solid'" :label="r.inputs ? 'Count again' : 'Collect the inputs'" :disabled="dirty" @click="call(`/api/reviews/${r.id}/collect`, 'POST', {}, 'Inputs counted and frozen.')" />
+          <Button data-help="review-collect" :variant="r.inputs ? 'subtle' : 'solid'" :label="r.inputs ? 'Count again' : 'Collect the inputs'" :disabled="dirty" @click="call(`/api/reviews/${r.id}/collect`, 'POST', {}, 'Inputs counted and frozen.')" />
         </div>
       </div>
       <p v-if="!r.inputs" class="wq-muted">Collect the inputs: WenQuest Ops counts them from the records for the period and freezes them.</p>
-      <div v-else class="grid gap-4 md:grid-cols-2">
+      <div v-else data-help="review-inputs" class="grid gap-4 md:grid-cols-2">
         <article v-for="(s, k) in r.inputs.sections" :key="k" class="input rounded-4 border border-outline-gray-2 p-4">
           <h3 class="mb-2 text-base font-semibold text-ink-gray-9">{{ s.label }}</h3>
           <table class="w-full text-sm"><tbody><tr v-for="fg in s.figures" :key="fg.label" class="border-b border-outline-gray-1 last:border-0">
@@ -86,14 +86,14 @@ async function addAction() {
       <p v-if="r.fingerprint" class="mt-3 text-xs text-ink-gray-5">Fingerprint {{ r.fingerprint }}</p>
     </section>
 
-    <section class="wq-panel mb-5 p-5">
+    <section data-help="review-conclusion" class="wq-panel mb-5 p-5">
       <label v-if="editing" class="wq-field">Conclusion: is the system suitable, adequate and effective?<textarea v-model="f.conclusion" rows="3" class="wq-input" /></label>
       <template v-else><h2 class="wq-h2">Conclusion</h2><p class="whitespace-pre-line text-base text-ink-gray-8">{{ r.conclusion || 'None.' }}</p></template>
       <div v-if="editing" class="no-print mt-3"><Button label="Save" :disabled="!dirty" @click="call(`/api/reviews/${r.id}`, 'PUT', changes(), 'Saved.')" />
         <span v-if="dirty" class="ms-2 text-sm text-ink-amber-7">Save your changes before counting, adding actions or signing.</span></div>
     </section>
 
-    <section class="wq-panel mb-5 p-5">
+    <section data-help="review-actions" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">Actions decided</h2>
       <p v-if="!r.actions.length" class="wq-muted">None.</p>
       <table v-else class="wq-table text-sm"><thead><tr><th>Action</th><th>Owner</th><th>Due</th><th>Status</th><th /></tr></thead>
@@ -110,7 +110,7 @@ async function addAction() {
       </form>
     </section>
 
-    <section v-if="['draft', 'frozen'].includes(r.status)" class="no-print wq-panel mb-5 p-5">
+    <section v-if="['draft', 'frozen'].includes(r.status)" data-help="review-sign" class="no-print wq-panel mb-5 p-5">
       <p v-if="r.to_sign.length" class="mb-2 text-sm text-ink-gray-6">To sign: {{ r.to_sign.join('; ') }}.</p>
       <div v-if="r.chair === r.me" class="flex flex-wrap items-end gap-2">
         <input v-model="x.password" type="password" class="wq-input w-44" placeholder="Your password" autocomplete="current-password">

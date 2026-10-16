@@ -1,4 +1,9 @@
-# Getting started
+---
+title: Getting started
+group: Start here
+order: 1
+summary: What WenQuest Ops does next to ERPNext, and the three rules it keeps.
+---
 
 WenQuest Ops sits next to ERPNext. ERPNext keeps your orders, stock, purchasing and accounts; WenQuest Ops reads
 them every few minutes, connects them into one picture of the business, and shows what needs attention.

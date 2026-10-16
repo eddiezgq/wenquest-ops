@@ -1,4 +1,9 @@
-# Dashboard
+---
+title: Dashboard
+group: Daily work
+order: 1
+summary: The whole business at a glance, and the big screen for visitors.
+---
 
 The dashboard shows the whole business at once. Everything on it is counted by WenQuest Ops from ERPNext and its own
 records; nothing is estimated, and a number with no data behind it says "unknown". It refreshes itself after each

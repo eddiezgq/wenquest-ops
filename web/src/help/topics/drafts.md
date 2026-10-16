@@ -1,4 +1,9 @@
-# Drafts
+---
+title: Drafts
+group: Daily work
+order: 4
+summary: Nothing is written to ERPNext or sent until a person confirms.
+---
 
 Drafts are things prepared for you — by the assistant or by a person — that need a decision.
 
