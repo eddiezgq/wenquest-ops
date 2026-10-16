@@ -56,7 +56,7 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null &
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
   <template v-if="p">
-    <section class="wq-panel mb-5 p-5">
+    <section data-help="iqc-plan" class="wq-panel mb-5 p-5">
       <div class="mb-3 flex flex-wrap items-center gap-2">
         <Badge :theme="p.status === 'enabled' ? 'green' : draft ? 'amber' : 'gray'" :label="p.status" />
         <span class="text-sm text-ink-gray-5">drafted by {{ p.created_by }} {{ ago(p.created_at) }}<template v-if="p.enabled_by"> · enabled by {{ p.enabled_by }} {{ ago(p.enabled_at) }}
@@ -82,7 +82,7 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null &
           <Button variant="solid" label="Save" :loading="busy" @click="save" />
           <Button label="Discard the draft" @click="discard" />
         </div>
-        <div v-if="p.can_configure" class="mt-5 flex flex-wrap items-end gap-2 border-t border-outline-gray-1 pt-4">
+        <div v-if="p.can_configure" data-help="iqc-plan-enable" class="mt-5 flex flex-wrap items-end gap-2 border-t border-outline-gray-1 pt-4">
           <p class="wq-muted w-full">Save first. Enabling freezes the plan and retires the version in use.<template v-if="p.settings.plan_by_other"> Someone other than {{ p.created_by }} enables it.</template></p>
           <label class="wq-field">Your password<input v-model="password" type="password" class="wq-input w-48" autocomplete="current-password"></label>
           <Button variant="solid" label="Enable (sign)" :disabled="!password" :loading="busy" @click="enable" />

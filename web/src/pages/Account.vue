@@ -21,7 +21,7 @@ async function change() {
 <template>
   <PageTop title="My account" />
   <div v-if="ws" class="grid max-w-5xl gap-6 lg:grid-cols-2">
-    <section class="wq-panel p-5">
+    <section data-help="account-roles" class="wq-panel p-5">
       <div class="flex items-center gap-3"><Avatar :label="ws.user.name" size="2xl" />
         <div><div class="text-lg font-semibold text-ink-gray-9">{{ ws.user.name }}</div><div class="wq-muted">{{ ws.user.email }}</div></div></div>
       <dl class="wq-dl mt-5">
@@ -33,7 +33,7 @@ async function change() {
         <li v-for="p in ws.may" :key="p" class="flex gap-2"><span class="lucide-check mt-0.5 size-4 shrink-0 text-ink-green-6" />{{ p }}</li></ul>
       <p class="wq-muted mt-4">Roles come from the company manifest; ask the owner to change them.</p>
     </section>
-    <section class="wq-panel h-fit p-5">
+    <section data-help="account-password" class="wq-panel h-fit p-5">
       <h2 class="text-base font-semibold text-ink-gray-9">{{ ws.user.has_password ? 'Change your password' : 'Set a password' }}</h2>
       <p class="wq-muted mt-1">You sign quality records with this password<template v-if="!ws.user.has_password">, also when you sign in with Microsoft or Google</template>.
         At least 10 characters with letters and digits. Afterwards you sign in again everywhere.</p>

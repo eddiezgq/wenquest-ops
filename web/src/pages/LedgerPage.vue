@@ -98,7 +98,7 @@ const show = (r, f) => r.values[f] ?? ''
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
 
   <template v-if="L && pv">
-    <section class="wq-panel mb-5 p-5">
+    <section data-help="ledger-mapping" class="wq-panel mb-5 p-5">
       <div class="mb-2 flex flex-wrap items-center gap-2">
         <h2 class="text-base font-semibold text-ink-gray-9">Which column is which</h2>
         <span class="text-sm text-ink-gray-5">proposed by {{ ENGINE[L.engine] || L.engine }}</span>
@@ -133,11 +133,11 @@ const show = (r, f) => r.values[f] ?? ''
           </tr></tbody>
         </table>
       </div>
-      <div v-if="L.status === 'proposed'" class="mt-4"><Button :variant="dirty ? 'solid' : 'subtle'" icon-left="lucide-save" label="Save the mapping" @click="save()" />
+      <div v-if="L.status === 'proposed'" data-help="ledger-save" class="mt-4"><Button :variant="dirty ? 'solid' : 'subtle'" icon-left="lucide-save" label="Save the mapping" @click="save()" />
         <span class="wq-muted ms-2">Words left “unknown” stay empty on the record; nothing is guessed.</span></div>
     </section>
 
-    <section class="mb-5">
+    <section data-help="ledger-rows" class="mb-5">
       <h2 class="wq-h2">Rows</h2>
       <p class="wq-muted mb-2">{{ pv.ready }} ready to import · {{ pv.with_problems }} with notes · {{ pv.already }} already imported<span v-if="pv.total > pv.rows.length"> · first {{ pv.rows.length }} shown</span></p>
       <div class="wq-panel overflow-x-auto">
@@ -153,7 +153,7 @@ const show = (r, f) => r.values[f] ?? ''
       </div>
     </section>
 
-    <section v-if="canImport" class="wq-panel mb-5 p-5">
+    <section v-if="canImport" data-help="ledger-import" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">Import</h2>
       <p class="wq-muted mb-3">{{ L.target === 'supplier' ? 'Each new supplier becomes a draft in Drafts; it is created in ERPNext when someone confirms it. Suppliers already in ERPNext are skipped.'
         : 'Each ready row becomes a record that names this file and row. Rows closed in the ledger are kept as closed before WenQuest Ops; open ones continue here.' }}
@@ -166,7 +166,7 @@ const show = (r, f) => r.values[f] ?? ''
     </section>
 
     <template v-if="L.outcomes">
-      <h2 class="wq-h2">What happened to each row</h2>
+      <h2 data-help="ledger-outcomes" class="wq-h2">What happened to each row</h2>
       <div class="wq-panel mb-5 overflow-x-auto">
         <table class="wq-table text-sm"><thead><tr><th>Row</th><th>Outcome</th><th>Record</th><th>Note</th></tr></thead>
           <tbody><tr v-for="o in L.outcomes" :key="o.row_no"><td>{{ o.row_no }}</td>

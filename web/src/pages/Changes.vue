@@ -33,7 +33,7 @@ async function create() {
     <label class="wq-field">Kind<select v-model="f.kind" class="wq-select"><option v-for="k in v?.kinds" :key="k">{{ k }}</option></select></label>
     <Button type="submit" variant="solid" label="Raise" :disabled="!f.title.trim()" />
   </form>
-  <section v-if="v" class="wq-panel p-5">
+  <section v-if="v" data-help="changes-list" class="wq-panel p-5">
     <div class="mb-3"><select v-model="status" class="wq-select w-40"><option value="open">Open</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option><option value="all">All</option></select></div>
     <p v-if="!v.changes.length" class="wq-muted">None.</p>
     <table v-else class="wq-table text-sm"><thead><tr><th>Number</th><th>Title</th><th>Kind</th><th>Status</th><th>Owner</th><th>Target</th><th>Regulatory</th></tr></thead>

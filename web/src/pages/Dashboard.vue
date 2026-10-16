@@ -65,10 +65,10 @@ const pct = (r, k) => { const t = r.met + r.not_met + r.unknown; return t ? (100
 
 <template>
   <PageTop title="Dashboard">
-    <span v-if="v" class="hidden text-sm text-ink-gray-5 md:inline">As of {{ v.as_of }}<template v-if="v.synced_at">, ERPNext read {{ new Date(v.synced_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) }}</template></span>
+    <span v-if="v" data-help="dashboard-asof" class="hidden text-sm text-ink-gray-5 md:inline">As of {{ v.as_of }}<template v-if="v.synced_at">, ERPNext read {{ new Date(v.synced_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) }}</template></span>
     <Select v-model="weeks" :options="PERIODS" class="w-32" />
-    <Button v-if="brief" icon-left="lucide-sun" label="Daily brief" @click="showBrief = !showBrief" />
-    <Button icon-left="lucide-monitor" label="Big screen" route="/wall" />
+    <Button v-if="brief" data-help="dashboard-brief" icon-left="lucide-sun" label="Daily brief" @click="showBrief = !showBrief" />
+    <Button data-help="dashboard-wall" icon-left="lucide-monitor" label="Big screen" route="/wall" />
   </PageTop>
 
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
@@ -80,12 +80,12 @@ const pct = (r, k) => { const t = r.met + r.not_met + r.unknown; return t ? (100
   </section>
 
   <template v-if="v">
-    <section v-if="v.chain.length" class="ov-hero mb-5 rounded-5 border border-outline-gray-2 bg-surface-base px-5 pb-4 pt-4">
+    <section v-if="v.chain.length" data-help="dashboard-chain" class="ov-hero mb-5 rounded-5 border border-outline-gray-2 bg-surface-base px-5 pb-4 pt-4">
       <h2 class="mb-3 text-base font-semibold text-ink-gray-9">From purchase order to payment</h2>
       <FlowChain :steps="v.chain" :returns="v.returns" />
     </section>
 
-    <section class="cards mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+    <section data-help="dashboard-lights" class="cards mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
       <article v-for="p in panels" :key="p.key" class="light-tile cursor-pointer rounded-5 border border-outline-gray-2 bg-surface-base p-3"
                :class="fresh.has(`${p.key}:light`) ? 'flash' : ''" tabindex="0" @click="go(p.key)" @keydown.enter="go(p.key)">
         <div class="flex items-center gap-2">
@@ -99,7 +99,7 @@ const pct = (r, k) => { const t = r.met + r.not_met + r.unknown; return t ? (100
       </article>
     </section>
 
-    <section v-if="v.waiting.length" class="waiting mb-5 rounded-5 border border-outline-gray-2 bg-surface-base p-4">
+    <section v-if="v.waiting.length" data-help="dashboard-waiting" class="waiting mb-5 rounded-5 border border-outline-gray-2 bg-surface-base p-4">
       <h2 class="mb-2 text-base font-semibold text-ink-gray-9">Waiting for people</h2>
       <ul class="flex flex-wrap gap-2">
         <li v-for="w in v.waiting" :key="w.kind">
@@ -109,7 +109,7 @@ const pct = (r, k) => { const t = r.met + r.not_met + r.unknown; return t ? (100
       </ul>
     </section>
 
-    <section class="panels grid gap-4 lg:grid-cols-2">
+    <section data-help="dashboard-panels" class="panels grid gap-4 lg:grid-cols-2">
       <article v-for="p in panels" :id="`panel-${p.key}`" :key="p.key" class="panel scroll-mt-4 rounded-5 border border-outline-gray-2 bg-surface-base p-4">
         <header class="mb-2 flex items-baseline justify-between gap-3">
           <h2 class="flex items-center gap-2 text-base font-semibold text-ink-gray-9">
@@ -146,7 +146,7 @@ const pct = (r, k) => { const t = r.met + r.not_met + r.unknown; return t ? (100
       </article>
     </section>
 
-    <details v-if="v.can_configure" class="targets mt-6 rounded-5 border border-outline-gray-2 bg-surface-base p-4">
+    <details v-if="v.can_configure" data-help="dashboard-targets" class="targets mt-6 rounded-5 border border-outline-gray-2 bg-surface-base p-4">
       <summary class="cursor-pointer text-base font-semibold text-ink-gray-9">Targets and big screen</summary>
       <p class="mt-2 max-w-3xl text-sm text-ink-gray-6">Each light turns green or amber at your company's targets. The values here are starting points
         until you change them. In visitor mode the big screen shows no amounts of money and no names.</p>
@@ -159,7 +159,7 @@ const pct = (r, k) => { const t = r.met + r.not_met + r.unknown; return t ? (100
       </div>
     </details>
 
-    <section class="mt-6">
+    <section data-help="dashboard-attention" class="mt-6">
       <div class="mb-3 flex items-center justify-between">
         <h2 class="text-base font-semibold text-ink-gray-9">Needs attention</h2>
         <RouterLink to="/anomalies" class="text-sm text-ink-gray-5 hover:text-ink-gray-8">All anomalies</RouterLink>

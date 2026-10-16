@@ -103,12 +103,12 @@ function to(p, c) {
 <template>
   <PageTop>
     <template #title>Quality system</template>
-    <Button icon-left="lucide-settings-2" label="Set up" route="/system/setup" />
-    <Button v-if="v?.enabled" icon-left="lucide-list-todo" label="Gap report" route="/system/gaps" />
-    <Button v-if="v?.enabled" icon-left="lucide-clipboard-check" label="Audit checklist" route="/system/audit" />
-    <Button v-if="v?.enabled && latest && v.can_check" icon-left="lucide-refresh-cw" label="Check now" :loading="busy" @click="evaluate" />
+    <Button data-help="qms-setup" icon-left="lucide-settings-2" label="Set up" route="/system/setup" />
+    <Button v-if="v?.enabled" data-help="qms-gaps" icon-left="lucide-list-todo" label="Gap report" route="/system/gaps" />
+    <Button v-if="v?.enabled" data-help="qms-audit" icon-left="lucide-clipboard-check" label="Audit checklist" route="/system/audit" />
+    <Button v-if="v?.enabled && latest && v.can_check" data-help="qms-check-now" icon-left="lucide-refresh-cw" label="Check now" :loading="busy" @click="evaluate" />
   </PageTop>
-  <div v-if="stds.length > 1" class="standards mb-4 flex flex-wrap items-center gap-2" role="tablist" aria-label="Standard">
+  <div v-if="stds.length > 1" data-help="qms-standards" class="standards mb-4 flex flex-wrap items-center gap-2" role="tablist" aria-label="Standard">
     <Button v-for="s in stds" :key="s.standard" :variant="s.standard === standard ? 'solid' : 'subtle'" role="tab"
             :aria-selected="s.standard === standard" @click="choose(s.standard)">
       {{ s.name }}<span v-if="s.adopted" class="ms-1 opacity-70">· {{ s.edition }}</span></Button>
@@ -117,7 +117,7 @@ function to(p, c) {
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
 
   <template v-if="v && !v.enabled">
-    <section class="wq-panel max-w-3xl p-5">
+    <section data-help="qms-adopt" class="wq-panel max-w-3xl p-5">
       <h2 class="wq-h2">{{ v.label }}</h2>
       <p class="mb-3 text-base text-ink-gray-7">WenQuest Ops turns the standard into control points and checks each one against your records: nonconformances,
         corrective actions, inspections and the document library. Each answer is met, not met or unknown, with the records behind it.
@@ -152,14 +152,14 @@ function to(p, c) {
         <template v-if="!latest">Showing the check of {{ v.evaluation.day }} ({{ v.evaluation.trigger }}){{ v.shown_pack.id !== v.enabled.id ? `, made under pack version ${v.shown_pack.version}` : '' }}.
           <RouterLink to="/system" class="wq-link">Show the latest</RouterLink></template>
         <template v-else>Checked {{ ago(v.evaluation.at) }} ({{ v.evaluation.trigger }}). Looks at the last {{ v.settings.window_days }} days; checked again every day.</template></p>
-      <div class="flex flex-wrap gap-2">
+      <div data-help="qms-filter" class="flex flex-wrap gap-2">
         <button v-for="k in ['all', ...ORDER]" :key="k" class="rounded-3 border px-3 py-1.5 text-sm"
                 :class="filter === k ? 'border-outline-gray-4 bg-surface-gray-3 text-ink-gray-9' : 'border-outline-gray-2 text-ink-gray-7'" @click="filter = k">
           {{ k === 'all' ? 'All' : S[k].label }} <span class="ms-1 font-semibold">{{ k === 'all' ? Object.values(counts).reduce((a, b) => a + b, 0) : counts[k] || 0 }}</span></button>
       </div>
     </section>
 
-    <section class="registers wq-panel mb-5 p-5">
+    <section data-help="qms-registers" class="registers wq-panel mb-5 p-5">
       <h2 class="wq-h2">Registers</h2>
       <p class="wq-muted mb-3">The records the standard asks for that are not nonconformances or documents. The checks read them.</p>
       <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -171,7 +171,7 @@ function to(p, c) {
       </div>
     </section>
 
-    <section v-for="p in v.processes" v-show="p.controls.some(shown)" :key="p.id" class="process wq-panel mb-4 p-5">
+    <section v-for="p in v.processes" v-show="p.controls.some(shown)" :key="p.id" data-help="qms-process" class="process wq-panel mb-4 p-5">
       <h2 class="wq-h2">{{ p.label }}</h2>
       <article v-for="c in sorted(p.controls).filter(shown)" :key="c.id" class="control border-t border-outline-gray-1 py-3 first:border-t-0">
         <div class="flex flex-wrap items-start gap-2">
@@ -223,7 +223,7 @@ function to(p, c) {
       </article>
     </section>
 
-    <section v-if="latest" class="settings wq-panel mb-4 p-5">
+    <section v-if="latest" data-help="qms-settings" class="settings wq-panel mb-4 p-5">
       <h2 class="wq-h2">Settings</h2>
       <p class="wq-muted mb-3">Your company's values. The rules marked as ours are one way to show a requirement is met; switch them off and link
         your own procedure instead. Changes are recorded and the system is checked again.</p>
@@ -243,7 +243,7 @@ function to(p, c) {
       </div>
     </section>
 
-    <section class="wq-panel p-5">
+    <section data-help="qms-history" class="wq-panel p-5">
       <h2 class="wq-h2">Earlier checks</h2>
       <div class="mb-3 flex flex-wrap items-end gap-2 text-sm">
         <label class="wq-field">Show the check of a day<input v-model="pickDay" type="date" class="wq-input w-44"></label>

@@ -33,7 +33,7 @@ async function ask() {
 </script>
 
 <template>
-  <div v-if="d" class="proposals mt-5 border-t border-outline-gray-1 pt-4">
+  <div v-if="d" data-help="workflow-suggestions" class="proposals mt-5 border-t border-outline-gray-1 pt-4">
     <h3 class="mb-1 text-sm font-semibold text-ink-gray-8">Suggestions from your procedures</h3>
     <p class="wq-muted mb-3 max-w-3xl">The AI reads the procedures you choose and suggests changes to this workflow. Every suggestion quotes the
       procedure; WenQuest Ops checks that the quote is really there and that the change keeps the rules that cannot be switched off.

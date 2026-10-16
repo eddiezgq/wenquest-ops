@@ -79,7 +79,7 @@ const label = (s) => s.replaceAll('_', ' ')
         <p class="mt-4 text-sm"><RouterLink :to="objectPath('Nonconformance', n.name)" class="wq-link">Object page and links</RouterLink></p>
       </section>
 
-      <section v-if="canEdit && !['closed', 'cancelled'].includes(n.status)" class="wq-panel h-fit p-5">
+      <section v-if="canEdit && !['closed', 'cancelled'].includes(n.status)" data-help="ncr-next-step" class="wq-panel h-fit p-5">
         <template v-if="n.status === 'open'">
           <h3 class="text-base font-semibold text-ink-gray-9">Contain</h3><p class="wq-muted mt-1">What was done so bad parts go no further?</p>
           <div class="mt-3 grid gap-2"><input v-model="f.containment" class="wq-input" placeholder="e.g. lot moved to QC Hold, open orders checked">
@@ -110,7 +110,7 @@ const label = (s) => s.replaceAll('_', ' ')
       </section>
     </div>
 
-    <h2 class="wq-h2 mt-8 flex items-center gap-2">8D <Badge v-if="n.eightd?.complete" theme="green" label="complete" /></h2>
+    <h2 data-help="ncr-8d" class="wq-h2 mt-8 flex items-center gap-2">8D <Badge v-if="n.eightd?.complete" theme="green" label="complete" /></h2>
     <div class="wq-panel p-5">
       <div class="grid gap-4 md:grid-cols-2">
         <label v-for="(lbl, k) in n.sections" :key="k" class="wq-field">{{ lbl }}
@@ -130,7 +130,7 @@ const label = (s) => s.replaceAll('_', ' ')
         <span class="text-sm capitalize text-ink-gray-5">{{ c.kind }}</span>
         <Badge :theme="STATUS[c.status] || 'gray'" :label="label(c.status)" class="ms-auto" /></li>
     </ul>
-    <form v-if="canEdit && !['closed', 'cancelled'].includes(n.status)" class="flex flex-wrap gap-2" @submit.prevent="newCapa">
+    <form v-if="canEdit && !['closed', 'cancelled'].includes(n.status)" data-help="ncr-open-capa" class="flex flex-wrap gap-2" @submit.prevent="newCapa">
       <select v-model="capa.kind" class="wq-select"><option value="corrective">Corrective</option><option value="preventive">Preventive</option></select>
       <input v-model="capa.title" class="wq-input max-w-64" placeholder="Title" required><input v-model="capa.description" class="wq-input max-w-80" placeholder="Problem">
       <select v-model="capa.risk" class="wq-select"><option value="low">Low risk</option><option value="medium">Medium risk</option><option value="high">High risk</option></select>
@@ -138,7 +138,7 @@ const label = (s) => s.replaceAll('_', ' ')
     </form>
 
     <OwnFields :record="n" kind="ncr" :can-edit="canEdit" @changed="set" />
-    <h2 class="wq-h2 mt-8">Signatures</h2>
+    <h2 data-help="ncr-signatures" class="wq-h2 mt-8">Signatures</h2>
     <Trail :items="n.signatures" kind="signatures" />
     <h2 class="wq-h2 mt-8">History</h2>
     <Trail :items="n.history" />

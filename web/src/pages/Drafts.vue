@@ -39,14 +39,14 @@ const WHAT = { 'Purchase Order': 'Creates a draft purchase order in ERPNext; sub
 
 <template>
   <PageTop title="Drafts">
-    <select v-model="status" class="wq-select" aria-label="Show">
+    <select v-model="status" data-help="drafts-show" class="wq-select" aria-label="Show">
       <option value="pending">Waiting for you</option><option value="confirmed">Confirmed</option>
       <option value="rejected">Rejected</option><option value="failed">Failed</option><option value="all">All</option></select>
   </PageTop>
   <p class="wq-muted mb-4">Drafts are prepared by the assistant or by people. Nothing is written to ERPNext or sent until someone with the right role confirms.</p>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="!rows.length" class="wq-muted">None.</p>
-  <article v-for="d in rows" :key="d.id" class="draft wq-panel mb-4 p-5">
+  <article v-for="d in rows" :key="d.id" data-help="drafts-item" class="draft wq-panel mb-4 p-5">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex flex-wrap items-center gap-2">
         <h3 class="text-base font-semibold text-ink-gray-9">{{ d.doctype }}</h3>
@@ -87,7 +87,7 @@ const WHAT = { 'Purchase Order': 'Creates a draft purchase order in ERPNext; sub
     <p v-if="d.erp_url" class="mt-3 text-sm text-ink-gray-6">In ERPNext: <a :href="d.erp_url" target="_blank" rel="noopener" class="wq-link">{{ d.erp_name }} ↗</a> (submit it there)</p>
     <p v-if="d.record" class="mt-3 text-sm text-ink-gray-6">Recorded as {{ d.record }}</p>
     <p v-if="d.error" class="wq-error mt-3 text-sm">{{ d.error }}</p>
-    <div v-if="d.status === 'pending' || d.status === 'failed'" class="mt-4 flex flex-wrap items-center gap-2 border-t border-outline-gray-1 pt-4">
+    <div v-if="d.status === 'pending' || d.status === 'failed'" data-help="drafts-decide" class="mt-4 flex flex-wrap items-center gap-2 border-t border-outline-gray-1 pt-4">
       <Button variant="solid" label="Confirm" @click="act(d, 'confirm')" />
       <input v-model="notes[d.id]" class="wq-input max-w-xs" placeholder="Reason, if rejecting">
       <Button label="Reject" @click="act(d, 'reject')" />

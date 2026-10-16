@@ -67,7 +67,7 @@ const label = (d) => [d.number, d.title].filter(Boolean).join(' ') || d.original
   <template v-if="v">
     <p v-if="!v.adopted" class="wq-panel mb-4 p-4 text-base">Adopt the standard on the <RouterLink to="/system" class="wq-link">Quality system</RouterLink> page first.</p>
 
-    <section class="questions wq-panel mb-5 p-5">
+    <section data-help="setup-questions" class="questions wq-panel mb-5 p-5">
       <h2 class="wq-h2">1. About the company</h2>
       <p class="wq-muted mb-3">The answers say which requirements may not apply. Nothing changes until you declare it with your password.</p>
       <div class="grid gap-3 md:grid-cols-2">
@@ -79,7 +79,7 @@ const label = (d) => [d.number, d.title].filter(Boolean).join(' ') || d.original
         </label>
       </div>
       <div v-if="v.can_configure" class="mt-3"><Button label="Save the answers" :loading="busy === 'save'" @click="save" /></div>
-      <div v-if="v.proposed.length" class="mt-4">
+      <div v-if="v.proposed.length" data-help="setup-declare" class="mt-4">
         <p class="mb-1 text-sm font-medium text-ink-gray-8">What the answers say</p>
         <ul class="mb-3 text-sm"><li v-for="p in v.proposed" :key="p.control">
           <Badge :theme="p.applies ? 'green' : 'blue'" :label="p.applies ? 'applies' : 'does not apply'" /> {{ p.control.replace('_', ' ') }}: {{ p.reason }}
@@ -91,7 +91,7 @@ const label = (d) => [d.number, d.title].filter(Boolean).join(' ') || d.original
       </div>
     </section>
 
-    <section class="suggestions wq-panel mb-5 p-5">
+    <section data-help="setup-procedures" class="suggestions wq-panel mb-5 p-5">
       <h2 class="wq-h2">2. From your own procedures</h2>
       <p class="wq-muted mb-3">The AI reads the procedures you choose and suggests settings, what does not apply and which procedure shows a requirement.
         Each suggestion quotes the procedure; WenQuest Ops checks the quote. You accept or reject each one. Workflow changes are suggested on the Quality → Workflows page.</p>
@@ -126,7 +126,7 @@ const label = (d) => [d.number, d.title].filter(Boolean).join(' ') || d.original
       </div>
     </section>
 
-    <section class="written wq-panel p-5">
+    <section data-help="setup-written" class="written wq-panel p-5">
       <h2 class="wq-h2">3. Procedures written from the workflow</h2>
       <p class="wq-muted mb-3">WenQuest Ops writes the procedure from the workflow in use, so the procedure says what the system does. It goes into Documents
         to review and is in effect once someone else approves it. Write it again after the workflow changes.</p>

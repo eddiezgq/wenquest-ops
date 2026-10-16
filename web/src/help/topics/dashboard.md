@@ -3,6 +3,80 @@ title: Dashboard
 group: Daily work
 order: 1
 summary: The whole business at a glance, and the big screen for visitors.
+try:
+  - id: as-of
+    text: Sign in as **Dana** (Owner) and open the *Dashboard*. In a wide window, read the line next to the page title.
+    to: /
+    expect: '"As of" a date, and the time ERPNext was last read.'
+    tour:
+      - target: '[data-help="dashboard-asof"]'
+        text: The day the figures are counted for and the last time WenQuest Ops read ERPNext.
+  - id: chain
+    text: In *From purchase order to payment*, click a step shown in red.
+    to: /
+    expect: the page with what is stuck there, for example purchase orders past their required-by date.
+    tour:
+      - target: '[data-help="dashboard-chain"]'
+        text: Each step shows what is there now. Red means something is stuck. Complaints and recalls are shown above the end.
+  - id: lights
+    text: Go back to the dashboard. Hover the number on the *Purchasing* light, then click the light.
+    to: /
+    expect: the number it is judged on and its green and amber targets; then the page scrolls to the Purchasing panel.
+    tour:
+      - target: '[data-help="dashboard-lights"]'
+        text: Green is on target, amber is to watch, red is to act on, grey is not enough data.
+      - target: '[data-help="dashboard-panels"]'
+        text: One panel for each part of the business, with its figures, curves and the records behind them.
+  - id: waiting
+    text: Find *Waiting for people* and click *Overdue quality actions*.
+    to: /
+    expect: '"Overdue quality actions" in red, because a step of the demo corrective action is past its date. The click opens *Quality*.'
+    tour:
+      - target: '[data-help="dashboard-waiting"]'
+        text: What waits for you. Red items are overdue.
+  - id: brief
+    text: Choose *Daily brief*.
+    to: /
+    expect: the latest brief, with its date, written from the records.
+    tour:
+      - target: '[data-help="dashboard-brief"]'
+        text: Written every morning at 7:30, company time. Each role sees its own part.
+  - id: big-screen
+    text: Choose *Big screen*. Press the right arrow, then space to pause, then Esc to leave.
+    to: /
+    expect: large type, a new scene each time, no amounts of money and no customer or supplier names.
+    tour:
+      - target: '[data-help="dashboard-wall"]'
+        text: The dashboard for a TV in the office or on the shop floor.
+  - id: targets
+    text: At the bottom, open *Targets and big screen*.
+    to: /
+    expect: a green and an amber value for each light, and the visitor mode switch.
+    tour:
+      - target: '[data-help="dashboard-targets"]'
+        text: Only the owner sees this. The values are starting points until you save your own.
+  - id: sales-view
+    text: Sign out and sign in as **Alex** (Sales). Open the *Dashboard*.
+    to: /
+    expect: only the Sales, Delivery and Inventory lights, no Finance panel and no *Targets and big screen*.
+blocks:
+  - text: Each role sees only its own lights and panels; finance is shown only to the owner by default.
+    test: tests/test_overview.py::test_what_each_role_sees
+  - text: A light with no data behind it is grey, never green.
+    test: tests/test_overview.py::test_overview_for_the_owner
+  - text: Only the owner changes the targets and visitor mode.
+    test: tests/test_overview.py::test_overview_api
+  - text: A target that is not a number is refused.
+    test: tests/test_overview.py::test_review_fixes
+  - text: In visitor mode the big screen shows no amounts of money, only shares, counts and the shape of the curves.
+    test: tests/test_overview.py::test_wall_and_settings
+questions:
+  - q: Why is a light grey?
+    a: There is not enough data to judge it, for example fewer than 8 weeks of orders for Sales, or no lots released for Production.
+  - q: How fresh are the numbers?
+    a: WenQuest Ops reads ERPNext every 5 minutes. The dashboard checks for new figures every minute and lights up the ones that changed.
+  - q: Who sets the targets?
+    a: The owner, in *Targets and big screen* at the bottom of the dashboard. Only values that differ from the starting points are kept.
 ---
 
 The dashboard shows the whole business at once. Everything on it is counted by WenQuest Ops from ERPNext and its own
@@ -35,8 +109,8 @@ points: the owner sets the company's own. Hover a light to see its target.
 orders, items or customers behind it. Finance (invoices, receivables, payables) is shown only to people allowed to see
 it (the owner by default).
 
-**Waiting for people.** What waits for you: documents to read, drafts to confirm, lots to release, changes and risk
-files to approve, and overdue quality actions in red.
+**Waiting for people.** What waits for you: documents to read, drafts to confirm, incoming and production lots to
+release, changes, risk files and calibrations to approve, and overdue quality actions in red.
 
 **Daily brief.** Every morning at 7:30 (company time) the system writes a short brief; open it with *Daily brief*.
 

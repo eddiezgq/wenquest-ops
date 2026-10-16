@@ -50,7 +50,7 @@ function saveContact(c) {
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
   <template v-if="r">
     <p v-if="r.after_opening.length" class="wq-error mb-4">Delivered after the recall opened (not on the list): {{ r.after_opening.map((a) => `${a.delivery_note} ${a.customer_name} ${a.qty}`).join('; ') }}.</p>
-    <section class="what wq-panel mb-5 grid gap-3 p-5 md:grid-cols-3">
+    <section data-help="recall-what" class="what wq-panel mb-5 grid gap-3 p-5 md:grid-cols-3">
       <label class="wq-field md:col-span-2">Title<input v-model="f.title" class="wq-input" :disabled="!can('title')"></label>
       <label class="wq-field">Owner<select v-model="f.owner" class="wq-select" :disabled="!can('owner')"><option value="" /><option v-for="p in r.people" :key="p">{{ p }}</option></select></label>
       <label class="wq-field md:col-span-3">Reason<textarea v-model="f.reason" rows="2" class="wq-input" :disabled="!can('reason')" /></label>
@@ -73,7 +73,7 @@ function saveContact(c) {
       </template>
     </section>
 
-    <section v-if="r.status !== 'draft' && r.status !== 'cancelled'" class="consignees wq-panel mb-5 p-5">
+    <section v-if="r.status !== 'draft' && r.status !== 'cancelled'" data-help="recall-consignees" class="consignees wq-panel mb-5 p-5">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 class="wq-h2">Consignees</h2>
         <a :href="`/api/recalls/${r.id}/consignees.csv`" class="wq-link text-sm">Download the list (CSV)</a></div>
       <p class="mb-3 text-sm">Notified {{ pct(eff.notified) }} · confirmed {{ pct(eff.confirmed) }} · recovered {{ pct(eff.recovered) }} ({{ eff.recovered_qty }} of {{ eff.shipped_qty }})</p>
@@ -91,7 +91,7 @@ function saveContact(c) {
         </tr></tbody></table>
     </section>
 
-    <section v-if="r.can_edit && ['draft', 'open'].includes(r.status)" class="steps wq-panel mb-5 p-5">
+    <section v-if="r.can_edit && ['draft', 'open'].includes(r.status)" data-help="recall-steps" class="steps wq-panel mb-5 p-5">
       <template v-if="r.status === 'draft'">
         <p v-if="r.to_open.length" class="mb-2 text-sm text-ink-gray-6">To open: {{ r.to_open.join('; ') }}.</p>
         <Button variant="solid" label="Open the recall" :disabled="!!r.to_open.length || !!Object.keys(changed()).length" @click="call(`/api/recalls/${r.id}/open`, 'POST', {}, 'Open: the consignee list is fixed.')" />

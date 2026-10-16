@@ -39,13 +39,13 @@ const assess = (i) => call(`/api/gauge-impacts/${i.id}/assess`, 'POST', { passwo
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
   <template v-if="g">
     <section class="wq-panel mb-5 p-5 text-sm">
-      <p class="mb-2 text-base" :class="g.usable ? 'text-ink-green-7' : 'text-ink-amber-7'">{{ g.usable ? 'Can be used: ' : 'Cannot be used: ' }}{{ g.why }}</p>
+      <p data-help="gauge-usable" class="mb-2 text-base" :class="g.usable ? 'text-ink-green-7' : 'text-ink-amber-7'">{{ g.usable ? 'Can be used: ' : 'Cannot be used: ' }}{{ g.why }}</p>
       <p class="text-ink-gray-7">{{ [g.kind, g.range_text, g.location, `calibrated every ${g.interval_months} months`].filter(Boolean).join(' · ') }}
         <template v-if="g.acceptance"> · acceptance: {{ g.acceptance }}</template><template v-if="g.traceability"> · traceable to {{ g.traceability }}</template></p>
       <p v-if="g.retired_reason" class="text-ink-gray-7">Retired: {{ g.retired_reason }}</p>
     </section>
 
-    <section v-for="i in g.impacts.filter((x) => x.status === 'open')" :key="i.id" class="impact mb-5 rounded-5 border border-outline-red-2 bg-surface-red-1 p-5 text-sm">
+    <section v-for="i in g.impacts.filter((x) => x.status === 'open')" :key="i.id" data-help="gauge-impact" class="impact mb-5 rounded-5 border border-outline-red-2 bg-surface-red-1 p-5 text-sm">
       <h2 class="wq-h2">Found out of tolerance: what it measured</h2>
       <p class="mb-2 text-ink-gray-8">{{ i.inspections.length }} incoming inspections since {{ i.since || 'it was registered' }}:
         <RouterLink v-for="x in i.inspections" :key="x.id" :to="`/quality/iqc/${x.id}`" class="wq-link me-2">{{ x.name }} ({{ x.item_code }}, {{ x.result }})</RouterLink></p>
@@ -64,7 +64,7 @@ const assess = (i) => call(`/api/gauge-impacts/${i.id}/assess`, 'POST', { passwo
 
     <section class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">Calibrations</h2>
-      <form v-if="g.can_edit && g.status !== 'retired'" class="mb-4 grid gap-2 md:grid-cols-6" @submit.prevent="record">
+      <form v-if="g.can_edit && g.status !== 'retired'" data-help="gauge-record" class="mb-4 grid gap-2 md:grid-cols-6" @submit.prevent="record">
         <label class="wq-field">Date<input v-model="cal.done_on" type="date" class="wq-input"></label>
         <label class="wq-field">By (in house or laboratory)<input v-model="cal.done_by" class="wq-input"></label>
         <label class="wq-field">Certificate<input v-model="cal.certificate" class="wq-input"></label>
@@ -74,7 +74,7 @@ const assess = (i) => call(`/api/gauge-impacts/${i.id}/assess`, 'POST', { passwo
         <div><Button type="submit" label="Record" :disabled="!cal.done_by.trim()" /></div>
       </form>
       <p v-if="!g.calibrations.length" class="wq-muted">None yet.</p>
-      <table v-else class="wq-table text-sm"><thead><tr><th>Date</th><th>By</th><th>Certificate</th><th>Result</th><th>As found / as left</th><th>Status</th><th /></tr></thead>
+      <table v-else data-help="gauge-calibrations" class="wq-table text-sm"><thead><tr><th>Date</th><th>By</th><th>Certificate</th><th>Result</th><th>As found / as left</th><th>Status</th><th /></tr></thead>
         <tbody><tr v-for="c in g.calibrations" :key="c.id">
           <td>{{ c.done_on }}</td><td>{{ c.done_by }}</td><td>{{ c.certificate }}</td>
           <td><Badge :theme="c.result === 'pass' ? 'green' : 'red'" :label="c.result === 'pass' ? 'pass' : 'out of tolerance'" /></td>

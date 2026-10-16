@@ -66,7 +66,7 @@ const docName = (d) => [d.number, d.title, d.revision ? `rev ${d.revision}` : ''
         <option v-for="d in meta.documents.filter((d) => d.status === 'effective')" :key="d.id" :value="d.id">{{ docName(d) }}</option></select></label>
     </section>
 
-    <section class="assess wq-panel mb-5 p-5">
+    <section data-help="change-assess" class="assess wq-panel mb-5 p-5">
       <h2 class="wq-h2">Assessment</h2>
       <div v-for="(q, k) in c.questions" :key="k" class="mb-2 text-sm"><p class="text-ink-gray-8">{{ q }}</p>
         <label class="me-4"><input v-model="f[k]" type="radio" value="yes" :disabled="!can(k)"> yes</label><label><input v-model="f[k]" type="radio" value="no" :disabled="!can(k)"> no</label></div>
@@ -75,7 +75,7 @@ const docName = (d) => [d.number, d.title, d.revision ? `rev ${d.revision}` : ''
       <label v-if="f.q_validation === 'yes'" class="wq-field mt-2">Verification or validation plan<textarea v-model="f.validation_plan" rows="2" class="wq-input" :disabled="!can('validation_plan')" /></label>
     </section>
 
-    <section v-if="['approved', 'implemented', 'closed'].includes(c.status)" class="impl wq-panel mb-5 p-5">
+    <section v-if="['approved', 'implemented', 'closed'].includes(c.status)" data-help="change-impl" class="impl wq-panel mb-5 p-5">
       <h2 class="wq-h2">Implementation</h2>
       <label v-if="c.documents.length" class="wq-field mb-2">The new revisions<select v-model="f.revisions" multiple class="wq-select h-24" :disabled="!can('revisions')">
         <option v-for="d in newRevs" :key="d.id" :value="d.id">{{ docName(d) }} ({{ d.status }})</option></select></label>
@@ -84,7 +84,7 @@ const docName = (d) => [d.number, d.title, d.revision ? `rev ${d.revision}` : ''
       <label v-if="c.status !== 'approved'" class="wq-field">Effectiveness check<textarea v-model="f.effectiveness" rows="2" class="wq-input" :disabled="!can('effectiveness')" /></label>
     </section>
 
-    <section v-if="c.can_edit && !['closed', 'cancelled'].includes(c.status)" class="steps wq-panel mb-5 p-5">
+    <section v-if="c.can_edit && !['closed', 'cancelled'].includes(c.status)" data-help="change-steps" class="steps wq-panel mb-5 p-5">
       <div class="flex flex-wrap items-end gap-2">
         <Button label="Save" :disabled="!Object.keys(changes()).length" @click="save" />
         <Button v-if="draft" variant="solid" label="Submit" :disabled="!!Object.keys(changes()).length || !!c.to_submit.length" @click="act('submit', {}, 'Submitted: what was assessed is fixed now.')" />

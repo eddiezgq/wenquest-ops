@@ -60,7 +60,7 @@ const approvable = (e) => ['draft', 'suspended', 'approved', 'conditional'].incl
       <template v-else>The list is not enforced at incoming inspection (see the settings below).</template>
       Purchase order drafts show any item the supplier is not approved for.</p>
 
-    <section v-if="v.can_configure" class="wq-panel mb-5 p-5">
+    <section v-if="v.can_configure" data-help="asl-enter" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">Enter a supplier</h2>
       <form class="grid gap-3 md:grid-cols-5" @submit.prevent="add">
         <label class="wq-field">Supplier<select v-model="form.supplier" class="wq-select"><option value="" /><option v-for="s in v.suppliers" :key="s.key" :value="s.key">{{ s.name }}</option></select></label>
@@ -77,7 +77,7 @@ const approvable = (e) => ['draft', 'suspended', 'approved', 'conditional'].incl
       </div>
     </section>
 
-    <section class="wq-panel mb-5 p-5">
+    <section data-help="asl-list" class="wq-panel mb-5 p-5">
       <p v-if="!v.entries.length" class="wq-muted">No suppliers on the list yet.</p>
       <div v-else class="overflow-x-auto"><table class="wq-table text-sm">
         <thead><tr><th>Supplier</th><th>Item</th><th>Status</th><th>Risk</th><th>Re-evaluate by</th><th>Lots</th><th>Rejected</th><th>Open NCRs</th><th /></tr></thead>
@@ -90,7 +90,7 @@ const approvable = (e) => ['draft', 'suspended', 'approved', 'conditional'].incl
             <td>{{ e.lots }}</td><td>{{ e.reject_rate === null ? '–' : `${e.reject_rate}%` }}</td><td>{{ e.open_ncrs }}</td>
             <td><Button size="sm" variant="ghost" :label="open === e.id ? 'Close' : 'Open'" @click="toggle(e)" /></td>
           </tr>
-          <tr v-if="open === e.id"><td colspan="9" class="bg-surface-gray-1">
+          <tr v-if="open === e.id"><td colspan="9" data-help="asl-entry" class="bg-surface-gray-1">
             <p class="mb-2 text-ink-gray-7"><b>Basis:</b> {{ e.basis || '–' }}<template v-if="e.condition"> · <b>Conditions:</b> {{ e.condition }}</template>
               <template v-if="e.approved_by"> · approved by {{ e.approved_by }} {{ ago(e.approved_at) }}</template><template v-if="e.source"> · {{ e.source }}</template></p>
             <template v-if="v.can_configure">
@@ -118,7 +118,7 @@ const approvable = (e) => ['draft', 'suspended', 'approved', 'conditional'].incl
         </template></tbody></table></div>
     </section>
 
-    <section class="wq-panel p-5">
+    <section data-help="asl-settings" class="wq-panel p-5">
       <h2 class="wq-h2">Settings</h2>
       <label v-for="(label, k) in v.setting_labels" :key="k" class="mb-2 flex items-center gap-2 text-sm">
         <input type="checkbox" class="form-checkbox" :checked="v.settings[k]" :disabled="!v.can_configure"

@@ -57,14 +57,14 @@ function to(p, gap) {
 <template>
   <PageTop :crumbs="[{ label: 'Quality system', to: '/system' }]">
     <template #title>Gap report{{ g ? ` · ${g.name}` : '' }}</template>
-    <Button v-if="g?.can_edit" icon-left="lucide-list-plus" label="A to-do for every gap" @click="addAll" />
+    <Button v-if="g?.can_edit" data-help="gaps-todo-all" icon-left="lucide-list-plus" label="A to-do for every gap" @click="addAll" />
     <Button icon-left="lucide-printer" label="Print" @click="print" />
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
 
   <template v-if="g">
-    <p class="wq-muted mb-4 max-w-3xl">{{ g.edition_label }}, checked {{ ago(g.evaluation?.at) }}: {{ g.counts.not_met }} not met,
+    <p data-help="gaps-summary" class="wq-muted mb-4 max-w-3xl">{{ g.edition_label }}, checked {{ ago(g.evaluation?.at) }}: {{ g.counts.not_met }} not met,
       {{ g.counts.unknown }} unknown, {{ g.counts.with_todo }} with a to-do. A to-do is closed by the check once its point is met.</p>
     <p v-if="!g.processes.length" class="wq-panel p-5 text-base text-ink-green-7">No gaps: every control point is met or does not apply.</p>
     <section v-for="p in g.processes" :key="p.id" class="wq-panel mb-4 p-5">
@@ -88,7 +88,7 @@ function to(p, gap) {
             </p>
           </div>
         </div>
-        <div class="mt-2 ms-0 rounded-4 bg-surface-gray-1 p-3 text-sm">
+        <div data-help="gaps-todo" class="mt-2 ms-0 rounded-4 bg-surface-gray-1 p-3 text-sm">
           <template v-if="gap.todo">
             <div class="flex flex-wrap items-center gap-2">
               <span class="font-medium text-ink-gray-8">To-do:</span><span>{{ gap.todo.title }}</span>
@@ -118,7 +118,7 @@ function to(p, gap) {
     </section>
 
     <section class="wq-panel p-5">
-      <label class="inline-flex items-center gap-1.5 text-sm text-ink-gray-7"><input v-model="showClosed" type="checkbox" class="form-checkbox">Show closed to-dos ({{ closed.length }})</label>
+      <label data-help="gaps-closed" class="inline-flex items-center gap-1.5 text-sm text-ink-gray-7"><input v-model="showClosed" type="checkbox" class="form-checkbox">Show closed to-dos ({{ closed.length }})</label>
       <table v-if="showClosed && closed.length" class="wq-table mt-3 text-sm"><thead><tr><th>To-do</th><th>Status</th><th>By</th><th>Note</th></tr></thead>
         <tbody><tr v-for="t in closed" :key="t.id"><td>{{ t.title }}</td><td>{{ t.status }}</td><td>{{ t.closed_by }} {{ ago(t.closed_at) }}</td><td>{{ t.note }}</td></tr></tbody></table>
     </section>

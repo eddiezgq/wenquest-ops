@@ -38,7 +38,7 @@ async function startRecall() {
 <template>
   <PageTop :crumbs="[{ label: 'Quality', to: '/quality' }]"><template #title>Trace</template></PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
-  <form class="pick wq-panel mb-5 flex flex-wrap items-end gap-3 p-5" @submit.prevent="go">
+  <form data-help="trace-pick" class="pick wq-panel mb-5 flex flex-wrap items-end gap-3 p-5" @submit.prevent="go">
     <label class="wq-field">Start from<select v-model="kind" class="wq-select" @change="id = ''"><option v-for="(l, k) in KINDS" :key="k" :value="k">{{ l }}</option></select></label>
     <label class="wq-field grow">Which<select v-model="id" class="wq-select"><option value="" />
       <option v-for="o in options()" :key="o.id" :value="String(o.id)">{{ o.name }} · {{ o.item_code || '' }} {{ o.lot_no ? `lot ${o.lot_no}` : '' }} {{ o.supplier || o.customer || '' }}</option></select></label>
@@ -49,12 +49,12 @@ async function startRecall() {
     <p v-if="t.note" class="mb-4 rounded-3 border border-outline-amber-3 bg-surface-amber-1 px-3 py-2 text-sm">{{ t.note }}</p>
     <section class="lots wq-panel mb-5 p-5">
       <div class="flex items-center justify-between"><h2 class="wq-h2">Production lots</h2>
-        <Button v-if="t.lots.length && pick" icon-left="lucide-siren" label="Start a recall of these lots" @click="startRecall" /></div>
+        <Button v-if="t.lots.length && pick" data-help="trace-start-recall" icon-left="lucide-siren" label="Start a recall of these lots" @click="startRecall" /></div>
       <p v-if="!t.lots.length" class="wq-muted">None.</p>
       <ul v-else class="text-sm"><li v-for="l in t.lots" :key="l.id"><RouterLink :to="`/quality/production/${l.id}`" class="wq-link">{{ l.name }}</RouterLink> {{ l.item_code }} lot {{ l.lot_no }} · {{ l.status.replace('_', ' ') }} · {{ l.good_qty }} good</li></ul>
       <p v-if="t.recalls?.length" class="mt-2 text-sm text-ink-red-7">On recall: <RouterLink v-for="r in t.recalls" :key="r.id" :to="`/quality/recalls/${r.id}`" class="wq-link me-2">{{ r.name }} ({{ r.status }})</RouterLink></p>
     </section>
-    <section v-if="t.materials" class="back wq-panel mb-5 grid gap-4 p-5 md:grid-cols-2 text-sm">
+    <section v-if="t.materials" data-help="trace-back" class="back wq-panel mb-5 grid gap-4 p-5 md:grid-cols-2 text-sm">
       <div><h2 class="wq-h2">Material lots</h2><p v-if="!t.materials.length" class="wq-muted">None recorded.</p>
         <ul><li v-for="m in t.materials" :key="m.inspection_id + m.item_code"><RouterLink :to="`/quality/iqc/${m.inspection_id}`" class="wq-link">{{ m.inspection }}</RouterLink> {{ m.item_code }} lot {{ m.lot_no || '–' }} · {{ m.supplier }} · {{ m.qty }}<span v-if="m.ncr"> · {{ m.ncr }}</span></li></ul></div>
       <div><h2 class="wq-h2">Equipment</h2><p v-if="!t.gauges.length" class="wq-muted">None named.</p>
@@ -64,7 +64,7 @@ async function startRecall() {
       <div><h2 class="wq-h2">Other lots using the same material lots</h2><p v-if="!t.siblings.length" class="wq-muted">None.</p>
         <ul><li v-for="s in t.siblings" :key="s.id"><RouterLink :to="`/quality/trace?record=${s.id}`" class="wq-link">{{ s.name }}</RouterLink> {{ s.item_code }} lot {{ s.lot_no }} · {{ s.status.replace('_', ' ') }}</li></ul></div>
     </section>
-    <section class="ship wq-panel mb-5 p-5">
+    <section data-help="trace-delivered" class="ship wq-panel mb-5 p-5">
       <h2 class="wq-h2">Delivered (ERPNext delivery notes)</h2>
       <p v-if="t.item_only" class="mb-2 text-sm text-ink-amber-7">{{ t.item_only }} delivery lines of the item carry no batch number we can read (none, or kept in an ERPNext bundle): they may hold these lots.</p>
       <p v-if="!t.shipments.length" class="wq-muted">No delivery found.</p>

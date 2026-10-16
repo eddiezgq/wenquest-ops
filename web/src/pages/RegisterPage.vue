@@ -61,7 +61,7 @@ const show = (f, v) => (v === undefined || v === null ? '' : f.type === 'yesno' 
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
 
   <template v-if="r">
-    <section v-if="r.can_edit" class="entry-form wq-panel mb-5 p-5">
+    <section v-if="r.can_edit" data-help="register-form" class="entry-form wq-panel mb-5 p-5">
       <h2 class="wq-h2">{{ editing ? `Change entry #${editing}` : 'Record an entry' }}</h2>
       <p v-if="r.spec.sign" class="wq-muted mb-3">Entries are approved with a password ("{{ r.spec.sign }}") and then locked; a wrong one is voided with a reason.</p>
       <form class="grid gap-3 md:grid-cols-3" @submit.prevent="save">
@@ -81,7 +81,7 @@ const show = (f, v) => (v === undefined || v === null ? '' : f.type === 'yesno' 
       <p class="wq-muted mt-3">An old spreadsheet of these? Upload it under Documents, open it and choose to import it as "Register: {{ r.spec.label }}".</p>
     </section>
 
-    <section class="wq-panel p-5">
+    <section data-help="register-entries" class="wq-panel p-5">
       <div class="mb-3 flex flex-wrap items-center gap-3">
         <h2 class="wq-h2 m-0">Entries</h2>
         <label class="inline-flex items-center gap-1.5 text-sm text-ink-gray-6"><input v-model="showVoid" type="checkbox" class="form-checkbox">Show void entries</label>

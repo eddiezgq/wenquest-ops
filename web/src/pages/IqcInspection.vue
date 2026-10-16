@@ -79,7 +79,7 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null ?
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
   <template v-if="v">
-    <section class="summary wq-panel mb-5 p-5">
+    <section data-help="iqc-summary" class="summary wq-panel mb-5 p-5">
       <div class="mb-2 flex flex-wrap items-center gap-2">
         <Badge v-bind="ST[v.status]" />
         <Badge v-if="v.result" :theme="v.result === 'accept' ? 'green' : 'red'" :label="v.result === 'accept' ? 'accept' : 'reject'" />
@@ -100,7 +100,7 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null ?
       <p v-if="v.void_reason" class="mt-1 text-sm text-ink-red-7">Void: {{ v.void_reason }}</p>
     </section>
 
-    <section class="readings wq-panel mb-5 p-5">
+    <section data-help="iqc-readings" class="readings wq-panel mb-5 p-5">
       <h2 class="wq-h2">Readings <span class="text-sm font-normal text-ink-gray-5">{{ v.entered }} of {{ v.readings.length }} entered</span></h2>
       <div class="overflow-x-auto"><table class="wq-table text-sm">
         <thead><tr><th>Sample</th><th v-for="c in chars" :key="c.name">{{ c.name }}<span class="block font-normal text-ink-gray-5">{{ limits(c) }}</span>
@@ -126,7 +126,7 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null ?
       </div>
     </section>
 
-    <section v-if="v.status === 'judged' && v.can_edit" class="decide wq-panel mb-5 p-5">
+    <section v-if="v.status === 'judged' && v.can_edit" data-help="iqc-decide" class="decide wq-panel mb-5 p-5">
       <h2 class="wq-h2">{{ v.result === 'accept' ? 'Release the lot' : 'Reject the lot' }}</h2>
       <p class="wq-muted mb-3">Signed by {{ v.signed_by }}. Someone other than the inspector decides; the result goes to ERPNext as a draft to confirm<template v-if="v.result !== 'accept'">, and a nonconformance report is opened</template>.
         <template v-if="v.unverified && v.result === 'accept'"> The sampling table row was not checked against its source: say why it is released anyway.</template></p>

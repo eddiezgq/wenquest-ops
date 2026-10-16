@@ -52,7 +52,7 @@ const draft = () => go('/api/production/templates', tpl.value, (r) => `/quality/
   </form>
 
   <template v-if="v">
-    <section class="records wq-panel mb-5 p-5">
+    <section data-help="production-records" class="records wq-panel mb-5 p-5">
       <div class="mb-3"><select v-model="status" class="wq-select w-40"><option value="open">Open</option><option value="released">Released</option><option value="rejected">Rejected</option><option value="cancelled">Cancelled</option><option value="all">All</option></select></div>
       <p v-if="!v.records.length" class="wq-muted">None.</p>
       <table v-else class="wq-table text-sm"><thead><tr><th>Record</th><th>Item</th><th>Lot</th><th>Status</th><th>Planned</th><th>Good</th><th>Work order</th><th>Started</th></tr></thead>
@@ -61,7 +61,7 @@ const draft = () => go('/api/production/templates', tpl.value, (r) => `/quality/
           <td>{{ r.item_code }}</td><td>{{ r.lot_no }}</td><td><Badge :theme="ST[r.status]" :label="r.status.replace('_', ' ')" /></td>
           <td>{{ r.planned_qty }}</td><td>{{ r.good_qty }}</td><td>{{ r.work_order }}</td><td>{{ r.created_at.slice(0, 10) }}</td></tr></tbody></table>
     </section>
-    <section class="templates wq-panel mb-5 p-5">
+    <section data-help="production-templates" class="templates wq-panel mb-5 p-5">
       <h2 class="wq-h2">Templates</h2>
       <p v-if="!v.templates.length" class="wq-muted">None.</p>
       <table v-else class="wq-table text-sm"><thead><tr><th>Code</th><th>Version</th><th>Item</th><th>Title</th><th>Status</th><th>Steps</th></tr></thead>
