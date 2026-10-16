@@ -2,7 +2,7 @@
  "method": "GET",
  "path": "/api/resource/Purchase Order",
  "params": {
-  "filters": "[[\"modified\", \"=\", \"2026-10-15 22:38:31.014008\"], [\"name\", \">\", \"PUR-ORD-2026-00001\"]]",
+  "filters": "[[\"modified\", \"=\", \"2026-10-16 14:07:20.516857\"], [\"name\", \">\", \"PUR-ORD-2026-00001\"]]",
   "fields": "[\"name\", \"modified\"]",
   "order_by": "name asc",
   "limit_start": "0",

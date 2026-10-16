@@ -2,7 +2,7 @@
  "method": "GET",
  "path": "/api/resource/Stock Ledger Entry",
  "params": {
-  "filters": "[[\"modified\", \"=\", \"2026-10-15 22:38:29.529511\"], [\"name\", \">\", \"b3487413da\"]]",
+  "filters": "[[\"modified\", \"=\", \"2026-10-16 14:07:18.969413\"], [\"name\", \">\", \"8b3815d461\"]]",
   "fields": "[\"*\"]",
   "order_by": "name asc",
   "limit_start": "0",

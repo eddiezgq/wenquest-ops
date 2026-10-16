@@ -2,7 +2,7 @@
  "method": "GET",
  "path": "/api/resource/Supplier",
  "params": {
-  "filters": "[[\"modified\", \"=\", \"2026-10-15 22:38:29.173091\"], [\"name\", \">\", \"CI Gulf Fasteners (Demo)\"]]",
+  "filters": "[[\"modified\", \"=\", \"2026-10-16 14:07:18.699006\"], [\"name\", \">\", \"CI Gulf Fasteners (Demo)\"]]",
   "fields": "[\"*\"]",
   "order_by": "name asc",
   "limit_start": "0",

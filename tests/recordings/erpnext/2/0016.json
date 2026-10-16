@@ -7,8 +7,8 @@
   "data": {
    "name": "PUR-ORD-2026-00001",
    "owner": "Administrator",
-   "creation": "2026-10-15 22:38:29.754317",
-   "modified": "2026-10-15 22:38:31.014008",
+   "creation": "2026-10-16 14:07:19.124889",
+   "modified": "2026-10-16 14:07:20.516857",
    "modified_by": "Administrator",
    "docstatus": 1,
    "idx": 0,
@@ -16,7 +16,7 @@
    "supplier": "CI Gulf Fasteners (Demo)",
    "supplier_name": "CI Gulf Fasteners (Demo)",
    "transaction_date": "2026-10-16",
-   "transaction_time": "22:38:29.690624",
+   "transaction_time": "14:07:19.079246",
    "schedule_date": "2026-10-23",
    "company": "Harbor Lane Supply (Demo)",
    "is_subcontracted": 0,
@@ -74,10 +74,10 @@
    "doctype": "Purchase Order",
    "items": [
     {
-     "name": "3bp1vni07t",
+     "name": "3j7k44397c",
      "owner": "Administrator",
-     "creation": "2026-10-15 22:38:29.754317",
-     "modified": "2026-10-15 22:38:31.014008",
+     "creation": "2026-10-16 14:07:19.124889",
+     "modified": "2026-10-16 14:07:20.516857",
      "modified_by": "Administrator",
      "docstatus": 1,
      "idx": 1,
@@ -141,10 +141,10 @@
    "item_wise_tax_details": [],
    "payment_schedule": [
     {
-     "name": "3bqaiqekl8",
+     "name": "3j8sh09oit",
      "owner": "Administrator",
-     "creation": "2026-10-15 22:38:29.864472",
-     "modified": "2026-10-15 22:38:31.014008",
+     "creation": "2026-10-16 14:07:19.215593",
+     "modified": "2026-10-16 14:07:20.516857",
      "modified_by": "Administrator",
      "docstatus": 1,
      "idx": 1,
