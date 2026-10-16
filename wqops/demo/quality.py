@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterator
 
 from wqops.demo import scenario as S
 
-DANA, SAM, LEE, PAT, JORDAN = (f"{n}@demo.example" for n in ("dana", "sam", "lee", "pat", "jordan"))
+DANA, SAM, PAT, JORDAN = (f"{n}@demo.example" for n in ("dana", "sam", "pat", "jordan"))
 SIGN = "demo-installer"        # stands for the password while the demo history is written (see the module docstring)
 
 
@@ -157,8 +157,8 @@ def incoming(conn, today: dt.date) -> str:
         done.append(ins["name"])
     rec = _receipts(conn, "OUTLET-DUP")
     if rec:
-        ins = I.start(conn, LEE, "OUTLET-DUP", receipt=rec[0], lot_no="BE-2610", today=today)
-        I.enter(conn, LEE, ins["id"], [{"sample": 1, "characteristic": "Housing undamaged", "passed": True},
+        ins = I.start(conn, SAM, "OUTLET-DUP", receipt=rec[0], lot_no="BE-2610", today=today)
+        I.enter(conn, SAM, ins["id"], [{"sample": 1, "characteristic": "Housing undamaged", "passed": True},
                                        {"sample": 1, "characteristic": "Terminal screws present", "passed": True}])
         done.append(ins["name"])
     return f"2 plans in use; inspections {', '.join(done)} (released, rejected, waiting, under way)"
@@ -300,20 +300,20 @@ def production(conn, today: dt.date) -> str:
         PRD.add_step(conn, JORDAN, t["id"], st)
     PRD.update_template(conn, JORDAN, t["id"], {"materials": ["BOX-12"]})
     PRD.activate(conn, _u(conn, DANA), t["id"], SIGN)
-    lee = _u(conn, LEE)
+    sam = _u(conn, SAM)       # recording needs quality:edit: the operations manager
     box = conn.execute("select id, lot_qty from iqc_inspections where item_code = 'BOX-12' and status = 'released' "
                        "order by id limit 1").fetchone()
-    a = PRD.start(conn, LEE, {"template_id": t["id"], "lot_no": f"KIT-{today:%y%m}-01", "planned_qty": 20})
-    PRD.record_step(conn, lee, a["id"], 1, SIGN, {"result": "pass"}, today=today)
-    PRD.record_step(conn, lee, a["id"], 2, SIGN, {"value": 1.02}, today=today)
-    PRD.record_step(conn, lee, a["id"], 3, SIGN, {"text": "L-004512"}, today=today)
+    a = PRD.start(conn, SAM, {"template_id": t["id"], "lot_no": f"KIT-{today:%y%m}-01", "planned_qty": 20})
+    PRD.record_step(conn, sam, a["id"], 1, SIGN, {"result": "pass"}, today=today)
+    PRD.record_step(conn, sam, a["id"], 2, SIGN, {"value": 1.02}, today=today)
+    PRD.record_step(conn, sam, a["id"], 3, SIGN, {"text": "L-004512"}, today=today)
     if box:
-        PRD.add_material(conn, LEE, a["id"], box["id"], min(20, box["lot_qty"]))
-    PRD.set_quantities(conn, LEE, a["id"], {"good_qty": 20, "scrap_qty": 0})
-    PRD.submit(conn, LEE, a["id"])
+        PRD.add_material(conn, SAM, a["id"], box["id"], min(20, box["lot_qty"]))
+    PRD.set_quantities(conn, SAM, a["id"], {"good_qty": 20, "scrap_qty": 0})
+    PRD.submit(conn, SAM, a["id"])
     PRD.decide(conn, _u(conn, DANA), a["id"], SIGN, True, "Released")
-    b = PRD.start(conn, LEE, {"template_id": t["id"], "lot_no": f"KIT-{today:%y%m}-02", "planned_qty": 20})
-    PRD.record_step(conn, lee, b["id"], 1, SIGN, {"result": "pass"}, today=today)
+    b = PRD.start(conn, SAM, {"template_id": t["id"], "lot_no": f"KIT-{today:%y%m}-02", "planned_qty": 20})
+    PRD.record_step(conn, sam, b["id"], 1, SIGN, {"result": "pass"}, today=today)
     return "template KIT-M8 in use; one lot released, one in production"
 
 
