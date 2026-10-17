@@ -13,6 +13,7 @@ DECISION = ["hub/quality/records.py", "hub/quality/auto.py", "hub/quality/incomi
             "hub/ont/metrics.py", "hub/ont/anomaly.py", "hub/ont/chain.py",
             "hub/docs/library.py", "hub/docs/classify.py", "hub/docs/extract.py", "hub/docs/store.py",
             "hub/docs/checks.py", "hub/docs/ledger.py", "hub/docs/ledgers.py", "hub/docs/erp_rows.py",
+            "hub/udi_rules.py", "hub/udi.py",
             "hub/quality/workflow.py",
             "hub/quality/workflow_admin.py", "hub/quality/workflow_proposals.py",
             "hub/system/rules.py", "hub/system/qms.py", "hub/system/registers.py", "hub/system/gaps.py",

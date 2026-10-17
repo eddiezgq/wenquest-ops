@@ -73,6 +73,7 @@ const menu = computed(() => [
             <SidebarItem label="Assistant" icon="lucide-sparkles" route="/assistant" />
             <SidebarItem label="Anomalies" icon="lucide-triangle-alert" route="/anomalies" />
             <SidebarItem label="Drafts" icon="lucide-file-pen-line" route="/drafts" />
+            <SidebarItem label="Scan" icon="lucide-scan-line" route="/scan" />
             <SidebarLabel divider>Records</SidebarLabel>
             <SidebarItem v-if="can('quality:view')" label="Quality" icon="lucide-shield-check" route="/quality" />
             <SidebarItem v-if="can('quality:view')" label="Complaints" icon="lucide-message-square-warning" route="/quality/complaints" />

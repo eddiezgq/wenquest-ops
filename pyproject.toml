@@ -52,6 +52,7 @@ ignore = ["PLR2004", "PLR0913", "S101", "RUF001", "RUF002", "RUF003"]  # RUF00x:
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "PLR", "PLC0415"]
+"wqops/hub/udi_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/help_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/app.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/ont/api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
