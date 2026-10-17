@@ -3,6 +3,7 @@ title: Import from another system
 group: Documents
 order: 4
 summary: Bring items, customers, suppliers, opening stock and open orders from your old system into ERPNext.
+video: data-import
 needs: data:import
 try:
   - id: file

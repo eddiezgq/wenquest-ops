@@ -381,10 +381,40 @@ def registers(conn, today: dt.date) -> str:
     return "training, an internal audit and an objective"
 
 
+def digital(conn, today: dt.date) -> str:
+    """ADR-0020 (20b-20d): a device identifier, a measurement file in an inspection under way and a machine's
+    readings waiting for a person. The GTIN uses GS1 prefix 952, which GS1 keeps for examples."""
+    from wqops.hub import integration as IG  # noqa: PLC0415
+    from wqops.hub import udi as UD  # noqa: PLC0415
+    from wqops.hub.quality import iqc as I  # noqa: PLC0415
+    from wqops.hub.quality import measurements as ME  # noqa: PLC0415
+
+    if _exists(conn, "select 1 from udi_items") or _exists(conn, "select 1 from integration_tokens"):
+        return "skipped: device identifiers or machine tokens exist"
+    UD.set_di(conn, JORDAN, "HX-BOLT-M8", {"agency": "gs1", "gtin": "9521234567899"})
+    cal = conn.execute("select id from gauges where code = 'CAL-01' and status = 'in_service'").fetchone()
+    if I.enabled_plan(conn, "BOX-12") is None or cal is None:
+        return "device identifier for HX-BOLT-M8; no BOX-12 plan or caliper for the measurement examples"
+    ins = I.start(conn, JORDAN, "BOX-12", 200, supplier="Coastal Packaging (Demo)", lot_no="CP-DEMO-7", today=today)
+    raw = b"Sample,Board thickness,Flap width\n1,4.02,60.1\n2,3.97,60.0\n3,4.05,59.8\n4,3.99,60.2\n"
+    seen = ME.preview(conn, ins["id"], "box12-cmm-export.csv", raw, gauge_id=cal["id"])["print"]
+    ME.import_file(conn, _u(conn, JORDAN), ins["id"], "box12-cmm-export.csv", raw, SIGN, seen=seen,
+                   gauge_id=cal["id"], today=today)
+    row, token = IG.new_token(conn, DANA, "Receiving gauge station (Demo)", ["measurements:send"])
+    IG.receive_measurements(conn, IG.authenticate(conn, token), {
+        "inspection": ins["name"], "equipment": "CAL-01",
+        "readings": [{"sample": 5, "characteristic": "Board thickness", "value": 4.01},
+                     {"sample": 6, "characteristic": "Board thickness", "value": 3.96}]})
+    IG.called(conn, row["id"], "POST", "/api/integration/v1/measurements", 202)   # as the call itself is logged
+    return (f"HX-BOLT-M8 identified (GTIN 09521234567899); {ins['name']} with a measurement file on samples 1-4 and "
+            f"2 readings from {row['name']} waiting")
+
+
 PARTS: list[tuple[str, Callable]] = [
     ("Approved suppliers", suppliers), ("Measuring equipment", equipment), ("Incoming inspection", incoming),
     ("Documents", documents), ("Complaints", complaints), ("Changes", changes), ("Risk", risk),
     ("Production", production), ("Recall", recall), ("Registers", registers), ("Management review", review),
+    ("Digital factory", digital),
 ]
 
 

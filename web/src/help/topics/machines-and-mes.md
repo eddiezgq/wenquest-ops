@@ -3,6 +3,7 @@ title: Machines and an MES
 group: Quality
 order: 5
 summary: Let an MES, a test bench or a gauge station send measurements and step results, and read events.
+video: machines-and-mes
 needs: quality:view
 try:
   - id: token
@@ -19,8 +20,9 @@ try:
     text: 'From the bench (or a terminal), send a reading for an inspection in progress, as in the example below.'
     expect: '"status": "pending". Nothing is in the inspection yet.'
   - id: accept
-    text: Sign in as **Jordan** (Quality), open *From machines*, open the reading and accept it with your password.
+    text: Sign in as **Jordan** (Quality), open *From machines*, open the reading and accept it with your password. In the demo, two readings from the Receiving gauge station wait for IQC-00005.
     to: /quality/inbox
+    demo: /quality/inbox
     expect: the reading in the inspection with a machine mark, entered by Jordan; the history says which machine sent it.
     tour:
       - target: '[data-help="inbox-list"]'

@@ -38,7 +38,7 @@ def test_every_part_loads(demo):
     assert count(c, "select status as k, count(*) as n from asl_entries group by 1") == {
         "approved": 2, "conditional": 1, "draft": 1}
     assert count(c, "select status as k, count(*) as n from iqc_inspections group by 1") == {
-        "released": 1, "rejected": 1, "judged": 1, "in_progress": 1}
+        "released": 1, "rejected": 1, "judged": 1, "in_progress": 2}
     assert count(c, "select status as k, count(*) as n from documents where status = 'effective' group by 1") == {
         "effective": 2}
     assert count(c, "select status as k, count(*) as n from complaints group by 1") == {
@@ -51,6 +51,11 @@ def test_every_part_loads(demo):
     assert count(c, "select status as k, count(*) as n from recalls group by 1") == {"closed": 1}
     assert count(c, "select status as k, count(*) as n from mgmt_reviews group by 1") == {"closed": 1}
     assert c.execute("select count(*) as n from gauges where next_due < %s", (TODAY,)).fetchone()["n"] == 1
+    # 20b-20d: a device identifier, a measurement file and readings from a machine waiting for a person
+    assert c.execute("select di from udi_items where item_code = 'HX-BOLT-M8'").fetchone()["di"] == "09521234567899"
+    assert c.execute("select readings from measurement_imports").fetchone()["readings"] == 4
+    assert count(c, "select status as k, count(*) as n from integration_inbox group by 1") == {"pending": 1}
+    assert c.execute("select count(*) as n from integration_tokens where token_hash like 'wqo_%'").fetchone()["n"] == 0
     # a second run finds the records and changes nothing
     again = DQ.load(demo, DEMO, TODAY)
     assert all(v.startswith("skipped") for v in again.values()), again

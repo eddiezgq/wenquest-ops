@@ -3,6 +3,7 @@ title: Measurement data
 group: Quality
 order: 4
 summary: Readings from gauges and measuring machines, and control charts of your own inspections and lots.
+video: measurement-data
 needs: quality:view
 try:
   - id: chart
@@ -16,11 +17,13 @@ try:
       - target: '[data-help="spc-capability"]'
         text: Computed by code from the plan's limits. Without both limits it says unknown.
   - id: gauge
-    text: Open an incoming inspection in progress whose plan has a measured characteristic. Click the first reading of it and measure with a gauge that types its reading (or type a number and press Enter).
+    text: Open an incoming inspection in progress whose plan has a measured characteristic (in the demo, IQC-00005 of BOX-12). Click the first empty reading and measure with a gauge that types its reading (or type a number and press Enter).
+    demo: /quality/iqc/5
     expect: the cursor moves to the next sample of the same characteristic, so you can measure every sample in turn.
   - id: file
     text: 'On the same inspection, under *Measurement file*, choose a CSV file whose first line names the part and the characteristic, such as `Sample,Board thickness` with a line per part (`1,4.02`, `2,3.98`).'
-    expect: the preview matches the column to the characteristic, puts parts 1 and 2 on the first samples with no reading, and writes nothing yet.
+    demo: /quality/iqc/5
+    expect: 'the preview matches the column to the characteristic, puts the parts on the first samples with no reading, and writes nothing yet. In the demo, samples 1-4 came from box12-cmm-export.csv, listed under the file box.'
     tour:
       - target: '[data-help="iqc-import"]'
         text: CSV from a measuring machine, or a Q-DAS file. Nothing is written until you sign.
