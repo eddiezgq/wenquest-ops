@@ -447,6 +447,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.system import api as SA  # noqa: PLC0415
 
     SA.mount(app, conn, current_user, company, ai_model, db_url)
+    from wqops.hub.quality import causes_api as CSA  # noqa: PLC0415
+
+    CSA.mount(app, conn, current_user, company, ai_model, db_url)
 
     @app.get("/api/workspace")
     def workspace(u=Depends(current_user)):

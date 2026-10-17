@@ -6,8 +6,8 @@ The demo business (wqops/demo/load.py) brings orders, receipts, deliveries and o
 quality modules of ADR-0017 need so every page of the help center has something to open: approved suppliers, measuring
 equipment, a sampling table and inspection plans with inspections in every state, two procedures in effect with their
 reading, complaints, changes, a risk file, a production template with lots, a mock recall, a management review, a
-few register entries and check sheet tallies. Each part leaves something done, something under way and something
-with a problem.
+few register entries, check sheet tallies and two cause analyses. Each part leaves something done, something under
+way and something with a problem.
 
 Everything is invented and made by plain code (no AI, no network). The sampling table rows are the demo company's own
 numbers, not copied from a standard. Records are made by the demo people with the separation of duties the modules
@@ -432,11 +432,50 @@ def tools(conn, today: dt.date) -> str:
     return f"{f['name']} with {len(days)} tallies ({total} counted)"
 
 
+def causes(conn, today: dt.date) -> str:
+    """ADR-0022 (22b): a fishbone on the rejected bolt lot, concluded and written to its 8D, and a 5 Why on the
+    complaint about stripped bolts, two whys in. Causes are entered by the demo people and cite the demo records; no
+    model is involved, so no AI suggestion is shown as made."""
+    from wqops.hub.quality import causes as CA  # noqa: PLC0415
+
+    if _exists(conn, "select 1 from cause_analyses"):
+        return "skipped: cause analyses exist"
+    n = conn.execute("select id, name from ncr_records where item_code = 'HX-BOLT-M8' and status not in "
+                     "('closed', 'cancelled') order by id limit 1").fetchone()
+    if n is None:
+        return "skipped: no open report on HX-BOLT-M8 (load the demo business first)"
+    capa = conn.execute("select c.name from capa_ncrs l join capas c on c.id = l.capa_id where l.ncr_id = %s",
+                        (n["id"],)).fetchone()
+    cmp = conn.execute("select id, name from complaints where item_code = 'HX-BOLT-M8' and status = 'investigation' "
+                       "order by id limit 1").fetchone()
+    refs_capa = [capa["name"]] if capa else [n["name"]]
+    a = CA.start(conn, JORDAN, "ncr", n["id"], "fishbone")
+    for cat, text, refs in (
+            ("Materials", "Lot rolled with thread pitch diameter over the limit", [n["name"]]),
+            ("Machines", "Supplier rolling dies not re-set after maintenance", refs_capa),
+            ("Methods", "No first-article data asked of the supplier after its maintenance", refs_capa),
+            ("Measurement", "Thread inspected by sample only; whole lot affected", [n["name"]])):
+        CA.add(conn, JORDAN, a["id"], {"category": cat, "text": text, "refs": refs})
+    if cmp:
+        CA.add(conn, SAM, a["id"], {"category": "Materials", "text": "A customer reports M8 bolts stripping",
+                                    "refs": [cmp["name"]]})
+    CA.conclude(conn, _u(conn, JORDAN), a["id"], "Supplier rolling dies were not re-set after maintenance, and no "
+                "first-article data was asked for before shipping", SIGN, today=today)
+    out = f"{a['name']} fishbone on {n['name']}, concluded"
+    if cmp:
+        b = CA.start(conn, JORDAN, "complaint", cmp["id"], "five_why", problem="M8 bolts strip at the usual torque")
+        CA.add(conn, JORDAN, b["id"], {"level": 1, "text": "The thread is out of tolerance", "refs": [n["name"]]})
+        CA.add(conn, JORDAN, b["id"], {"level": 2, "text": "Bolts from the rejected lot may have reached the customer",
+                                       "refs": [n["name"], cmp["name"]]})
+        out += f"; {b['name']} 5 Why on {cmp['name']}, two whys in"
+    return out
+
+
 PARTS: list[tuple[str, Callable]] = [
     ("Approved suppliers", suppliers), ("Measuring equipment", equipment), ("Incoming inspection", incoming),
     ("Documents", documents), ("Complaints", complaints), ("Changes", changes), ("Risk", risk),
     ("Production", production), ("Recall", recall), ("Registers", registers), ("Management review", review),
-    ("Digital factory", digital), ("Quality tools", tools),
+    ("Digital factory", digital), ("Quality tools", tools), ("Cause analysis", causes),
 ]
 
 

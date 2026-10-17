@@ -62,6 +62,14 @@ def test_every_part_loads(demo):
     form = c.execute("select id from check_sheet_forms").fetchone()
     p = TL.pareto_for(c, "check_sheet", "category", form_id=form["id"])
     assert p["records"] == 10 and p["bars"][0]["key"] == "Crushed box" and p["total"] == 96
+    # 22b: a fishbone concluded into the report's 8D, and a 5 Why under way on the complaint
+    assert count(c, "select method as k, count(*) as n from cause_analyses group by 1") == {
+        "fishbone": 1, "five_why": 1}
+    assert c.execute("select status from cause_analyses where method = 'five_why'").fetchone()["status"] == "open"
+    d4 = c.execute("select e.sections from eightd e join ncr_records n on n.id = e.ncr_id where n.item_code = "
+                   "'HX-BOLT-M8'").fetchone()["sections"]["d4"]
+    assert d4.startswith("Supplier rolling dies were not re-set") and d4.endswith("(from Fishbone RCA-00001)")
+    assert c.execute("select count(*) as n from cause_items where origin = 'ai'").fetchone()["n"] == 0
     # a second run finds the records and changes nothing
     again = DQ.load(demo, DEMO, TODAY)
     assert all(v.startswith("skipped") for v in again.values()), again

@@ -69,6 +69,7 @@ ignore = ["PLR2004", "PLR0913", "S101", "RUF001", "RUF002", "RUF003"]  # RUF00x:
 "wqops/hub/quality/complaints_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/calibration_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/tools_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
+"wqops/hub/quality/causes_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/change_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/risk_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
 "wqops/hub/quality/production_api.py" = ["B008"]  # FastAPI dependencies are declared as argument defaults
