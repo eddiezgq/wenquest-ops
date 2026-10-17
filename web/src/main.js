@@ -38,6 +38,8 @@ import Trace from './pages/Trace.vue'
 import Recalls from './pages/Recalls.vue'
 import RecallPage from './pages/RecallPage.vue'
 import Reviews from './pages/Reviews.vue'
+import Scan from './pages/Scan.vue'
+import DeviceIds from './pages/DeviceIds.vue'
 import ReviewPage from './pages/ReviewPage.vue'
 import ChangePage from './pages/ChangePage.vue'
 import Gauges from './pages/Gauges.vue'
@@ -78,6 +80,8 @@ const router = createRouter({
     { path: '/quality/trace', component: Trace, meta: { title: 'Trace' } },
     { path: '/quality/recalls', component: Recalls, meta: { title: 'Recalls' } },
     { path: '/quality/recalls/:id', component: RecallPage, meta: { title: 'Recall' } },
+    { path: '/scan', component: Scan, meta: { title: 'Scan' } },
+    { path: '/quality/udi', component: DeviceIds, meta: { title: 'Device identifiers' } },
     { path: '/quality/reviews', component: Reviews, meta: { title: 'Management reviews' } },
     { path: '/quality/reviews/:id', component: ReviewPage, meta: { title: 'Management review' } },
     { path: '/quality/suppliers', component: AslPage, meta: { title: 'Approved suppliers' } },

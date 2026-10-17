@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
+import DeviceLabel from '../components/DeviceLabel.vue'
 import { api } from '../api'
 
 const route = useRoute()
@@ -123,6 +124,7 @@ const act = async (a, body, msg) => { if (await call(`/api/production/records/${
       </template>
     </section>
     <p v-if="r.decision_note" class="mb-4 text-sm">Decision: {{ r.decision_note }}</p>
+    <DeviceLabel v-if="r.status === 'released'" :record-id="r.id" />
     <p v-if="r.fingerprint" class="mb-4 text-xs text-ink-gray-5">Fingerprint {{ r.fingerprint }}</p>
     <h2 class="wq-h2 mt-6">Signatures</h2>
     <Trail :items="r.signatures" kind="signatures" />

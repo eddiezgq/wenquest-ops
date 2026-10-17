@@ -29,6 +29,7 @@ const draft = () => go('/api/production/templates', tpl.value, (r) => `/quality/
 <template>
   <PageTop :crumbs="[{ label: 'Quality', to: '/quality' }]">
     <template #title>Production records</template>
+    <Button icon-left="lucide-barcode" label="Device identifiers" @click="$router.push('/quality/udi')" />
     <div v-if="v?.can_edit" class="flex gap-2">
       <Button variant="solid" icon-left="lucide-plus" label="Start a lot" @click="show = show === 'lot' ? '' : 'lot'" />
       <Button icon-left="lucide-plus" label="New template" @click="show = show === 'tpl' ? '' : 'tpl'" />

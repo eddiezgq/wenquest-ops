@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "5.2.8",
+    "@zxing/browser": "0.2.1",
+    "@zxing/library": "0.23.0",
+    "bwip-js": "4.11.4",
     "echarts": "5.6.0",
     "frappe-ui": "1.0.0",
     "markdown-it": "14.1.0",
