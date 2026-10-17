@@ -6,9 +6,10 @@ summary: Record each item's device identifier, print the label of a released lot
 needs: quality:view
 try:
   - id: identifier
-    text: 'Sign in as **Jordan** (Quality manager). Open *Production*, then *Device identifiers*. Choose an item, GS1, and the GTIN **9521234567899** (GS1 keeps the prefix 952 for examples), and save.'
+    text: 'Sign in as **Jordan** (Quality manager). Open *Production*, then *Device identifiers*. To add one, choose an item, GS1 or HIBCC, type what your agency gave you and save.'
     to: /quality/udi
-    expect: the item listed with 09521234567899; its history says who set it.
+    demo: /quality/udi
+    expect: 'in the demo, HX-BOLT-M8 with the GTIN 09521234567899 (GS1 keeps the prefix 952 for examples); its history says who set it. A wrong check digit is refused.'
     tour:
       - target: '[data-help="udi-form"]'
         text: The identifier your issuing agency gave the item. A wrong check digit is refused; nothing is made up.
@@ -16,7 +17,8 @@ try:
       - target: '[data-help="udi-list"]'
         text: Every item with an identifier, and who set or changed it.
   - id: label
-    text: Open a released lot of that item and look at *Device label*. Enter an expiry date and print, or download the ZPL file for a label printer.
+    text: Open a released lot of that item (in the demo, DHR-00001 of HX-BOLT-M8) and look at *Device label*. Enter an expiry date and print, or download the ZPL file for a label printer.
+    demo: /quality/production/1
     expect: 'a GS1 DataMatrix and the text (01)09521234567899(11)…(17)…(10)<lot>.'
     tour:
       - target: '[data-help="production-label"]'
