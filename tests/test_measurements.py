@@ -42,7 +42,7 @@ def test_reading_files():
     wide = MR.parse("w.csv", b"Serial;Length;Width\nS1;10,01;5,2\nS2;9,99;\nS3;x;5,1\n")
     assert wide["parts"] == ["S1", "S2", "S3"] and wide["values"][("S1", "Length")] == 10.01
     assert ("S2", "Width") not in wide["values"]
-    assert wide["problems"] == ["row 4: Length of part S3: 'x' is not a number"]
+    assert wide["problems"] == ["line 4: Length of part S3: 'x' is not a number"]
     nopart = MR.parse("n.csv", b"Length,Width\n10.0,5\n10.1,5\n")
     assert nopart["parts"] == ["1", "2"] and [f["name"] for f in nopart["features"]] == ["Length", "Width"]
     q = MR.parse("run.dfq", DFQ)
@@ -58,6 +58,44 @@ def test_reading_files():
             MR.parse(name, raw)
     assert MR.number("1.234,5", comma=True) == 1234.5 and MR.number("-0,02", comma=True) == -0.02
     assert MR.number("1e-3") == 0.001 and MR.number("10 mm") is None and MR.number("") is None
+
+
+def test_what_review_found_in_files():
+    def read(raw, name="a.csv"):
+        return MR.parse(name, raw)
+    one = read(b"D1\n10,5\n10,7\n")                     # a decimal comma in a file separated by commas
+    assert one["values"] == {} and "2 cells under 1 headings" in one["problems"][0]
+    assert read(b"Part,Feature,Measured\n1,D1,10,5\n")["values"] == {}
+    assert read(b"Part,D1\n1,10\n1,11\n")["values"] == {("1", "D1"): 10.0}
+    with pytest.raises(MR.MeasError, match="the same heading twice"):
+        read(b"Part,D1,D1\n1,10,11\n")
+    w = read(b"Part,D1\nNominal,10\nUpper Tol,0.1\nLower Tol,0.1\n1,10.01\nMean,10\n")
+    assert w["parts"] == ["1"] and w["features"] == [{"name": "D1", "nominal": 10.0, "usl": 10.1, "lsl": 9.9}]
+    assert read(b"Part,Feature,Measured\n,D1,1\nB,D1,2\n")["parts"] == ["B"]
+    gap = read(b"Feature,Axis,Measured\nCIR1,X,1.0\n,Y,2.0\n")
+    assert "a value without a feature name" in gap["problems"][0]
+    with pytest.raises(MR.MeasError, match="no part column"):
+        read(b"Feature,Measured\nD1,1\nD1,2\n")
+    assert read(b"sep=;\nPart;D1\n1;10,5\n")["values"] == {("1", "D1"): 10.5}
+    assert read("Part\tD1\r\n1\t10.5\r\n".encode("utf-16"))["values"] == {("1", "D1"): 10.5}
+    assert read(b"Part,Feature,Measured,Max,Min\n1,D1,10,10.2,9.8\n")["features"] == [{"name": "D1"}]
+    q = read(b"K2002/0 All\nK1001/1 P1\nK1001/2 P2\nK2002/1 A\nK0001/1 1.0\nK0002/1 -1\n1.5\x14 x\nthe end\n",
+             "a.dfq")
+    assert [f["name"] for f in q["features"]] == ["A"] and q["values"] == {} and q["part_nos"] == ["P1", "P2"]
+    assert len(q["problems"]) == 3 and "neither a K-field" in q["problems"][0]
+
+
+def test_pooled_sigma_when_subgroups_are_large():
+    from wqops.hub.quality import spc
+    groups = [[10 + 0.1 * ((i * 7 + j * 3) % 5 - 2) for j in range(13)] for i in range(10)]
+    ch = spc.chart([{"inspection": f"I{i}", "date": "", "values": g, "min": 9.7, "max": 10.3}
+                    for i, g in enumerate(groups)])
+    assert ch["chart"]["kind"] == "i_mr" and ch["capability"]["Cp"] < 1.5          # not the spread of the means
+    assert abs(ch["capability"]["sigma_within"] - spc.pooled_sigma(groups)) < 1e-12
+    old = [{"inspection": "A", "date": "", "values": [9.6, 9.65], "min": 9.5, "max": 10.5}]
+    ch2 = spc.chart(old + [{"inspection": f"I{i}", "date": "", "values": g[:2], "min": 9.7, "max": 10.3}
+                           for i, g in enumerate(groups)])
+    assert ch2["out_of_spec"] == 0 and ch2["capability"]["n"] == 20 and "limits changed" in ch2["limits_note"]
 
 
 def test_matching_and_placing():
@@ -94,6 +132,10 @@ def test_import_into_an_inspection(world):  # noqa: F811
         ME.import_file(w, me, ins["id"], "run.csv", CMM.replace(b"9.97", b"9.96"), PW, seen=p["print"],
                        mapping=mapping, first_sample=1, today=T)
     g = caliper(w)                                     # not calibrated yet: out of service
+    with pytest.raises(ME.MeasurementError, match="changed since the preview"):     # the equipment is signed for
+        ME.import_file(w, me, ins["id"], "run.csv", CMM, PW, seen=p["print"], mapping=mapping, first_sample=1,
+                       gauge_id=g["id"], today=T)
+    p = ME.preview(w, ins["id"], "run.csv", CMM, mapping=mapping, first_sample=1, gauge_id=g["id"])
     with pytest.raises(ME.MeasurementError, match="CAL-01"):
         ME.import_file(w, me, ins["id"], "run.csv", CMM, PW, seen=p["print"], mapping=mapping, first_sample=1,
                        gauge_id=g["id"], today=T)
@@ -109,6 +151,19 @@ def test_import_into_an_inspection(world):  # noqa: F811
     with pytest.raises(ME.MeasurementError, match=r"imported into .* before"):
         ME.import_file(w, me, ins["id"], "run.csv", CMM, PW, seen=p2["print"], mapping=mapping, first_sample=1,
                        today=T)
+    p3 = ME.preview(w, ins["id"], "again.csv", CMM.replace(b"10.01", b"10.05"), mapping=mapping, first_sample=1)
+    I.enter(w, JORDAN, ins["id"], [{"sample": 3, "characteristic": "Length", "value": 10.04}])   # typed after it
+    with pytest.raises(ME.MeasurementError, match="changed since the preview"):
+        ME.import_file(w, me, ins["id"], "again.csv", CMM.replace(b"10.01", b"10.05"), PW, seen=p3["print"],
+                       mapping=mapping, first_sample=1, today=T)
+    from wqops.hub.quality import calibration as CAL
+    g2 = CAL.add(w, JORDAN, "CMM-01", {"name": "Coordinate measuring machine", "interval_months": 12})
+    calibrate(w, g2["id"], T - dt.timedelta(days=2))
+    p4 = ME.preview(w, ins["id"], "again.csv", CMM.replace(b"10.01", b"10.05"), mapping=mapping, gauge_id=g2["id"])
+    assert p4["blocks"] == ["Length is measured with CAL-01 in this inspection; CMM-01 cannot be named for it too"]
+    other = ME.preview(w, ins["id"], "run.dfq", DFQ.replace(b"K1001 BOLT-B", b"K1001 NUT-C"))
+    assert other["blocks"] == ["the file is for part NUT-C, the inspection for BOLT-B"]
+    assert ME.preview(w, ins["id"], "run.dfq", DFQ)["blocks"] == []
     I.enter(w, JORDAN, ins["id"], [{"sample": 2, "characteristic": "Length", "value": 9.99}])
     rd = {r["sample"]: r for r in I.readings(w, ins["id"]) if r["characteristic"] == "Length"}
     assert rd[2]["import_id"] is None and rd[1]["import_id"] == got["id"]
@@ -176,6 +231,7 @@ def test_measurements_api(db_url):
     assert pv["first_sample"] == 1 and len(pv["readings"]) == 2
     assert c.post(url, data={"password": PW, "seen": "x"}, files=up).status_code == 409
     assert c.post(url, data={"password": "no", "seen": pv["print"]}, files=up).status_code == 403
+    assert c.post(url + "/preview", data={"gauge_id": "99999"}, files=up).status_code == 404
     done = c.post(url, data={"password": PW, "seen": pv["print"]}, files=up)
     assert done.status_code == 201 and done.json()["readings"] == 2
     assert c.get(url).json()[0]["file_name"] == "w.csv"

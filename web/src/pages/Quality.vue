@@ -44,10 +44,15 @@ async function load() {
   } catch (e) { error.value = e.message }
 }
 watch([tab, filter], load, { immediate: true })
+let asked = 0
 watch(pick, async (p) => {
+  const mine = ++asked                          // a slower earlier answer does not replace a newer one
   const q = p && `item_code=${encodeURIComponent(p.item_code)}&parameter=${encodeURIComponent(p.parameter)}`
-  spc.value = !p ? null : p.source === 'erpnext' ? await api(`/api/quality/spc?${q}`)
-    : await api(`/api/quality/measurements/spc?source=${p.source}&${q}`)
+  try {
+    const out = !p ? null : p.source === 'erpnext' ? await api(`/api/quality/spc?${q}`)
+      : await api(`/api/quality/measurements/spc?source=${p.source}&${q}`)
+    if (mine === asked) spc.value = out
+  } catch (e) { if (mine === asked) { spc.value = null; error.value = e.message } }
 })
 const SOURCES = { incoming: 'incoming inspections', production: 'production lots', erpnext: 'ERPNext inspections' }
 async function spcNcr() {                       // a broken rule is a reason to look: someone opens the report
@@ -159,7 +164,7 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
     <p v-if="!params.length" class="wq-muted">No measured values yet. Signed incoming inspections, production measurements and ERPNext quality inspections show here.</p>
     <div v-else data-help="spc-pick" class="mb-4 flex flex-wrap items-center gap-2">
       <span class="wq-muted">Item and parameter</span>
-      <select v-model="pick" class="wq-select" aria-label="Item and parameter"><option v-for="p in params" :key="p.item_code + p.parameter" :value="p">{{ p.item_code }} — {{ p.parameter }} ({{ p.inspections }} {{ SOURCES[p.source] }})</option></select>
+      <select v-model="pick" class="wq-select" aria-label="Item and parameter"><option v-for="p in params" :key="p.source + '|' + p.item_code + '|' + p.parameter" :value="p">{{ p.item_code }} — {{ p.parameter }} ({{ p.inspections }} {{ SOURCES[p.source] }})</option></select>
     </div>
     <template v-if="spc">
       <p v-if="!spc.enough_data" class="wq-muted">{{ spc.note }}</p>
@@ -180,7 +185,7 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
                    class="rounded-4 bg-surface-gray-1 p-3">
                 <dt class="text-sm text-ink-gray-5">{{ k }}</dt><dd class="m-0 text-xl font-semibold text-ink-gray-9">{{ v }}</dd></div>
             </dl>
-            <p v-if="spc.capability && spc.capability_note" class="mt-2 text-sm text-ink-amber-8">{{ spc.capability_note }}</p></section>
+            <p v-if="spc.capability && (spc.capability_note || spc.limits_note)" class="mt-2 text-sm text-ink-amber-8">{{ spc.capability_note || spc.limits_note }}</p></section>
         </div>
       </template>
     </template>

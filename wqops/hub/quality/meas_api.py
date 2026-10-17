@@ -70,7 +70,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         need(u, "quality:edit")
         name, raw, o = await upload(request)
         return run(lambda: ME.preview(c, ident(iid), name, raw, mapping=o.get("mapping"),
-                                      first_sample=o.get("first_sample")))
+                                      first_sample=o.get("first_sample"), gauge_id=o.get("gauge_id")))
 
     @app.post("/api/iqc/inspections/{iid}/measurements", status_code=201)
     async def do_import(iid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):

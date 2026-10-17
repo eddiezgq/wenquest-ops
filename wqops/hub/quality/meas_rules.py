@@ -29,8 +29,13 @@ VALUE = ("measured", "actual", "meas", "value", "measured value", "measurement",
 NOMINAL = ("nominal", "nom", "nominal value", "sollwert", "soll")
 UPPER = ("+tol", "tol+", "upper tol", "upper tolerance", "plus tol", "+ tol", "utol", "ot")
 LOWER = ("-tol", "tol-", "lower tol", "lower tolerance", "minus tol", "- tol", "ltol", "ut")
-USL = ("usl", "upper limit", "max", "upper spec", "ogw")
-LSL = ("lsl", "lower limit", "min", "lower spec", "ugw")
+USL = ("usl", "upper limit", "upper spec", "ogw")     # Max and Min are measured values in PC-DMIS: not limits
+LSL = ("lsl", "lower limit", "lower spec", "ugw")
+# rows of a wide file that describe the columns, or sum them up, rather than measure a part
+NOT_PARTS = {"nominal": "nominal", "nom": "nominal", "sollwert": "nominal", "usl": "usl", "upper limit": "usl",
+             "ogw": "usl", "lsl": "lsl", "lower limit": "lsl", "ugw": "lsl", "upper tol": "up", "+tol": "up",
+             "tol+": "up", "lower tol": "lo", "-tol": "lo", "tol-": "lo", "max": None, "min": None, "mean": None,
+             "average": None, "range": None, "std dev": None, "sigma": None, "cp": None, "cpk": None}
 
 
 class MeasError(ValueError):
@@ -44,6 +49,11 @@ def _norm(s: str) -> str:
 def decode(raw: bytes) -> str:
     if len(raw) > MAX_BYTES:
         raise MeasError("the file is larger than 5 MB")
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):            # Excel's "Unicode text"
+        try:
+            return raw.decode("utf-16")
+        except UnicodeDecodeError as exc:
+            raise MeasError("the file says it is UTF-16 but cannot be read as it") from exc
     for enc in ("utf-8-sig", "cp1252"):
         try:
             return raw.decode(enc)
@@ -62,7 +72,7 @@ def number(v, comma: bool = False) -> float | None:
 
 
 def _empty() -> dict:
-    return {"parts": [], "features": [], "values": {}, "problems": []}
+    return {"parts": [], "features": [], "values": {}, "problems": [], "notes": []}
 
 
 def _feature(out: dict, name: str, **limits) -> dict:
@@ -89,18 +99,44 @@ def _col(head: list[str], names: tuple[str, ...]) -> int | None:
     return None
 
 
-def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the wide shape
-    lines = [ln for ln in text.splitlines() if ln.strip()]
-    if len(lines) < 2:
+def _rows(text: str) -> tuple[list[list[str]], str, list[int]]:
+    """The rows of a CSV file, their delimiter (from Excel's "sep=" line or from the first lines) and line numbers."""
+    lines = text.splitlines()
+    delim = None
+    if lines and re.fullmatch(r"sep=.", lines[0].strip(), re.IGNORECASE):
+        delim = lines[0].strip()[-1]
+        lines = lines[1:]
+    kept = [(k, ln) for k, ln in enumerate(lines, start=2 if delim else 1) if ln.strip()]
+    if len(kept) < 2:
         raise MeasError("the file has no rows under its header")
+    if delim is None:
+        try:
+            delim = csv.Sniffer().sniff("\n".join(ln for _, ln in kept[:20]), delimiters=",;\t").delimiter
+        except csv.Error:
+            delim = max(",;\t", key=kept[0][1].count) if any(d in kept[0][1] for d in ",;\t") else ","
     try:
-        delim = csv.Sniffer().sniff(lines[0], delimiters=",;\t").delimiter
-    except csv.Error:
-        delim = ","
-    rows = list(csv.reader(io.StringIO("\n".join(lines)), delimiter=delim))
-    head, body = rows[0], rows[1:]
-    comma = delim == ";"
+        rows = list(csv.reader(io.StringIO("\n".join(ln for _, ln in kept)), delimiter=delim))
+    except csv.Error as exc:
+        raise MeasError(f"the CSV file cannot be read: {exc}") from exc
+    if len(rows) != len(kept):
+        raise MeasError("a quoted field runs over several lines: save the file without line breaks in cells")
+    return rows, delim, [k for k, _ in kept]
+
+
+def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the wide shape
+    rows, delim, nos = _rows(text)
+    head, body = rows[0], list(zip(nos[1:], rows[1:], strict=True))
+    comma = delim != ","
     out = _empty() | {"format": "csv"}
+    width = len(head)
+
+    def fits(k: int, r: list[str]) -> bool:
+        if len(r) > width and any(c.strip() for c in r[width:]):
+            out["problems"].append(f"line {k}: {len(r)} cells under {width} headings, not read (a decimal comma "
+                                   "in a file separated by commas?)")
+            return False
+        return True
+
     fcol, pcol, vcol = _col(head, FEATURE), _col(head, PART), _col(head, VALUE)
     if fcol is not None:                                            # long: a row per measured feature
         if vcol is None:
@@ -108,14 +144,25 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
         out["shape"] = "long"
         acol, ncol = _col(head, AXIS), _col(head, NOMINAL)
         ucol, lcol, uscol, lscol = _col(head, UPPER), _col(head, LOWER), _col(head, USL), _col(head, LSL)
-        for k, r in enumerate(body, start=2):
-            cell = lambda i, r=r: r[i] if i is not None and i < len(r) else ""  # noqa: E731
-            name = cell(fcol).strip()
+        for k, r in body:
+            if not fits(k, r):
+                continue
+            def cell(i, r=r):
+                return r[i] if i is not None and i < len(r) else ""
+            name, raw = cell(fcol).strip(), cell(vcol)
             if not name:
+                if raw.strip():
+                    out["problems"].append(f"line {k}: a value without a feature name, not read")
                 continue
             ax = cell(acol).strip()
             name = f"{name} {ax}" if ax else name
-            part = cell(pcol).strip() or "1" if pcol is not None else "1"
+            if pcol is None:
+                part = "1"
+            else:
+                part = cell(pcol).strip()
+                if not part:
+                    out["problems"].append(f"line {k}: {name} has no part, not read")
+                    continue
             nom = number(cell(ncol), comma)
             up, lo = number(cell(ucol), comma), number(cell(lcol), comma)
             usl, lsl = number(cell(uscol), comma), number(cell(lscol), comma)
@@ -124,22 +171,49 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
             if nom is not None and lo is not None and lsl is None:
                 lsl = nom - abs(lo)
             _feature(out, name, nominal=nom, lsl=lsl, usl=usl)
+            v = number(raw, comma)
+            if (part, name) in out["values"] and pcol is None:
+                raise MeasError(f"{name} is in the file more than once and there is no part column: "
+                                "export with the part number, or one file per part")
             _part(out, part)
-            v = number(cell(vcol), comma)
             if v is None:
-                out["problems"].append(f"row {k}: {name} of part {part}: {cell(vcol)!r} is not a number")
+                out["problems"].append(f"line {k}: {name} of part {part}: {raw!r} is not a number")
             elif (part, name) in out["values"]:
-                out["problems"].append(f"row {k}: {name} of part {part} is in the file twice; the first is used")
+                out["problems"].append(f"line {k}: {name} of part {part} is in the file twice; the first is used")
             else:
                 out["values"][(part, name)] = v
         return out
     out["shape"] = "wide"                                           # wide: a row per part
     pc = pcol                                                      # no part column: parts in row order
     names = [(i, h.strip()) for i, h in enumerate(head) if i != pc and h.strip()]
+    twice = sorted({h for _, h in names if [x for _, x in names].count(h) > 1})
+    if twice:
+        raise MeasError("the same heading twice: " + ", ".join(twice))
     for _, h in names:
         _feature(out, h)
-    for k, r in enumerate(body, start=2):
-        part = (r[pc].strip() if pc is not None and pc < len(r) else "") or str(k - 1)
+    seen: set[str] = set()
+    count = 0
+    for k, r in body:
+        if not fits(k, r):
+            continue
+        label = r[pc].strip() if pc is not None and pc < len(r) else ""
+        if pc is None and r and _norm(r[0]) in NOT_PARTS:          # a label in the first column, no part column
+            label = r[0].strip()
+        if _norm(label) in NOT_PARTS:                              # Nominal, Upper Tol, Mean ... rows
+            kind = NOT_PARTS[_norm(label)]
+            if kind:
+                for i, h in names:
+                    v = number(r[i] if i < len(r) else "", comma)
+                    if v is not None:
+                        _feature(out, h)[kind] = v
+            out["notes"].append(f"line {k}: the {label} row describes the columns, not a part")
+            continue
+        count += 1
+        part = label or str(count)
+        if part in seen:
+            out["problems"].append(f"line {k}: part {part} is in the file twice; the first is used")
+            continue
+        seen.add(part)
         _part(out, part)
         for i, h in names:
             raw = r[i] if i < len(r) else ""
@@ -147,32 +221,51 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
                 continue
             v = number(raw, comma)
             if v is None:
-                out["problems"].append(f"row {k}: {h} of part {part}: {raw!r} is not a number")
+                out["problems"].append(f"line {k}: {h} of part {part}: {raw!r} is not a number")
             else:
                 out["values"][(part, h)] = v
+    for f in out["features"]:                                        # limits from a nominal and tolerances
+        nom = f.pop("nominal", None)
+        up, lo = f.pop("up", None), f.pop("lo", None)
+        if nom is not None:
+            f["nominal"] = nom
+            if up is not None and f.get("usl") is None:
+                f["usl"] = nom + abs(up)
+            if lo is not None and f.get("lsl") is None:
+                f["lsl"] = nom - abs(lo)
     return out
 
 
 KFIELD = re.compile(r"^K(\d{4})(?:/(\d+))?\s?(.*)$")
 
 
-def parse_dfq(text: str) -> dict:  # noqa: PLR0912 - one branch per kind of field
+def _attribute(v: str) -> int | str:
+    """A Q-DAS value attribute: 0 is a plain value; anything else (or unreadable) keeps the value out."""
+    v = v.strip()
+    return int(v) if v.isdigit() else (v or 0)
+
+
+def parse_dfq(text: str) -> dict:  # noqa: PLR0912, PLR0915 - one branch per kind of field
     out = _empty() | {"format": "dfq", "shape": "q-das"}
     names: dict[int, str] = {}
     limits: dict[int, dict] = {}
-    columns: dict[int, list[tuple[float | None, int]]] = {}     # characteristic -> [(value, attribute)]
-    value_lines: list[str] = []
-    part_no = ""
-    for raw in text.splitlines():
+    columns: dict[int, list[tuple[float | None, int | str]]] = {}     # characteristic -> [(value, attribute)]
+    value_lines: list[tuple[int, str]] = []
+    part_nos: list[str] = []
+    for k, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip("\r")
         m = KFIELD.match(line)
         if not m:
-            if line.strip():
-                value_lines.append(line)
+            if "\x0f" in line or "\x14" in line or number(line) is not None:
+                value_lines.append((k, line))
+            elif line.strip():
+                out["problems"].append(f"line {k}: neither a K-field nor values, not read")
             continue
         key, idx, val = int(m.group(1)), int(m.group(2) or 0), m.group(3).strip()
-        if key == 1001:
-            part_no = val
+        if key == 1001 and val and val not in part_nos:
+            part_nos.append(val)
+        elif key in (2001, 2002) and idx == 0:
+            continue                                            # /0 means every characteristic: not one of them
         elif key == 2002:
             names[idx] = val
         elif key == 2001 and idx not in names:
@@ -181,17 +274,16 @@ def parse_dfq(text: str) -> dict:  # noqa: PLR0912 - one branch per kind of fiel
             lim = {2101: "nominal", 2110: "lsl", 2111: "usl"}[key]
             limits.setdefault(idx, {})[lim] = number(val)
         elif key == 1:
-            columns.setdefault(idx, []).append((number(val), 0))
-        elif key == 2 and idx in columns and columns[idx]:   # K0002: the attribute of the last value
-            v, _ = columns[idx][-1]
-            columns[idx][-1] = (v, int(val) if val.isdigit() else 0)
+            columns.setdefault(idx or 1, []).append((number(val), 0))
+        elif key == 2 and (idx or 1) in columns and columns[idx or 1]:   # K0002: the attribute of the last value
+            v, _ = columns[idx or 1][-1]
+            columns[idx or 1][-1] = (v, _attribute(val))
     if not names:
         raise MeasError("no characteristics (K2001 or K2002) in the Q-DAS file")
-    for line in value_lines:                                    # one line per part
+    for _, line in value_lines:                                 # one line per part
         for i, chunk in enumerate(line.split("\x0f"), start=1):
             fields = chunk.split("\x14")
-            att = int(fields[1]) if len(fields) > 1 and fields[1].strip().isdigit() else 0
-            columns.setdefault(i, []).append((number(fields[0]), att))
+            columns.setdefault(i, []).append((number(fields[0]), _attribute(fields[1]) if len(fields) > 1 else 0))
     count = max((len(v) for v in columns.values()), default=0)
     for idx in sorted(names):
         _feature(out, names[idx] or f"characteristic {idx}", **limits.get(idx, {}))
@@ -203,15 +295,16 @@ def parse_dfq(text: str) -> dict:  # noqa: PLR0912 - one branch per kind of fiel
             continue
         name = names[idx] or f"characteristic {idx}"
         for p, (v, att) in enumerate(vals, start=1):
-            if att:
+            if att != 0:
                 out["problems"].append(f"{name} of part {p}: marked by the measuring program (attribute {att}), "
                                        "not imported")
             elif v is None:
                 out["problems"].append(f"{name} of part {p}: not a number")
             else:
                 out["values"][(str(p), name)] = v
-    if part_no:
-        out["part_no"] = part_no
+    if part_nos:
+        out["part_no"] = ", ".join(part_nos)
+        out["part_nos"] = part_nos
     return out
 
 
@@ -249,7 +342,7 @@ def place(parsed: dict, chars: list[dict], n: int, first_sample: int, mapping: d
     """The readings to write: parts in file order on samples first_sample, first_sample + 1, ... and what was left
     out or differs."""
     problems = list(parsed["problems"])
-    notes = []
+    notes = list(parsed.get("notes", []))
     if not 1 <= first_sample <= n:
         raise MeasError(f"the first sample is 1 to {n}")
     parts = parsed["parts"]

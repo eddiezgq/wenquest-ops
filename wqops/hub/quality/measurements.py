@@ -49,7 +49,7 @@ def _first_free(conn, ins: dict, chars: set[str]) -> int:
 
 
 def preview(conn, ins_id: int, file_name: str, raw: bytes, *, mapping: dict | None = None,
-            first_sample: int | None = None) -> dict:
+            first_sample: int | None = None, gauge_id: int | None = None) -> dict:
     """What an import would do: the file's features matched to the plan, the samples its parts go to, the readings
     it would write (and those it would replace), and everything left out."""
     ins, chars = _open(conn, ins_id)
@@ -69,11 +69,25 @@ def preview(conn, ins_id: int, file_name: str, raw: bytes, *, mapping: dict | No
                 != r["value"]]
     done = conn.execute("select id, imported_by, imported_at from measurement_imports where inspection_id = %s and "
                         "sha256 = %s", (ins_id, sha)).fetchone()
+    measured = sorted({r["characteristic"] for r in placed["readings"]})
+    blocks = []
+    other = [p for p in parsed.get("part_nos", []) if p.strip().lower() != ins["item_code"].strip().lower()]
+    if other:
+        blocks.append(f"the file is for part {', '.join(other)}, the inspection for {ins['item_code']}")
+    gauge = None
+    if gauge_id is not None:
+        gauge = CAL.get(conn, gauge_id)
+        named = {r["characteristic"]: r["gauge_code"] for r in conn.execute(
+            "select characteristic, gauge_code from iqc_gauges where inspection_id = %s and gauge_id <> %s",
+            (ins_id, gauge_id))}
+        blocks += [f"{c} is measured with {named[c]} in this inspection; {gauge['code']} cannot be named for it too"
+                   for c in measured if c in named]
     out = {"inspection": ins["name"], "file_name": file_name, "sha256": sha, "format": parsed["format"],
            "shape": parsed.get("shape"), "part_no": parsed.get("part_no"), "features": parsed["features"],
            "mapping": m, "first_sample": start, "n": ins["n"],
            "characteristics": [c["name"] for c in chars if c["kind"] == "measured"], **placed,
-           "replaces": replaces,
+           "replaces": replaces, "measured": measured, "blocks": blocks,
+           "gauge": {"id": gauge["id"], "code": gauge["code"]} if gauge else None,
            "already": {"id": done["id"], "by": done["imported_by"], "at": done["imported_at"].isoformat()}
            if done else None}
     out["print"] = _print(out)
@@ -81,8 +95,10 @@ def preview(conn, ins_id: int, file_name: str, raw: bytes, *, mapping: dict | No
 
 
 def _print(p: dict) -> str:
-    return hashlib.sha256(json.dumps([p["sha256"], p["mapping"], p["first_sample"], p["readings"]],
-                                     sort_keys=True).encode()).hexdigest()
+    """Everything the signer saw that decides what is written: the file, the matching, the samples, the readings,
+    the readings they replace and the equipment."""
+    return hashlib.sha256(json.dumps([p["sha256"], p["mapping"], p["first_sample"], p["readings"], p["replaces"],
+                                      p["gauge"]], sort_keys=True).encode()).hexdigest()
 
 
 def import_file(conn, user: dict, ins_id: int, file_name: str, raw: bytes, password: str, *,  # noqa: PLR0917
@@ -93,13 +109,15 @@ def import_file(conn, user: dict, ins_id: int, file_name: str, raw: bytes, passw
     Q.check_signer(conn, user, password)
     with conn.transaction():
         ins, _ = _open(conn, ins_id, lock=True)
-        p = preview(conn, ins_id, file_name, raw, mapping=mapping, first_sample=first_sample)
+        p = preview(conn, ins_id, file_name, raw, mapping=mapping, first_sample=first_sample, gauge_id=gauge_id)
         if p["print"] != seen:
             raise MeasurementError("the file, the matching or the readings changed since the preview: preview again")
         if p["already"]:
             raise MeasurementError(f"this file was imported into {ins['name']} before, by {p['already']['by']}")
         if not p["readings"]:
             raise MeasurementError("no reading in the file goes to a measured characteristic of the plan")
+        if p["blocks"]:
+            raise MeasurementError("; ".join(p["blocks"]))
         g = None
         if gauge_id is not None:
             g = CAL.get(conn, gauge_id)
@@ -120,7 +138,7 @@ def import_file(conn, user: dict, ins_id: int, file_name: str, raw: bytes, passw
                          "import_id = %s where inspection_id = %s and sample = %s and characteristic = %s",
                          (r["value"], user["email"], now, row["id"], ins_id, r["sample"], r["characteristic"]))
         if g:
-            for ch in sorted(set(p["mapping"].values())):
+            for ch in p["measured"]:                     # only what the file gave values for
                 I.set_gauge(conn, user["email"], ins_id, ch, g["id"], today=today)
         Q._sign(conn, user, f"Measurements imported from {file_name[:120]} ({len(p['readings'])} readings)",
                 "measurement_import", row["id"], ins["name"])
@@ -206,8 +224,11 @@ def spc_for(conn, source: str, item_code: str, parameter: str, limit: int = 100)
     if res.get("enough_data") and res.get("capability") is None:
         res["capability_note"] = ("unknown: the plan has no lower and upper limit for it" if groups[-1]["min"] is None
                                   or groups[-1]["max"] is None else "unknown: too few values, or no spread")
-    if res.get("enough_data") and len(values) < 25 and res.get("capability"):
-        res["capability_note"] = f"only {len(values)} values: capability this early is a rough guide"
+    cap = res.get("capability")
+    if res.get("enough_data") and cap and cap["n"] < 25:
+        res["capability_note"] = f"only {cap['n']} values: capability this early is a rough guide"
+    if res.get("limits_note") and cap:
+        res["capability_note"] = "; ".join(x for x in (res.get("capability_note"), res["limits_note"]) if x)
     res["values"] = len(values)
     res["mean"] = stats.fmean(values)
     return res
