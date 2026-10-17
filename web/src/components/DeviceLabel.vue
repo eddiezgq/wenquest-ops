@@ -27,14 +27,14 @@ async function load() {
   try {
     v.value = await api(`/api/production/${props.recordId}/label${expiry.value ? `?expiry=${expiry.value}` : ''}`)
     await draw()
-  } catch (e) { error.value = e.message; v.value = null }
+  } catch (e) { error.value = e.message; if (!expiry.value) v.value = null }   // a wrong expiry keeps the form, to fix it
 }
 watch(() => [props.recordId, expiry.value], load, { immediate: true })
 
 async function printIt() {
   error.value = ''; done.value = ''
   try {
-    const out = await api(`/api/production/${props.recordId}/label`, { method: 'POST', body: { format: 'screen', copies: copies.value, expiry: expiry.value || null } })
+    const out = await api(`/api/production/${props.recordId}/label`, { method: 'POST', body: { format: 'screen', copies: 1, expiry: expiry.value || null } })
     v.value = { ...v.value, prints: out.prints }
     document.body.classList.add('printing-label')
     window.print()
@@ -61,7 +61,7 @@ async function zpl() {
     <h2 class="wq-h2">Device label</h2>
     <p v-if="error" class="wq-error mb-3">{{ error }}</p>
     <div v-if="v?.label" class="flex flex-wrap items-start gap-6">
-      <figure class="device-label flex items-center gap-4 rounded-4 border border-outline-gray-3 bg-white p-4">
+      <figure v-if="!error" class="device-label flex items-center gap-4 rounded-4 border border-outline-gray-3 bg-white p-4">
         <div class="code" v-html="svg" />
         <figcaption class="text-sm leading-6 text-black">
           <div v-for="l in v.label.lines" :key="l" class="font-medium">{{ l }}</div>
@@ -70,8 +70,8 @@ async function zpl() {
       </figure>
       <div class="no-print flex flex-col gap-3">
         <label class="wq-field">Expiry date (if the device has one)<input v-model="expiry" type="date" class="wq-input"></label>
-        <label class="wq-field">Copies<input v-model.number="copies" type="number" min="1" max="500" class="wq-input w-28"></label>
-        <div v-if="v.can_print" class="flex gap-2">
+        <label class="wq-field">Copies (Zebra)<input v-model.number="copies" type="number" min="1" max="500" class="wq-input w-28"></label>
+        <div v-if="v.can_print && !error" class="flex gap-2">
           <Button variant="solid" icon-left="lucide-printer" label="Print" @click="printIt" />
           <Button icon-left="lucide-download" label="ZPL for a Zebra printer" @click="zpl" />
         </div>

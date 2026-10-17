@@ -52,6 +52,30 @@ def test_gs1_in_every_form_a_scanner_gives():
             U.parse(bad)
 
 
+def test_what_review_found_in_reading_and_printing():
+    today = D(2026, 10, 16)
+    code = U.hibc_data("+A123YX0")                     # its check character is a space
+    assert code.endswith(" ") and U.parse(code + "\r\n", today)["pcn"] == "YX"
+    body = "+$LOT1I"                                    # a secondary code on its own ends with its link character
+    assert U.parse(body + U.hibc_check(body), today).items() >= {"lot": "LOT1", "link": "I"}.items()
+    hibc_qty = "+A123PROD10/$$8050LOT1"
+    with pytest.raises(U.UdiError, match="quantity"):
+        U.parse(hibc_qty + U.hibc_check(hibc_qty), today)
+    for bad in ("(01)09521234567899(17)261300", "(01)09521234567899(17)260000"):
+        with pytest.raises(U.UdiError, match="not a real date"):
+            U.parse(bad, today)
+    link = U.parse("HTTPS://ID.GS1.ORG/shop/01/09521234567899/10/10/21/5", today)
+    assert (link["lot"], link["serial"]) == ("10", "5")
+    assert U.parse("https://id.gs1.org/01/09521234567899/10/AB%2F12", today)["lot"] == "AB/12"
+    assert U.parse("09521234567899", today).items() >= {"di": "09521234567899", "form": "GTIN"}.items()
+    assert U.parse("9521234567899", today)["di"] == "09521234567899"
+    for lot in ("A#1", "A(1)", "x" * 21):
+        with pytest.raises(U.UdiError, match="holds up to 20"):
+            U.gs1_data("9521234567899", lot=lot)
+    z = U.zpl("01x", ["A~JA", "x" * 58 + "_y"], gs1=False)
+    assert "~" not in z and "^FDA_7EJA^FS" in z and "x" * 58 + "_5Fy" in z and "_5^" not in z
+
+
 def test_hibc_codes_round_trip():
     di = U.hibc_di("a123", "widget1", "0")
     assert di == "+A123WIDGET10"

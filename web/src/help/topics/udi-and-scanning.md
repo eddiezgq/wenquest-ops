@@ -44,7 +44,7 @@ questions:
   - q: Does this send anything to the FDA?
     a: No. Submitting the device to the FDA's GUDID is done in GUDID itself.
   - q: Which scanners work?
-    a: Any USB or Bluetooth scanner that types what it reads, and the camera of a phone or tablet in the browser. GS1 DataMatrix, GS1-128, HIBC codes and GS1 web addresses are read.
+    a: Any USB or Bluetooth scanner that types what it reads, and the camera of a phone or tablet in the browser. GS1 DataMatrix, GS1-128, HIBC codes, GS1 web addresses and the GTIN of a box are read. Set the scanner to send the GS separator of GS1 codes (most send it as Ctrl+], which the Scan box writes as <GS>); without it a lot followed by a serial number cannot be told apart.
 ---
 
 A medical device carries a unique device identification (UDI): the device identifier (DI) of the model, and the

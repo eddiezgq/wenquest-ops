@@ -73,7 +73,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         d = await body(request)
         out = run(lambda: UD.look_up(c, str(d.get("code") or "")[:600], OA.today(company()[0])))
         if not P.allows(u["roles"], "quality:view"):        # the read is for anyone; the records are not
-            out["found"] = {"item_code": out["found"]["item_code"], "production": [], "incoming": []}
+            out["found"] = {"item_code": None, "production": [], "incoming": []}
         return out
 
     @app.get("/api/production/{rid}/label")

@@ -18,7 +18,7 @@ const NAMES = { di: 'Device identifier', lot: 'Lot', serial: 'Serial number', pr
 
 async function look(text) {
   error.value = ''; out.value = null
-  const v = (text ?? code.value).trim()
+  const v = (text ?? code.value).replace(/^\s+|[\r\n]+$/g, '')   // a HIBC check character can be a space
   if (!v) return
   try { out.value = await api('/api/udi/scan', { method: 'POST', body: { code: v } }) } catch (e) { error.value = e.message }
 }
@@ -33,6 +33,8 @@ async function start() {
     })
   } catch (e) { camera.value = false; error.value = `The camera cannot be used here (${e.name || e.message}). Type or scan the code into the box.` }
 }
+// a scanner sends the GS separator of GS1 codes as Ctrl+]; a text box would drop it, so it is written as <GS>
+function gs(e) { if (e.ctrlKey && (e.key === ']' || e.code === 'BracketRight')) { e.preventDefault(); const el = e.target; const at = el.selectionStart ?? code.value.length; code.value = code.value.slice(0, at) + '<GS>' + code.value.slice(el.selectionEnd ?? at); nextTick(() => el.setSelectionRange(at + 4, at + 4)) } }
 function stop() { controls?.stop(); controls = null; camera.value = false; nextTick(() => box.value?.focus()) }
 onBeforeUnmount(stop)
 </script>
@@ -47,7 +49,7 @@ onBeforeUnmount(stop)
       scanner types into the box below; on a phone or tablet, use the camera.</p>
     <video v-show="camera" ref="video" class="mb-4 w-full max-w-md rounded-5 border border-outline-gray-2" muted playsinline />
     <form data-help="scan-box" class="flex gap-2" @submit.prevent="look()">
-      <input ref="box" v-model="code" class="wq-input grow font-mono" placeholder="Scan or type the code" autofocus aria-label="The scanned code">
+      <input ref="box" v-model="code" class="wq-input grow font-mono" placeholder="Scan or type the code" autofocus aria-label="The scanned code" @keydown="gs">
       <Button type="submit" label="Read" />
     </form>
     <p v-if="error" class="wq-error mt-4">{{ error }}</p>
@@ -68,6 +70,8 @@ onBeforeUnmount(stop)
       <p v-for="p in out.found.incoming" :key="'i' + p.id">Incoming lot <RouterLink :to="`/quality/iqc/${p.id}`" class="wq-link">{{ p.name }}</RouterLink>
         ({{ p.item_code }} lot {{ p.lot_no }}, {{ p.status.replace('_', ' ') }}) ·
         <RouterLink :to="`/quality/trace?incoming=${p.id}`" class="wq-link">trace it</RouterLink></p>
+      <p v-if="!out.found.item_code && (out.found.production.length || out.found.incoming.length)" class="text-sm text-ink-gray-6">
+        The item of this code is not known here: these lots only have the same number, so check the item.</p>
       <p v-if="(out.read.lot || out.read.serial) && !out.found.production.length && !out.found.incoming.length" class="text-ink-gray-6">
         No production or incoming lot with this number.</p>
     </section>
