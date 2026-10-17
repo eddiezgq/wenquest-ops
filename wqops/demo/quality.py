@@ -405,6 +405,7 @@ def digital(conn, today: dt.date) -> str:
         "inspection": ins["name"], "equipment": "CAL-01",
         "readings": [{"sample": 5, "characteristic": "Board thickness", "value": 4.01},
                      {"sample": 6, "characteristic": "Board thickness", "value": 3.96}]})
+    IG.called(conn, row["id"], "POST", "/api/integration/v1/measurements", 202)   # as the call itself is logged
     return (f"HX-BOLT-M8 identified (GTIN 09521234567899); {ins['name']} with a measurement file on samples 1-4 and "
             f"2 readings from {row['name']} waiting")
 

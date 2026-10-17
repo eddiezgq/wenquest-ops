@@ -3,6 +3,7 @@ title: Measurement data
 group: Quality
 order: 4
 summary: Readings from gauges and measuring machines, and control charts of your own inspections and lots.
+video: measurement-data
 needs: quality:view
 try:
   - id: chart

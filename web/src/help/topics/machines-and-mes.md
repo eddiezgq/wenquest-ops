@@ -3,6 +3,7 @@ title: Machines and an MES
 group: Quality
 order: 5
 summary: Let an MES, a test bench or a gauge station send measurements and step results, and read events.
+video: machines-and-mes
 needs: quality:view
 try:
   - id: token

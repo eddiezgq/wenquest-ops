@@ -3,6 +3,7 @@ title: Device labels and scanning
 group: Regulated modules
 order: 6
 summary: Record each item's device identifier, print the label of a released lot, and scan codes to find their records.
+video: udi-and-scanning
 needs: quality:view
 try:
   - id: identifier
