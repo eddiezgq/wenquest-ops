@@ -188,8 +188,9 @@ def parameters(conn) -> list[dict]:
     return out
 
 
-def spc_for(conn, source: str, item_code: str, parameter: str, limit: int = 100) -> dict:
-    """The control chart, its signals and capability; the limits are the latest plan's or template's."""
+def subgroups(conn, source: str, item_code: str, parameter: str, limit: int = 100) -> list[dict]:
+    """The measured values of one item and characteristic in time order, a subgroup per signed incoming inspection or
+    per production record, each with the limits it was judged against (also used by the histogram, 22a)."""
     if source == "incoming":
         rows = conn.execute(
             "select i.id, i.name, coalesce(i.signed_at, i.created_at) as at, i.plan_id, "
@@ -212,14 +213,20 @@ def spc_for(conn, source: str, item_code: str, parameter: str, limit: int = 100)
                    "max": float(r["high"]) if r["high"] is not None else None} for r in rows]
     else:
         raise MeasurementError("the source is incoming or production")
+    for g in groups:
+        g["min"] = float(g["min"]) if g["min"] is not None else None
+        g["max"] = float(g["max"]) if g["max"] is not None else None
+    return groups
+
+
+def spc_for(conn, source: str, item_code: str, parameter: str, limit: int = 100) -> dict:
+    """The control chart, its signals and capability; the limits are the latest plan's or template's."""
+    groups = subgroups(conn, source, item_code, parameter, limit)
     out = {"source": source, "item_code": item_code, "parameter": parameter,
            "inspections": [g["inspection"] for g in groups]}
     if not groups:
         return out | {"enough_data": False, "note": "No measured values for this item and characteristic.",
                       "subgroups": 0}
-    for g in groups:
-        g["min"] = float(g["min"]) if g["min"] is not None else None
-        g["max"] = float(g["max"]) if g["max"] is not None else None
     res = out | spc.chart(groups)
     values = [v for g in groups for v in g["values"]]
     if res.get("enough_data") and res.get("capability") is None:
