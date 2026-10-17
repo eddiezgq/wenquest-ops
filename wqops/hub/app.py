@@ -426,6 +426,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import meas_api as MEA  # noqa: PLC0415
 
     MEA.mount(app, conn, current_user, company)
+    from wqops.hub.quality import tools_api as TLA  # noqa: PLC0415
+
+    TLA.mount(app, conn, current_user, company)
     from wqops.hub import integration_api as IGA  # noqa: PLC0415
 
     IGA.mount(app, conn, current_user, company)

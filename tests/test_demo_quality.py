@@ -56,6 +56,12 @@ def test_every_part_loads(demo):
     assert c.execute("select readings from measurement_imports").fetchone()["readings"] == 4
     assert count(c, "select status as k, count(*) as n from integration_inbox group by 1") == {"pending": 1}
     assert c.execute("select count(*) as n from integration_tokens where token_hash like 'wqo_%'").fetchone()["n"] == 0
+    # 22a: a check sheet form with tallies; its Pareto starts with crushed boxes
+    from wqops.hub.quality import tools as TL
+
+    form = c.execute("select id from check_sheet_forms").fetchone()
+    p = TL.pareto_for(c, "check_sheet", "category", form_id=form["id"])
+    assert p["records"] == 10 and p["bars"][0]["key"] == "Crushed box" and p["total"] == 96
     # a second run finds the records and changes nothing
     again = DQ.load(demo, DEMO, TODAY)
     assert all(v.startswith("skipped") for v in again.values()), again

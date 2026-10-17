@@ -5,8 +5,9 @@
 The demo business (wqops/demo/load.py) brings orders, receipts, deliveries and one rejected lot. This adds what the
 quality modules of ADR-0017 need so every page of the help center has something to open: approved suppliers, measuring
 equipment, a sampling table and inspection plans with inspections in every state, two procedures in effect with their
-reading, complaints, changes, a risk file, a production template with lots, a mock recall, a management review and a
-few register entries. Each part leaves something done, something under way and something with a problem.
+reading, complaints, changes, a risk file, a production template with lots, a mock recall, a management review, a
+few register entries and check sheet tallies. Each part leaves something done, something under way and something
+with a problem.
 
 Everything is invented and made by plain code (no AI, no network). The sampling table rows are the demo company's own
 numbers, not copied from a standard. Records are made by the demo people with the separation of duties the modules
@@ -410,11 +411,32 @@ def digital(conn, today: dt.date) -> str:
             f"2 readings from {row['name']} waiting")
 
 
+def tools(conn, today: dt.date) -> str:
+    """ADR-0022 (22a): a check sheet form for the packing bench and two weeks of tallies, so the Pareto chart of
+    check sheets has something to show. Counts are invented for the fictional company."""
+    from wqops.hub.quality import tools as TL  # noqa: PLC0415
+
+    if _exists(conn, "select 1 from check_sheet_forms"):
+        return "skipped: check sheet forms exist"
+    f = TL.new_form(conn, JORDAN, "Packing bench defects (Demo)",
+                    ["Crushed box", "Wrong label", "Missing bolts", "Loose lid", "Torn bag", "Other"])
+    days = [(14, [6, 2, 1, 1, 0, 0]), (13, [4, 3, 0, 2, 1, 0]), (12, [7, 1, 1, 0, 0, 1]), (11, [5, 2, 2, 1, 0, 0]),
+            (10, [3, 4, 0, 1, 1, 0]), (7, [6, 1, 1, 0, 0, 0]), (6, [5, 2, 0, 1, 0, 1]), (5, [8, 1, 1, 1, 1, 0]),
+            (4, [4, 3, 1, 0, 0, 0]), (3, [6, 2, 0, 2, 0, 0])]
+    for k, (ago, counts) in enumerate(days):
+        who = _u(conn, SAM if k % 2 else JORDAN)
+        TL.record(conn, who, f["id"], {"on_date": (today - dt.timedelta(days=ago)).isoformat(),
+                                       "place": "Packing bench, day shift", "item_code": "HX-BOLT-M8",
+                                       "counts": dict(zip(f["categories"], counts, strict=True))}, SIGN, today=today)
+    total = sum(sum(c) for _, c in days)
+    return f"{f['name']} with {len(days)} tallies ({total} counted)"
+
+
 PARTS: list[tuple[str, Callable]] = [
     ("Approved suppliers", suppliers), ("Measuring equipment", equipment), ("Incoming inspection", incoming),
     ("Documents", documents), ("Complaints", complaints), ("Changes", changes), ("Risk", risk),
     ("Production", production), ("Recall", recall), ("Registers", registers), ("Management review", review),
-    ("Digital factory", digital),
+    ("Digital factory", digital), ("Quality tools", tools),
 ]
 
 
