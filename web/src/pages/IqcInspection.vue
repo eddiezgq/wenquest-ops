@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
+import MeasurementImport from '../components/MeasurementImport.vue'
 import { api, objectPath } from '../api'
 import { ago } from '../format'
 
@@ -30,9 +31,22 @@ function fill(x) {
   vals.value = Object.fromEntries(x.readings.map((r) => [`${r.sample}|${r.characteristic}`,
     r.passed === true ? 'pass' : r.passed === false ? 'fail' : r.value ?? '']))
 }
+const imports = ref([])
 async function load() {
   error.value = ''
-  try { fill(await api(`/api/iqc/inspections/${route.params.id}`)) } catch (e) { error.value = e.message }
+  try {
+    fill(await api(`/api/iqc/inspections/${route.params.id}`))
+    imports.value = await api(`/api/iqc/inspections/${route.params.id}/measurements`)
+  } catch (e) { error.value = e.message }
+}
+async function imported(message) { await load(); done.value = message }
+const keep = async () => !changed().length || await save()   // readings typed so far are saved before an import
+// a gauge that types its reading ends it with Enter: go to the next sample of the same characteristic
+function next(s, c) {
+  const measured = chars.value.filter((x) => x.kind === 'measured')
+  const i = measured.findIndex((x) => x.name === c.name)
+  const to = s < samples.value.length ? k(s + 1, c) : measured[i + 1] ? k(1, measured[i + 1]) : null
+  if (to) document.querySelector(`[data-cell="${CSS.escape(to)}"]`)?.focus()
 }
 watch(() => route.params.id, load, { immediate: true })
 async function call(key, path, method, body, message) {
@@ -114,7 +128,8 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null ?
           <td v-for="c in chars" :key="c.name" :class="cls(s, c)">
             <template v-if="open && v.can_edit">
               <select v-if="c.kind === 'attribute'" v-model="vals[k(s, c)]" class="wq-select w-24"><option value="" /><option value="pass">pass</option><option value="fail">fail</option></select>
-              <input v-else v-model="vals[k(s, c)]" class="wq-input w-24" inputmode="decimal">
+              <input v-else v-model="vals[k(s, c)]" class="wq-input w-24" inputmode="decimal" :data-cell="k(s, c)" @keydown.enter.prevent="next(s, c)">
+              <span v-if="at[k(s, c)]?.import_id" class="lucide-file-input ms-1 inline-block size-3.5 align-middle text-ink-gray-5" title="From a measurement file" aria-label="from a measurement file" />
             </template>
             <template v-else>{{ vals[k(s, c)] === '' ? '–' : vals[k(s, c)] }}</template>
           </td></tr></tbody></table></div>
@@ -125,6 +140,10 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null ?
         <Button variant="solid" label="Sign (judge the lot)" :disabled="!password" :loading="busy === 'sign'" @click="sign" />
       </div>
     </section>
+
+    <MeasurementImport v-if="open && v.can_edit" :inspection-id="v.id" :gauges="v.gauge_choices" :imports="imports" :before-import="keep" @imported="imported" />
+    <section v-else-if="imports.length" class="wq-panel mb-5 p-5 text-sm"><h2 class="wq-h2">Measurement files</h2>
+      <p v-for="m in imports" :key="m.id"><a :href="`/api/measurements/${m.id}/file`" class="wq-link">{{ m.file_name }}</a>: {{ m.readings }} readings by {{ m.imported_by }}</p></section>
 
     <section v-if="v.status === 'judged' && v.can_edit" data-help="iqc-decide" class="decide wq-panel mb-5 p-5">
       <h2 class="wq-h2">{{ v.result === 'accept' ? 'Release the lot' : 'Reject the lot' }}</h2>

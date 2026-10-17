@@ -22,7 +22,7 @@ try:
     expect: a chart of the readings of each inspection, with points marked where they break a rule as the diameter creeps upwards.
     tour:
       - target: '[data-help="spc-pick"]'
-        text: Every item and parameter with numeric readings on ERPNext inspections, with how many inspections there are.
+        text: Every item and characteristic with measured values, from incoming inspections, production lots and ERPNext inspections.
         elsewhere: Choose the SPC tab first.
       - target: '[data-help="spc-chart"]'
         text: Center line, control limits and spec limits. Marked points break a Western Electric rule.

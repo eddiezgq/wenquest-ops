@@ -423,6 +423,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub import udi_api as UDA  # noqa: PLC0415
 
     UDA.mount(app, conn, current_user, company)
+    from wqops.hub.quality import meas_api as MEA  # noqa: PLC0415
+
+    MEA.mount(app, conn, current_user, company)
     from wqops.hub import help_api as HA  # noqa: PLC0415
 
     HA.mount(app, conn, current_user)
