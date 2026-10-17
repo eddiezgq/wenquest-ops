@@ -39,6 +39,8 @@ import Recalls from './pages/Recalls.vue'
 import RecallPage from './pages/RecallPage.vue'
 import Reviews from './pages/Reviews.vue'
 import Scan from './pages/Scan.vue'
+import Integrations from './pages/Integrations.vue'
+import MachineInbox from './pages/MachineInbox.vue'
 import DeviceIds from './pages/DeviceIds.vue'
 import ReviewPage from './pages/ReviewPage.vue'
 import ChangePage from './pages/ChangePage.vue'
@@ -81,6 +83,8 @@ const router = createRouter({
     { path: '/quality/recalls', component: Recalls, meta: { title: 'Recalls' } },
     { path: '/quality/recalls/:id', component: RecallPage, meta: { title: 'Recall' } },
     { path: '/scan', component: Scan, meta: { title: 'Scan' } },
+    { path: '/integrations', component: Integrations, meta: { title: 'Machines and systems' } },
+    { path: '/quality/inbox', component: MachineInbox, meta: { title: 'From machines' } },
     { path: '/quality/udi', component: DeviceIds, meta: { title: 'Device identifiers' } },
     { path: '/quality/reviews', component: Reviews, meta: { title: 'Management reviews' } },
     { path: '/quality/reviews/:id', component: ReviewPage, meta: { title: 'Management review' } },

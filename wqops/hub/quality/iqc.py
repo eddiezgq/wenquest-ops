@@ -562,7 +562,7 @@ def enter(conn, email: str, ins_id: int, values: list[dict]) -> int:
                 passed = v["passed"]
             done = val is not None or passed is not None
             r = conn.execute("update iqc_readings set value = %s, passed = %s, entered_by = %s, entered_at = %s, "
-                             "import_id = null "
+                             "import_id = null, inbox_id = null "
                              "where inspection_id = %s and sample = %s and characteristic = %s returning id",
                              (val, passed, email if done else None, dt.datetime.now(dt.UTC) if done else None,
                               ins_id, v["sample"], v["characteristic"])).fetchone()

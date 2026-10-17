@@ -79,6 +79,7 @@ const menu = computed(() => [
             <SidebarItem v-if="can('quality:view')" label="Complaints" icon="lucide-message-square-warning" route="/quality/complaints" />
             <SidebarItem v-if="can('quality:view')" label="Incoming inspection" icon="lucide-scan-search" route="/quality/iqc" />
             <SidebarItem v-if="can('quality:view')" label="Approved suppliers" icon="lucide-badge-check" route="/quality/suppliers" />
+            <SidebarItem v-if="can('quality:view')" label="From machines" icon="lucide-inbox" route="/quality/inbox" />
             <SidebarItem v-if="can('quality:view')" label="Measuring equipment" icon="lucide-ruler" route="/quality/gauges" />
             <SidebarItem v-if="can('quality:view')" label="Changes" icon="lucide-git-pull-request-arrow" route="/quality/changes" />
             <SidebarItem v-if="can('quality:view')" label="Risk" icon="lucide-triangle-alert" route="/quality/risk" />
@@ -91,6 +92,7 @@ const menu = computed(() => [
             <SidebarItem label="Objects" icon="lucide-boxes" route="/objects" />
             <SidebarLabel divider>Workspace</SidebarLabel>
             <SidebarItem v-if="can('users:view')" label="People" icon="lucide-users" route="/people" />
+            <SidebarItem v-if="can('integrations:manage')" label="Machines and systems" icon="lucide-cable" route="/integrations" />
             <SidebarItem label="Help" icon="lucide-circle-help" route="/help" />
             <SidebarItem v-if="ws.erp_url" label="ERPNext" icon="lucide-external-link" :href="ws.erp_url + '/login'"
                          target="_blank" rel="noopener" />
