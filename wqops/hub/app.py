@@ -426,6 +426,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import meas_api as MEA  # noqa: PLC0415
 
     MEA.mount(app, conn, current_user, company)
+    from wqops.hub import integration_api as IGA  # noqa: PLC0415
+
+    IGA.mount(app, conn, current_user, company)
     from wqops.hub import help_api as HA  # noqa: PLC0415
 
     HA.mount(app, conn, current_user)
@@ -553,7 +556,8 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     if has_web:
         for path in ("/objects", "/o/{rest:path}", "/anomalies", "/anomalies/{rest:path}", "/drafts", "/assistant",
                      "/quality", "/quality/{rest:path}", "/help", "/help/{rest:path}", "/account", "/people",
-                     "/documents", "/documents/{rest:path}", "/system", "/system/{rest:path}", "/wall", "/scan"):
+                     "/documents", "/documents/{rest:path}", "/system", "/system/{rest:path}", "/wall", "/scan",
+                     "/integrations"):
             app.add_api_route(path, spa_page, methods=["GET"], include_in_schema=False)
 
     @app.get("/", response_class=HTMLResponse)

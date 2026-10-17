@@ -129,6 +129,7 @@ const limits = (c) => c.kind === 'attribute' ? 'pass / fail' : [c.lsl !== null ?
             <template v-if="open && v.can_edit">
               <select v-if="c.kind === 'attribute'" v-model="vals[k(s, c)]" class="wq-select w-24"><option value="" /><option value="pass">pass</option><option value="fail">fail</option></select>
               <input v-else v-model="vals[k(s, c)]" class="wq-input w-24" inputmode="decimal" :data-cell="k(s, c)" @keydown.enter.prevent="next(s, c)">
+              <span v-if="at[k(s, c)]?.inbox_id" class="lucide-cpu ms-1 inline-block size-3.5 align-middle text-ink-gray-5" title="Sent by a machine, accepted by a person" aria-label="sent by a machine" />
               <span v-if="at[k(s, c)]?.import_id" class="lucide-file-input ms-1 inline-block size-3.5 align-middle text-ink-gray-5" title="From a measurement file" aria-label="from a measurement file" />
             </template>
             <template v-else>{{ vals[k(s, c)] === '' ? '–' : vals[k(s, c)] }}</template>

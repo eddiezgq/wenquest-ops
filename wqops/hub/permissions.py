@@ -21,6 +21,7 @@ PERMISSIONS = {
     "users:view": "See who has access",
     "users:manage": "Set other people's passwords (who has access comes from the company manifest)",
     "settings:edit": "Change platform settings",
+    "integrations:manage": "Give machines and other systems access tokens, and revoke them (ADR-0020)",
 }
 
 _VIEW = {"dashboard:view", "inventory:view", "sales:view", "purchasing:view", "quality:view", "documents:view"}

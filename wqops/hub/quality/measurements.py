@@ -135,7 +135,8 @@ def import_file(conn, user: dict, ins_id: int, file_name: str, raw: bytes, passw
         now = dt.datetime.now(dt.UTC)
         for r in p["readings"]:
             conn.execute("update iqc_readings set value = %s, passed = null, entered_by = %s, entered_at = %s, "
-                         "import_id = %s where inspection_id = %s and sample = %s and characteristic = %s",
+                         "import_id = %s, inbox_id = null where inspection_id = %s and sample = %s and "
+                         "characteristic = %s",
                          (r["value"], user["email"], now, row["id"], ins_id, r["sample"], r["characteristic"]))
         if g:
             for ch in p["measured"]:                     # only what the file gave values for
