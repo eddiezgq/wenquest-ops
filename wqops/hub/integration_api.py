@@ -32,14 +32,29 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
+    def has_nul(v) -> bool:
+        if isinstance(v, str):
+            return "\x00" in v
+        if isinstance(v, dict):
+            return any(has_nul(k) or has_nul(x) for k, x in v.items())
+        return isinstance(v, list) and any(has_nul(x) for x in v)
+
     async def body(request: Request) -> dict:
-        raw = await request.body()
-        if len(raw) > MAX_BODY:
+        """The JSON body, read only up to 1 MB."""
+        size = request.headers.get("content-length", "")
+        if size.isdigit() and int(size) > MAX_BODY:
             raise HTTPException(413, "the request is larger than 1 MB")
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw += chunk
+            if len(raw) > MAX_BODY:
+                raise HTTPException(413, "the request is larger than 1 MB")
         try:
-            d = json.loads(raw or b"{}")
-        except ValueError as exc:
+            d = json.loads(bytes(raw) or b"{}")
+        except (ValueError, RecursionError) as exc:
             raise HTTPException(400, "the request is not JSON") from exc
+        if has_nul(d):
+            raise HTTPException(400, "the request holds a NUL character")
         return d if isinstance(d, dict) else {}
 
     # ---------------------------------------------------------------- machines
@@ -50,6 +65,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         tok = IG.authenticate(c, auth[7:].strip() if auth[:7].lower() == "bearer " else None)
         path = request.url.path
         if tok is None:
+            IG.called(c, None, request.method, path, 401)
             return JSONResponse({"detail": "a valid access token is needed (Authorization: Bearer wqo_...)"}, 401)
         if scope and scope not in tok["scopes"]:
             IG.called(c, tok["id"], request.method, path, 403)
@@ -63,6 +79,9 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except IG.IntegrationError as exc:
             IG.called(c, tok["id"], request.method, path, 422)
             return JSONResponse({"detail": str(exc)}, 422)
+        except Exception:
+            IG.called(c, tok["id"], request.method, path, 500)
+            raise
         IG.called(c, tok["id"], request.method, path, status)
         return JSONResponse(out, status)
 
@@ -133,7 +152,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     async def accept(iid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "quality:edit")
         d = await body(request)
-        return run(lambda: IG.accept(c, u, iid, str(d.get("password") or ""), today=OA.today(company()[0])))
+        return run(lambda: IG.accept(c, u, iid, str(d.get("password") or ""), seen=str(d.get("seen") or ""),
+                                     today=OA.today(company()[0])))
 
     @app.post("/api/integrations/inbox/{iid}/reject")
     async def reject(iid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):

@@ -85,7 +85,9 @@ create index integration_calls_token on integration_calls (token_id, id);
 create trigger integration_calls_append_only before update or delete on integration_calls
     for each row execute function wqo_append_only();
 
--- events for other systems, in order; written by triggers so no module can forget one
+-- events for other systems, in order; written by triggers so no module can forget one. Each trigger takes one lock
+-- held until its transaction ends, so event ids are given in commit order: a reader that saw an id never later
+-- finds a smaller one appear.
 create table hub_events (
     id        bigserial primary key,
     kind      text not null,
@@ -101,6 +103,7 @@ create trigger hub_events_append_only before update or delete on hub_events
 create or replace function wqo_event_iqc() returns trigger language plpgsql as $$
 begin
     if new.status in ('released', 'rejected') and old.status is distinct from new.status then
+        perform pg_advisory_xact_lock(20200417);
         insert into hub_events (kind, ref_kind, ref_id, ref_name, data) values
             ('incoming_lot.' || new.status, 'incoming_inspection', new.id, new.name,
              jsonb_build_object('item_code', new.item_code, 'lot_no', new.lot_no, 'supplier', new.supplier,
@@ -114,6 +117,7 @@ create trigger iqc_inspections_events after update on iqc_inspections
 create or replace function wqo_event_production() returns trigger language plpgsql as $$
 begin
     if new.status in ('released', 'rejected') and old.status is distinct from new.status then
+        perform pg_advisory_xact_lock(20200417);
         insert into hub_events (kind, ref_kind, ref_id, ref_name, data) values
             ('production_lot.' || new.status, 'production_record', new.id, new.name,
              jsonb_build_object('item_code', new.item_code, 'lot_no', new.lot_no, 'work_order', new.work_order,
@@ -126,6 +130,10 @@ create trigger prod_records_events after update on prod_records
 
 create or replace function wqo_event_ncr() returns trigger language plpgsql as $$
 begin
+    if new.status <> 'open' or new.source_doc is not null then     -- reports imported from old ledgers are history
+        return new;
+    end if;
+    perform pg_advisory_xact_lock(20200417);
     insert into hub_events (kind, ref_kind, ref_id, ref_name, data) values
         ('ncr.opened', 'ncr', new.id, new.name,
          jsonb_build_object('title', new.title, 'item_code', new.item_code, 'inspection', new.inspection));

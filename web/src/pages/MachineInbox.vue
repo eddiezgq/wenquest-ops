@@ -19,12 +19,14 @@ const ST = { pending: 'amber', accepted: 'green', rejected: 'gray' }
 async function load() { try { v.value = await api(`/api/integrations/inbox?status=${status.value}`) } catch (e) { error.value = e.message } }
 watch(status, load, { immediate: true })
 async function show(x) {
-  open.value = open.value === x.id ? null : x.id; password.value = ''; note.value = ''
-  detail.value = open.value ? await api(`/api/integrations/inbox/${x.id}`) : null
+  open.value = open.value === x.id ? null : x.id; password.value = ''; note.value = ''; detail.value = null
+  if (!open.value) return
+  const d = await api(`/api/integrations/inbox/${x.id}`)
+  if (open.value === x.id) detail.value = d            // a slower answer for another item is dropped
 }
 async function decide(kind) {
   error.value = ''; done.value = ''; busy.value = true
-  const body = kind === 'accept' ? { password: password.value } : { note: note.value }
+  const body = kind === 'accept' ? { password: password.value, seen: detail.value.print } : { note: note.value }
   password.value = ''
   try {
     const r = await api(`/api/integrations/inbox/${open.value}/${kind}`, { method: 'POST', body })
@@ -63,10 +65,11 @@ function what(x) {
             <tbody><tr v-for="r in detail.payload.readings" :key="r.sample + r.characteristic"><td>{{ r.sample }}</td><td>{{ r.characteristic }}</td><td class="font-mono">{{ r.value }}</td></tr></tbody></table>
           <p v-if="detail.replaces?.length" class="mb-2 text-sm text-ink-amber-8">Replaces {{ detail.replaces.length }} reading(s) entered before:
             {{ detail.replaces.map((r) => `sample ${r.sample} ${r.characteristic} ${r.before} → ${r.value}`).join('; ') }}</p>
+          <ul v-if="detail.blocks.length" class="mb-2 list-disc ps-5 text-sm font-medium text-ink-red-7"><li v-for="b in detail.blocks" :key="b">{{ b }}</li></ul>
           <p v-if="detail.status !== 'pending'" class="text-sm">{{ detail.status }} by {{ detail.decided_by }} {{ when(detail.decided_at) }}: {{ detail.result || detail.note }}</p>
           <div v-else-if="v.can_decide" data-help="inbox-decide" class="flex flex-wrap items-end gap-2">
             <label class="wq-field">Your password<input v-model="password" type="password" class="wq-input w-48" autocomplete="current-password"></label>
-            <Button variant="solid" label="Accept (sign)" :disabled="!password" :loading="busy" @click="decide('accept')" />
+            <Button variant="solid" label="Accept (sign)" :disabled="!password || detail.blocks.length > 0" :loading="busy" @click="decide('accept')" />
             <span class="mx-2 h-8 border-s border-outline-gray-2" />
             <label class="wq-field">Why reject<input v-model="note" class="wq-input w-72"></label>
             <Button label="Reject" :disabled="!note.trim()" @click="decide('reject')" />

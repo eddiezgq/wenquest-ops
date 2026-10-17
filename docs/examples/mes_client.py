@@ -16,10 +16,18 @@ import urllib.error
 import urllib.request
 
 
-def call(base: str, token: str, method: str, path: str, body: dict | None = None, *, opener=urllib.request.urlopen):
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **kw):        # the token is never sent on to another address
+        return None
+
+
+_OPEN = urllib.request.build_opener(_NoRedirect).open
+
+
+def call(base: str, token: str, method: str, path: str, body: dict | None = None, *, opener=_OPEN):
     """One call; returns (status, JSON). ``opener`` is replaceable for tests."""
-    if not base.startswith(("https://", "http://")):
-        raise ValueError("the WenQuest Ops address starts with https://")
+    if not base.startswith("https://") and not base.startswith(("http://localhost", "http://127.0.0.1")):
+        raise ValueError("the WenQuest Ops address starts with https:// (the token must not travel in clear)")
     req = urllib.request.Request(base.rstrip("/") + path, method=method,  # noqa: S310 - http(s) only, checked above
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"authorization": f"Bearer {token}", "content-type": "application/json"})

@@ -40,6 +40,11 @@ def inspection(conn, receipt="PR-7"):
     return I.start(conn, JORDAN, "BOLT-B", receipt=receipt, today=T)
 
 
+def ok(conn, user, iid, pw=PW):
+    """Accept as a person who opened the item just now."""
+    return IG.accept(conn, user, iid, pw, seen=IG.item(conn, iid)["print"], today=T)
+
+
 def test_tokens(world):  # noqa: F811
     row, token = IG.new_token(world, DANA, "Line 1 MES", ["measurements:send", "events:read"])
     assert token.startswith("wqo_") and row["prefix"] == token[:10] and "token_hash" not in row
@@ -82,13 +87,13 @@ def test_measurements_wait_for_a_person(world):  # noqa: F811
     assert all(r["value"] is None for r in I.readings(w, ins["id"]))       # nothing written yet
     me = Acc.get(w, JORDAN)
     with pytest.raises(PermissionError):
-        IG.accept(w, me, got["id"], "wrong", today=T)
-    out = IG.accept(w, me, got["id"], PW, today=T)
+        ok(w, me, got["id"], "wrong")
+    out = ok(w, me, got["id"], PW)
     assert out["status"] == "accepted" and out["result"] == f"3 readings into {ins['name']}"
     length = {r["sample"]: r for r in I.readings(w, ins["id"]) if r["characteristic"] == "Length"}
     assert length[2]["value"] == 9.99 and length[2]["inbox_id"] == got["id"] and length[2]["entered_by"] == JORDAN
     with pytest.raises(IG.IntegrationError, match="it was accepted by"):
-        IG.accept(w, me, got["id"], PW, today=T)
+        ok(w, me, got["id"], PW)
     assert Q.signatures(w, "integration_inbox", got["id"])[0]["meaning"].startswith("Measurements from CMM station")
     I.enter(w, JORDAN, ins["id"], [{"sample": 2, "characteristic": "Length", "value": 10.02}])
     assert {r["sample"]: r["inbox_id"] for r in I.readings(w, ins["id"]) if r["characteristic"] == "Length"}[2] is None
@@ -96,9 +101,9 @@ def test_measurements_wait_for_a_person(world):  # noqa: F811
     again = IG.receive_measurements(w, tok, {"inspection": ins["name"], "readings": rd[:1], "equipment": "CAL-01"})
     assert IG.item(w, again["id"])["replaces"] == []
     with pytest.raises(IG.IntegrationError, match="CAL-01"):
-        IG.accept(w, me, again["id"], PW, today=T)
+        ok(w, me, again["id"], PW)
     calibrate(w, g["id"], T - dt.timedelta(days=1))
-    assert IG.accept(w, me, again["id"], PW, today=T)["status"] == "accepted"
+    assert ok(w, me, again["id"], PW)["status"] == "accepted"
     assert I.view(w, ins["id"], T)["gauges"]["Length"]["gauge_code"] == "CAL-01"
     third = IG.receive_measurements(w, tok, {"inspection": ins["name"], "readings": [
         {"sample": 3, "characteristic": "Length", "value": 10.1}]})
@@ -109,13 +114,41 @@ def test_measurements_wait_for_a_person(world):  # noqa: F811
     assert IG.reject(w, JORDAN, third["id"], "wrong part on the fixture")["status"] == "rejected"
     with pytest.raises(psycopg.errors.RaiseException, match="cannot change"):
         w.execute("update integration_inbox set payload = '{}'")
+    opened = IG.item(w, IG.receive_measurements(w, tok, {"inspection": ins["name"], "readings": rd[1:2]})["id"])
+    assert opened["blocks"] == ["Length is measured with CAL-01 in this inspection, the machine does not say with what"]
+    looked = IG.receive_measurements(w, tok, {"inspection": ins["name"], "readings": rd[1:2], "equipment": "CAL-01"})
+    seen = IG.item(w, looked["id"])["print"]
+    I.enter(w, JORDAN, ins["id"], [{"sample": 2, "characteristic": "Length", "value": 10.03}])   # typed after
+    with pytest.raises(IG.IntegrationError, match="changed since you opened it"):
+        IG.accept(w, me, looked["id"], PW, seen=seen, today=T)
     late = IG.receive_measurements(w, tok, {"inspection": ins["name"], "readings": rd[:1]})
     I.enter(w, JORDAN, ins["id"], [{"sample": s, "characteristic": "Finish", "passed": True} for s in (1, 2, 3)])
     I.sign(w, me, ins["id"], PW, today=T)
-    with pytest.raises(IG.IntegrationError, match="takes no more readings"):
-        IG.accept(w, me, late["id"], PW, today=T)
+    assert f"{ins['name']} is judged now" in IG.item(w, late["id"])["blocks"]
+    with pytest.raises(IG.IntegrationError, match="is judged now"):
+        ok(w, me, late["id"], PW)
     with pytest.raises(IG.IntegrationError, match="takes no more readings"):
         IG.receive_measurements(w, tok, {"inspection": ins["name"], "readings": rd[:1]})
+
+
+def test_limits_on_what_machines_send(world, monkeypatch):  # noqa: F811
+    w = world
+    ins = inspection(w)
+    row, token = IG.new_token(w, DANA, "Bench", ["measurements:send"])
+    tok = IG.authenticate(w, token)
+    sent = IG.receive_measurements(w, tok, {"inspection": ins["name"], "readings": [
+        {"sample": 1, "characteristic": "Length", "value": 10}]})
+    IG.revoke(w, DANA, row["id"], "bench replaced")
+    assert IG.item(w, sent["id"])["blocks"] == ["the token of Bench was revoked: reject what it sent"]
+    with pytest.raises(IG.IntegrationError, match="was revoked"):
+        ok(w, Acc.get(w, JORDAN), sent["id"])
+    monkeypatch.setattr(IG, "MAX_PENDING", 1)
+    tok2 = IG.authenticate(w, IG.new_token(w, DANA, "Bench 2", ["measurements:send"])[1])
+    IG.receive_measurements(w, tok2, {"inspection": ins["name"], "readings": [
+        {"sample": 1, "characteristic": "Length", "value": 10}]})
+    with pytest.raises(IG.IntegrationError, match="waiting for a person"):
+        IG.receive_measurements(w, tok2, {"inspection": ins["name"], "readings": [
+            {"sample": 2, "characteristic": "Length", "value": 10}]})
 
 
 def test_production_steps_and_events(world):  # noqa: F811
@@ -132,13 +165,16 @@ def test_production_steps_and_events(world):  # noqa: F811
     one = IG.receive_step(w, tok, {"record": rec["name"], "step": 1, "result": "pass"})
     me = Acc.get(w, JORDAN)
     with pytest.raises(IG.IntegrationError, match="record step 1 first"):
-        IG.accept(w, me, two["id"], PW, today=T)
-    assert IG.accept(w, me, one["id"], PW, today=T)["result"] == f"step 1 of {rec['name']} recorded"
-    assert IG.accept(w, me, two["id"], PW, today=T)["status"] == "accepted"
+        ok(w, me, two["id"], PW)
+    assert ok(w, me, one["id"], PW)["result"] == f"step 1 of {rec['name']} recorded"
+    assert ok(w, me, two["id"], PW)["status"] == "accepted"
     steps = {s["seq"]: s for s in PRD.steps(w, rec["id"])}
     assert steps[2]["verdict"] == "pass" and steps[2]["done_by"] == JORDAN and float(steps[2]["value"]) == 10.01
     with pytest.raises(IG.IntegrationError, match="recorded already"):
         IG.receive_step(w, tok, {"record": rec["name"], "step": 1, "result": "pass"})
+    IG.receive_step(w, tok, {"record": rec["name"], "step": 3, "text": "torque 12 Nm"})
+    with pytest.raises(IG.IntegrationError, match="already waiting"):
+        IG.receive_step(w, tok, {"record": rec["name"], "step": 3, "text": "again"})
     first = IG.events(w)
     n = Q.create_ncr(w, JORDAN, title="Burr on shaft", description="Seen at step 2", item_code="WIDGET-A")
     ev = IG.events(w, after=first["next"])
@@ -189,7 +225,7 @@ def test_machine_interface(db_url):
     c.cookies.clear()                                                        # machines have no session
 
     def opener(req, timeout):
-        return _Reply(c.request(req.get_method(), req.full_url.replace("http://hub", ""), content=req.data,
+        return _Reply(c.request(req.get_method(), req.full_url.replace("http://localhost", ""), content=req.data,
                                 headers=dict(req.header_items())))
 
     spec = importlib.util.spec_from_file_location("mes_client",
@@ -198,31 +234,39 @@ def test_machine_interface(db_url):
     spec.loader.exec_module(mes)
     assert c.get("/api/integration/v1/whoami").status_code == 401
     assert c.get("/api/integration/v1/whoami", headers={"authorization": "Bearer wqo_nope"}).status_code == 401
-    st, out = mes.events("http://hub", token, opener=opener)
+    st, out = mes.events("http://localhost", token, opener=opener)
     assert st == 403 and "may not" in out["detail"]
-    st, out = mes.send_measurements("http://hub", token, ins["name"], [{"sample": 5, "characteristic": "Length",
+    st, out = mes.send_measurements("http://localhost", token, ins["name"], [{"sample": 5, "characteristic": "Length",
                                                                         "value": 10}], opener=opener)
     assert st == 422 and "sample is 1 to 3" in out["detail"]
-    st, out = mes.send_measurements("http://hub", token, ins["name"], [{"sample": 1, "characteristic": "Length",
+    st, out = mes.send_measurements("http://localhost", token, ins["name"], [{"sample": 1, "characteristic": "Length",
                                                                         "value": 10.03}], opener=opener)
     assert st == 202 and out["status"] == "pending"
     big = c.post("/api/integration/v1/measurements", content=b"x" * 1_000_001,
                  headers={"authorization": f"Bearer {token}"})
     assert big.status_code == 413
+    nul = c.post("/api/integration/v1/measurements", headers={"authorization": f"Bearer {token}"},
+                 json={"inspection": ins["name"] + "\x00", "readings": []})
+    assert nul.status_code == 400 and "NUL" in nul.json()["detail"]
     login("lee@demo.example")
     inbox = c.get("/api/integrations/inbox").json()
     assert inbox["can_decide"] is False and inbox["items"][0]["sender"] == "CMM"
     assert c.post(f"/api/integrations/inbox/{out['id']}/accept", json={"password": PW}).status_code == 403
     login(JORDAN)
-    assert c.post(f"/api/integrations/inbox/{out['id']}/accept", json={"password": "x"}).status_code == 403
-    done = c.post(f"/api/integrations/inbox/{out['id']}/accept", json={"password": PW}).json()
+    seen = c.get(f"/api/integrations/inbox/{out['id']}").json()["print"]
+    acc = f"/api/integrations/inbox/{out['id']}/accept"
+    assert c.post(acc, json={"password": "x", "seen": seen}).status_code == 403
+    assert c.post(acc, json={"password": PW, "seen": "x"}).status_code == 409
+    done = c.post(acc, json={"password": PW, "seen": seen}).json()
     assert done["status"] == "accepted" and done["link"] == f"/quality/iqc/{ins['id']}"
     assert c.get("/api/integrations/inbox/99999").status_code == 404
     login(DANA)
     calls = c.get(f"/api/integrations/tokens/{made['id']}/calls").json()
-    assert [x["status"] for x in calls][:4] == [413, 202, 422, 403]
+    assert [x["status"] for x in calls][:5] == [400, 413, 202, 422, 403]
+    with DB.connect(db_url) as conn:                                       # calls without a valid token too
+        assert conn.execute("select count(*) as n from integration_calls where token_id is null").fetchone()["n"] == 2
     c.cookies.clear()
-    st, out = mes.events("http://hub", ev_token, opener=opener)
+    st, out = mes.events("http://localhost", ev_token, opener=opener)
     assert st == 200 and out["events"] == [] and out["next"] == 0
     bearer = {"authorization": f"Bearer {ev_token}"}
     assert c.get("/api/integration/v1/events?limit=0", headers=bearer).status_code == 400
