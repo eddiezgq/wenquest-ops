@@ -35,13 +35,33 @@ async function load() {
     if (tab.value === 'incoming') rows.value = await api('/api/quality/incoming')
     if (tab.value === 'suppliers') scores.value = await api('/api/quality/suppliers')
     if (tab.value === 'workflows') flows.value = await api('/api/quality/workflows')
-    if (tab.value === 'spc') { params.value = await api('/api/quality/spc/parameters'); if (!pick.value && params.value[0]) pick.value = params.value[0] }
+    if (tab.value === 'spc') {
+      // the hub's own readings (signed incoming inspections, production measurements) and ERPNext quality inspections
+      const [hub, erp] = await Promise.all([api('/api/quality/measurements/parameters'), api('/api/quality/spc/parameters')])
+      params.value = [...hub, ...erp.map((p) => ({ ...p, source: 'erpnext' }))]
+      if (!pick.value && params.value[0]) pick.value = params.value[0]
+    }
   } catch (e) { error.value = e.message }
 }
 watch([tab, filter], load, { immediate: true })
+let asked = 0
 watch(pick, async (p) => {
-  spc.value = p ? await api(`/api/quality/spc?item_code=${encodeURIComponent(p.item_code)}&parameter=${encodeURIComponent(p.parameter)}`) : null
+  const mine = ++asked                          // a slower earlier answer does not replace a newer one
+  const q = p && `item_code=${encodeURIComponent(p.item_code)}&parameter=${encodeURIComponent(p.parameter)}`
+  try {
+    const out = !p ? null : p.source === 'erpnext' ? await api(`/api/quality/spc?${q}`)
+      : await api(`/api/quality/measurements/spc?source=${p.source}&${q}`)
+    if (mine === asked) spc.value = out
+  } catch (e) { if (mine === asked) { spc.value = null; error.value = e.message } }
 })
+const SOURCES = { incoming: 'incoming inspections', production: 'production lots', erpnext: 'ERPNext inspections' }
+async function spcNcr() {                       // a broken rule is a reason to look: someone opens the report
+  error.value = ''
+  const p = pick.value
+  const body = { title: `${p.parameter} of ${p.item_code} out of statistical control`, item_code: p.item_code, severity: 'minor',
+    description: `Control chart of ${p.parameter} (${SOURCES[p.source]}): ` + spc.value.signals.map((s) => `rule ${s.rule}, ${s.text}`).join('; ') }
+  try { const n = await api('/api/quality/ncrs', { method: 'POST', body }); router.push(`/quality/ncr/${n.id}`) } catch (e) { error.value = e.message }
+}
 async function newNcr() {
   error.value = ''
   const body = Object.fromEntries(Object.entries(form.value).filter(([, v]) => v !== ''))
@@ -141,10 +161,10 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
   </template>
 
   <template v-if="tab === 'spc'">
-    <p v-if="!params.length" class="wq-muted">No numeric readings yet. Enter measured values on ERPNext quality inspections to see control charts here.</p>
+    <p v-if="!params.length" class="wq-muted">No measured values yet. Signed incoming inspections, production measurements and ERPNext quality inspections show here.</p>
     <div v-else data-help="spc-pick" class="mb-4 flex flex-wrap items-center gap-2">
       <span class="wq-muted">Item and parameter</span>
-      <select v-model="pick" class="wq-select" aria-label="Item and parameter"><option v-for="p in params" :key="p.item_code + p.parameter" :value="p">{{ p.item_code }} — {{ p.parameter }} ({{ p.inspections }} inspections)</option></select>
+      <select v-model="pick" class="wq-select" aria-label="Item and parameter"><option v-for="p in params" :key="p.source + '|' + p.item_code + '|' + p.parameter" :value="p">{{ p.item_code }} — {{ p.parameter }} ({{ p.inspections }} {{ SOURCES[p.source] }})</option></select>
     </div>
     <template v-if="spc">
       <p v-if="!spc.enough_data" class="wq-muted">{{ spc.note }}</p>
@@ -155,15 +175,17 @@ const r3 = (v) => (v === null || v === undefined ? 'unknown' : v.toFixed(2))
             <p v-if="!spc.signals.length" class="wq-muted">No rule broken.</p>
             <ul class="divide-y divide-outline-gray-1 text-sm">
               <li v-for="s in spc.signals" :key="s.index + '-' + s.rule" class="py-1.5 text-ink-gray-8">
-                <Badge theme="red" :label="`Rule ${s.rule}`" class="me-2" />{{ s.text }}</li></ul></section>
+                <Badge theme="red" :label="`Rule ${s.rule}`" class="me-2" />{{ s.text }}</li></ul>
+            <Button v-if="spc.signals.length && canEdit" class="mt-3" size="sm" icon-left="lucide-triangle-alert" label="Open a nonconformance report" @click="spcNcr" /></section>
           <section data-help="spc-capability" class="wq-panel p-4"><h3 class="mb-2 text-base font-semibold text-ink-gray-9">Capability</h3>
-            <p v-if="!spc.capability" class="wq-muted">Needs both spec limits on the readings.</p>
+            <p v-if="!spc.capability" class="wq-muted">{{ spc.capability_note || 'Unknown: needs both spec limits on the readings.' }}</p>
             <dl v-else class="grid grid-cols-3 gap-3">
               <div v-for="[k, v] in [['Cp', r3(spc.capability.Cp)], ['Cpk', r3(spc.capability.Cpk)], ['Pp', r3(spc.capability.Pp)],
                                        ['Ppk', r3(spc.capability.Ppk)], ['Values', spc.capability.n], ['Out of spec', spc.out_of_spec]]" :key="k"
                    class="rounded-4 bg-surface-gray-1 p-3">
                 <dt class="text-sm text-ink-gray-5">{{ k }}</dt><dd class="m-0 text-xl font-semibold text-ink-gray-9">{{ v }}</dd></div>
-            </dl></section>
+            </dl>
+            <p v-if="spc.capability && (spc.capability_note || spc.limits_note)" class="mt-2 text-sm text-ink-amber-8">{{ spc.capability_note || spc.limits_note }}</p></section>
         </div>
       </template>
     </template>

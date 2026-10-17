@@ -86,25 +86,44 @@ def capability(values: list[float], lsl: float, usl: float, sigma_within: float)
             "Ppk": min(usl - mu, mu - lsl) / (3 * s), "n": len(values), "LSL": lsl, "USL": usl}
 
 
+def pooled_sigma(groups: list[list[float]]) -> float | None:
+    """The within-subgroup standard deviation pooled over subgroups of 2 or more: sqrt(sum((n-1) s^2) / sum(n-1))."""
+    big = [g for g in groups if len(g) >= 2]
+    dof = sum(len(g) - 1 for g in big)
+    return (sum((len(g) - 1) * st.variance(g) for g in big) / dof) ** 0.5 if dof else None
+
+
 def chart(subgroups: list[dict]) -> dict:
     """``subgroups``: [{inspection, date, values, min, max}] in time order. X-bar and R when every subgroup has the
-    same size of 2-10 and there are at least 2; otherwise individuals of the subgroup means (at least 3)."""
+    same size of 2-10 and there are at least 2; otherwise individuals of the subgroup means (at least 3). Capability
+    uses the within-subgroup sigma (R-bar / d2, or pooled when subgroups are larger or uneven) and the subgroups that
+    have the latest limits; each value is out of spec against the limits of its own subgroup."""
     groups = [s["values"] for s in subgroups]
     sizes = {len(g) for g in groups}
     try:
         if len(sizes) == 1 and min(sizes) in D2 and len(groups) >= 2:
             ch = xbar_r(groups)
             sig = ch["sigma_within"] / ch["n"] ** 0.5
+            within = ch["sigma_within"]
         else:
             ch = i_mr([st.fmean(g) for g in groups])
             sig = ch["sigma_within"]
+            # the moving range of means is the spread of means, not of single values: pool within the subgroups
+            within = ch["sigma_within"] if max(sizes) == 1 else pooled_sigma(groups)
     except SpcError as exc:
         return {"enough_data": False, "note": f"Not enough data for a control chart: {exc}.",
                 "subgroups": len(groups)}
-    values = [v for g in groups for v in g]
     lo, hi = subgroups[-1].get("min"), subgroups[-1].get("max")
-    cap = capability(values, lo, hi, ch["sigma_within"]) if lo is not None and hi is not None and hi > lo and \
-        len(values) >= 2 and st.stdev(values) > 0 and ch["sigma_within"] > 0 else None
-    return {"enough_data": True, "chart": ch, "signals": special_causes(ch["points"], ch["center"], sig),
-            "capability": cap, "labels": [f"{s['inspection']} {s['date']}" for s in subgroups],
-            "out_of_spec": sum(1 for v in values if (lo is not None and v < lo) or (hi is not None and v > hi))}
+    same = [s for s in subgroups if (s.get("min"), s.get("max")) == (lo, hi)]
+    values = [v for s in same for v in s["values"]]
+    cap = capability(values, lo, hi, within) if lo is not None and hi is not None and hi > lo and \
+        len(values) >= 2 and st.stdev(values) > 0 and within else None
+    out = {"enough_data": True, "chart": ch, "signals": special_causes(ch["points"], ch["center"], sig),
+           "capability": cap, "labels": [f"{s['inspection']} {s['date']}" for s in subgroups],
+           "out_of_spec": sum(1 for s in subgroups for v in s["values"]
+                              if (s.get("min") is not None and v < s["min"]) or (s.get("max") is not None
+                                                                                 and v > s["max"]))}
+    if len(same) < len(subgroups):
+        out["limits_note"] = (f"the limits changed: capability is from the {len(same)} latest subgroups with the "
+                              "current limits")
+    return out
