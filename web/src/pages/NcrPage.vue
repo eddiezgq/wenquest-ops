@@ -7,6 +7,7 @@ import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
 import OwnFields from '../components/OwnFields.vue'
+import CauseLinks from '../components/CauseLinks.vue'
 import { STATUS } from '../ui/themes'
 import { api, objectPath } from '../api'
 import { ago, fmt } from '../format'
@@ -138,6 +139,7 @@ const label = (s) => s.replaceAll('_', ' ')
     </form>
 
     <OwnFields :record="n" kind="ncr" :can-edit="canEdit" @changed="set" />
+    <CauseLinks kind="ncr" :id="n.id" :status="n.status" />
     <h2 data-help="ncr-signatures" class="wq-h2 mt-8">Signatures</h2>
     <Trail :items="n.signatures" kind="signatures" />
     <h2 class="wq-h2 mt-8">History</h2>

@@ -48,6 +48,7 @@ import Gauges from './pages/Gauges.vue'
 import GaugePage from './pages/GaugePage.vue'
 import Complaints from './pages/Complaints.vue'
 import QualityTools from './pages/QualityTools.vue'
+import CauseAnalysis from './pages/CauseAnalysis.vue'
 import ComplaintPage from './pages/ComplaintPage.vue'
 import DocControlPage from './pages/DocControlPage.vue'
 import IqcPlan from './pages/IqcPlan.vue'
@@ -70,6 +71,7 @@ const router = createRouter({
     { path: '/assistant', component: Assistant, meta: { title: 'Assistant' } },
     { path: '/quality', component: Quality, meta: { title: 'Quality' } },
     { path: '/quality/tools', component: QualityTools, meta: { title: 'Quality tools' } },
+    { path: '/quality/causes/:id', component: CauseAnalysis, meta: { title: 'Cause analysis' } },
     { path: '/quality/complaints', component: Complaints, meta: { title: 'Complaints' } },
     { path: '/quality/complaints/:id', component: ComplaintPage, meta: { title: 'Complaint' } },
     { path: '/quality/gauges', component: Gauges, meta: { title: 'Measuring equipment' } },

@@ -7,6 +7,7 @@ import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
 import OwnFields from '../components/OwnFields.vue'
+import CauseLinks from '../components/CauseLinks.vue'
 import { api } from '../api'
 import { ago } from '../format'
 
@@ -109,6 +110,7 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
       <input v-model="cancel" class="wq-input flex-1" placeholder="Reason to cancel"><Button theme="red" label="Cancel" @click="step('cancel', { reason: cancel })" /></div>
 
     <OwnFields :record="c" kind="capa" :can-edit="canEdit" @changed="set" />
+    <CauseLinks kind="capa" :id="c.id" :status="c.status" />
     <h2 data-help="capa-signatures" class="wq-h2 mt-8">Signatures</h2>
     <Trail :items="c.signatures" kind="signatures" />
     <h2 class="wq-h2 mt-8">History</h2>

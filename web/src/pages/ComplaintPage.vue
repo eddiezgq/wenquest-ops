@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
+import CauseLinks from '../components/CauseLinks.vue'
 import { api } from '../api'
 
 const route = useRoute()
@@ -132,6 +133,7 @@ const editable = (k) => open.value && c.value.can_edit && !(fixed.value && ['ite
       <details><summary class="cursor-pointer text-sm text-ink-gray-7">Cancel (a duplicate, or not a complaint)</summary>
         <div class="mt-2 flex gap-2"><input v-model="x.cancel" class="wq-input w-96" placeholder="Why"><Button label="Cancel the complaint" :disabled="!x.cancel.trim()" @click="act('cancel', { reason: x.cancel }, 'Cancelled.')" /></div></details>
     </section>
+    <CauseLinks kind="complaint" :id="c.id" :status="c.status" />
     <h2 class="wq-h2 mt-6">Signatures</h2>
     <Trail :items="c.signatures" kind="signatures" />
     <h2 class="wq-h2 mt-6">History</h2>

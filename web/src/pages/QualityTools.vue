@@ -1,6 +1,7 @@
 <script setup>
 // Quality tools, step 22a (ADR-0022): Pareto, histogram and scatter charts computed from the records the hub keeps,
-// and check sheets (a company's own tally forms, signed). Every bar and point leads back to its records.
+// and check sheets (a company's own tally forms, signed). Every bar and point leads back to its records. The cause
+// analyses of 22b (fishbone, 5 Why) are listed here; each is started from its record.
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
@@ -10,7 +11,7 @@ import { api } from '../api'
 const ws = inject('workspace')
 const route = useRoute()
 const router = useRouter()
-const TABS = { pareto: 'Pareto', histogram: 'Histogram', scatter: 'Scatter', sheets: 'Check sheets' }
+const TABS = { pareto: 'Pareto', histogram: 'Histogram', scatter: 'Scatter', sheets: 'Check sheets', causes: 'Cause analysis' }
 const tab = computed({ get: () => (TABS[route.query.tab] ? route.query.tab : 'pareto'), set: (t) => router.replace({ query: { tab: t } }) })
 const canEdit = computed(() => ws.value?.user.permissions.includes('quality:edit'))
 const error = ref('')
@@ -155,6 +156,14 @@ async function recordTally() {
     await loadSheets()
   } catch (e) { error.value = e.message; tally.value.password = '' }
 }
+// ---------- Cause analyses (22b): listed here, started from the record they analyse
+const ca = ref(null)
+const CA_THEME = { open: 'blue', concluded: 'green', cancelled: 'gray' }
+const REF_PAGE = { ncr: 'ncr', capa: 'capa', complaint: 'complaints' }
+watch(tab, async (t) => {
+  if (t !== 'causes') return
+  try { ca.value = await api('/api/quality/causes') } catch (e) { error.value = e.message }
+}, { immediate: true })
 function showPareto(form) { par.value = { ...par.value, source: 'check_sheet', by: 'category', form_id: form.id }; tab.value = 'pareto' }
 </script>
 
@@ -268,6 +277,19 @@ function showPareto(form) { par.value = { ...par.value, source: 'check_sheet', b
         </section>
       </div>
     </template>
+  </template>
+
+  <template v-if="tab === 'causes' && ca">
+    <p data-help="causes-list" class="mb-4 max-w-3xl text-base text-ink-gray-6">A fishbone or a 5 Why is started from the nonconformance report, corrective action or complaint it analyses. Its signed conclusion is added to that record's root cause.</p>
+    <p v-if="!ca.analyses.length" class="wq-muted">None yet. Open a nonconformance report, a corrective action or a complaint and start one there.</p>
+    <table v-else class="wq-table text-sm"><thead><tr><th>Analysis</th><th>Method</th><th>On</th><th>Status</th><th>Problem or root cause</th><th>Causes</th></tr></thead>
+      <tbody><tr v-for="x in ca.analyses" :key="x.id">
+        <td><RouterLink :to="`/quality/causes/${x.id}`" class="wq-link font-medium">{{ x.name }}</RouterLink></td>
+        <td>{{ ca.methods[x.method] }}</td>
+        <td><RouterLink :to="`/quality/${REF_PAGE[x.ref_kind]}/${x.ref_id}`" class="wq-link">{{ x.ref_name }}</RouterLink></td>
+        <td><Badge :theme="CA_THEME[x.status]" :label="x.status" /></td>
+        <td class="max-w-md">{{ x.conclusion || x.problem }}</td>
+        <td>{{ x.accepted }}<span v-if="x.proposed" class="text-ink-amber-7"> + {{ x.proposed }} to decide</span></td></tr></tbody></table>
   </template>
 
   <template v-if="tab === 'sheets' && cs">
