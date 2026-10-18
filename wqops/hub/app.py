@@ -453,6 +453,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import fmea_api as FMA  # noqa: PLC0415
 
     FMA.mount(app, conn, current_user, company, ai_model, db_url)
+    from wqops.hub.quality import flow_api as FWA  # noqa: PLC0415
+
+    FWA.mount(app, conn, current_user, company)
 
     @app.get("/api/workspace")
     def workspace(u=Depends(current_user)):

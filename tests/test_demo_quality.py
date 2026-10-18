@@ -75,6 +75,10 @@ def test_every_part_loads(demo):
     f = c.execute("select * from fmea_files").fetchone()
     assert f["status"] == "approved" and f["approved_by"] == "dana@demo.example"
     assert [r["rpn"] for r in c.execute("select rpn from fmea_rows order by seq")] == [160, 60, 90]
+    # 22d: an approved process flow chart whose links all point to records in effect
+    ch = c.execute("select * from flow_charts").fetchone()
+    assert ch["status"] == "approved" and all(r["ok"] for r in ch["resolved"].values())
+    assert ch["resolved"]["gauges:TW-02"]["warn"] == "calibration overdue"
     # a second run finds the records and changes nothing
     again = DQ.load(demo, DEMO, TODAY)
     assert all(v.startswith("skipped") for v in again.values()), again

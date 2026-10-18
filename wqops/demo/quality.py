@@ -6,8 +6,8 @@ The demo business (wqops/demo/load.py) brings orders, receipts, deliveries and o
 quality modules of ADR-0017 need so every page of the help center has something to open: approved suppliers, measuring
 equipment, a sampling table and inspection plans with inspections in every state, two procedures in effect with their
 reading, complaints, changes, a risk file, a production template with lots, a mock recall, a management review, a
-few register entries, check sheet tallies, two cause analyses and a process FMEA. Each part leaves something done,
-something under way and something with a problem.
+few register entries, check sheet tallies, two cause analyses, a process FMEA and a process flow chart. Each part
+leaves something done, something under way and something with a problem.
 
 Everything is invented and made by plain code (no AI, no network). The sampling table rows are the demo company's own
 numbers, not copied from a standard. Records are made by the demo people with the separation of duties the modules
@@ -520,12 +520,42 @@ def fmea(conn, today: dt.date) -> str:
     return f"{f['name']} approved with 3 rows (RPN 160, 60, 90) on the demo company's own scales"
 
 
+def flow(conn, today: dt.date) -> str:
+    """ADR-0022 (22d): the process flow of kitting M8 bolts, approved, its steps linked to the receiving procedure,
+    the PFMEA rows, the production template and the measuring equipment of the demo; a rework loop at the weighing and
+    rejected lots leaving the flow."""
+    from wqops.hub.quality import flow as FW  # noqa: PLC0415
+
+    if _exists(conn, "select 1 from flow_charts"):
+        return "skipped: flow charts exist"
+    pf = conn.execute("select name from fmea_files where status = 'approved' order by id limit 1").fetchone()
+    fm = (lambda seq: [{"name": pf["name"], "seq": seq}]) if pf else (lambda _seq: [])
+    ch = FW.create(conn, JORDAN, {"title": "Receiving and kitting, M8 bolts (Demo)", "item_code": "HX-BOLT-M8",
+                                  "owner": JORDAN, "scope": "From the dock to the shipped kit."})
+    for code, kind, name, links in (
+            ("10", "move", "Receive lot at the dock", {}),
+            ("20", "inspection", "Incoming inspection", {"documents": ["QP-05"], "fmea": fm(1), "gauges": ["CAL-02"]}),
+            ("30", "store", "Store in Main Stock", {}),
+            ("40", "operation", "Kit 25 bolts", {"template": "KIT-M8", "fmea": fm(2)}),
+            ("50", "inspection", "Weigh the kit", {"fmea": fm(2), "gauges": ["TW-02"]}),
+            ("60", "operation", "Pack", {"fmea": fm(3)}),
+            ("70", "move", "Ship", {})):
+        FW.add_step(conn, JORDAN, ch["id"], {"code": code, "kind": kind, "name": name, "links": links})
+    st = {s["code"]: s for s in FW.steps(conn, ch["id"])}
+    FW.update_step(conn, JORDAN, ch["id"], st["20"]["id"], {"branches": [
+        {"to": None, "kind": "scrap", "label": "Lot rejected: report, return to the supplier"}]})
+    FW.update_step(conn, JORDAN, ch["id"], st["50"]["id"], {"branches": [
+        {"to": st["40"]["seq"], "kind": "rework", "label": "Light kit: count again"}]})
+    FW.approve(conn, _u(conn, DANA), ch["id"], SIGN, today=today)
+    return f"{ch['name']} approved: 7 steps, a rework loop, links to QP-05, the PFMEA, KIT-M8 and two gauges"
+
+
 PARTS: list[tuple[str, Callable]] = [
     ("Approved suppliers", suppliers), ("Measuring equipment", equipment), ("Incoming inspection", incoming),
     ("Documents", documents), ("Complaints", complaints), ("Changes", changes), ("Risk", risk),
     ("Production", production), ("Recall", recall), ("Registers", registers), ("Management review", review),
     ("Digital factory", digital), ("Quality tools", tools), ("Cause analysis", causes),
-    ("Process FMEA", fmea),
+    ("Process FMEA", fmea), ("Process flow", flow),
 ]
 
 

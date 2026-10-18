@@ -78,6 +78,7 @@ const menu = computed(() => [
             <SidebarItem v-if="can('quality:view')" label="Quality" icon="lucide-shield-check" route="/quality" />
             <SidebarItem v-if="can('quality:view')" label="Complaints" icon="lucide-message-square-warning" route="/quality/complaints" />
             <SidebarItem v-if="can('quality:view')" label="Quality tools" icon="lucide-chart-column" route="/quality/tools" />
+            <SidebarItem v-if="can('quality:view')" label="Process flow" icon="lucide-workflow" route="/quality/flow" />
             <SidebarItem v-if="can('quality:view')" label="Process FMEA" icon="lucide-list-tree" route="/quality/fmea" />
             <SidebarItem v-if="can('quality:view')" label="Incoming inspection" icon="lucide-scan-search" route="/quality/iqc" />
             <SidebarItem v-if="can('quality:view')" label="Approved suppliers" icon="lucide-badge-check" route="/quality/suppliers" />
