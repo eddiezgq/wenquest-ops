@@ -191,6 +191,8 @@ const ruleText = computed(() => {
       </section>
     </div>
 
+    <section v-if="r.flow_steps?.length" class="mb-5 text-sm"><b class="text-ink-gray-8">Process flow steps citing this PFMEA:</b>
+      <RouterLink v-for="s in r.flow_steps" :key="s.chart_id + s.step" :to="`/quality/flow/${s.chart_id}`" class="wq-link ms-2">{{ s.name }} v{{ s.version }} {{ s.code }} {{ s.step }}</RouterLink></section>
     <p v-if="r.fingerprint" class="mb-4 text-xs text-ink-gray-5">Fingerprint {{ r.fingerprint }}</p>
     <h2 class="wq-h2 mt-6">Versions</h2>
     <ul class="mb-4 text-sm"><li v-for="ver in r.versions" :key="ver.id"><RouterLink :to="`/quality/fmea/${ver.id}`" class="hover:underline">v{{ ver.version }}</RouterLink> · {{ ver.status }}<span v-if="ver.approved_by"> · {{ ver.approved_by }} {{ ver.approved_at?.slice(0, 10) }}</span></li></ul>

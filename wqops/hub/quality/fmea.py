@@ -480,6 +480,10 @@ def view(conn, fid: int) -> dict:
             "to_approve": FR.to_approve(f, rs, rk, cfg) if f["status"] == "draft" else [],
             "intact": intact(conn, f), "ncrs_since": since_approval(conn, f), "capas": [dict(c) for c in capas],
             "links": C.links(conn, [x for r in rs for x in r["refs"]]),
+            "flow_steps": [dict(x) for x in conn.execute(  # steps of process flow charts (22d) that cite this PFMEA
+                "select c.id as chart_id, c.name, c.version, c.status, s.code, s.name as step from flow_steps s join "
+                "flow_charts c on c.id = s.chart_id where c.status in ('draft', 'approved') and s.links -> 'fmea' @> "
+                "%s order by c.name, s.seq", (Jsonb([{"name": f["name"]}]),))],
             "versions": [_iso(r) for r in conn.execute("select id, version, status, approved_by, approved_at from "
                                                        "fmea_files where name = %s order by version", (f["name"],))],
             "history": [_iso(r) for r in conn.execute("select at, email, action, note from fmea_log where "
