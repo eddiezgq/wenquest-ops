@@ -6,8 +6,8 @@ The demo business (wqops/demo/load.py) brings orders, receipts, deliveries and o
 quality modules of ADR-0017 need so every page of the help center has something to open: approved suppliers, measuring
 equipment, a sampling table and inspection plans with inspections in every state, two procedures in effect with their
 reading, complaints, changes, a risk file, a production template with lots, a mock recall, a management review, a
-few register entries, check sheet tallies and two cause analyses. Each part leaves something done, something under
-way and something with a problem.
+few register entries, check sheet tallies, two cause analyses and a process FMEA. Each part leaves something done,
+something under way and something with a problem.
 
 Everything is invented and made by plain code (no AI, no network). The sampling table rows are the demo company's own
 numbers, not copied from a standard. Records are made by the demo people with the separation of duties the modules
@@ -471,11 +471,61 @@ def causes(conn, today: dt.date) -> str:
     return out
 
 
+FMEA_SCALES = {   # the demo company's own words for its ranks (fictional; not a standard's table)
+    "severity": ["No effect anyone notices", "Cosmetic, seen by few", "Cosmetic, seen by most", "Minor rework at the "
+                 "customer", "Customer line slowed", "Part unusable, replaced", "Customer line stopped",
+                 "Product fails in use", "Could cause injury, with warning", "Could cause injury, no warning"],
+    "occurrence": ["Never seen here", "Once in years", "Once a year", "A few times a year", "Monthly", "Every few "
+                   "weeks", "Weekly", "Several times a week", "Daily", "Several times a day"],
+    "detection": ["Cannot pass: error-proofed", "Caught by an automatic check on every part", "Gauged on every part",
+                  "Gauged on every lot", "Sampled on every lot", "Sampled now and then", "Seen by eye only",
+                  "Seen only by chance", "Only the customer would see it", "No way to see it"],
+}
+
+
+def fmea(conn, today: dt.date) -> str:
+    """ADR-0022 (22c): the demo company's own scales and rule, and an approved PFMEA for receiving and kitting M8
+    bolts whose rows cite the demo records. Every rank was given by the demo people; no row is shown as drafted by
+    AI."""
+    from wqops.hub.quality import fmea as F  # noqa: PLC0415
+
+    if _exists(conn, "select 1 from fmea_files") or _exists(conn, "select 1 from fmea_scales"):
+        return "skipped: PFMEAs or scales exist"
+    for kind, names in FMEA_SCALES.items():
+        for rank, name in enumerate(names, 1):
+            F.add_scale(conn, DANA, {"kind": kind, "rank": rank, "name": name})
+    F.set_rule(conn, DANA, {"method": "rpn", "rpn_action": 100, "severity_action": 9})
+    ncr = conn.execute("select name from ncr_records where item_code = 'HX-BOLT-M8' order by id limit 1").fetchone()
+    capa = conn.execute("select name from capas order by id limit 1").fetchone()
+    sheet = conn.execute("select name from check_sheets order by id limit 1").fetchone()
+    refs = [x["name"] for x in (ncr, capa) if x]
+    f = F.create(conn, JORDAN, {"process": "Receiving and kitting, M8 bolts (Demo)", "item_code": "HX-BOLT-M8",
+                                "owner": JORDAN, "scope": "From the supplier's lot at the dock to the packed kit."})
+    for row in (
+            {"step": "Receive lot", "failure_mode": "Lot with thread over the limit accepted",
+             "effect": "Bolts strip at the customer", "severity": 8, "cause": "Supplier dies not re-set after "
+             "maintenance", "occurrence": 4, "prevention": "Approved supplier list", "detection_controls":
+             "Thread gauge on a sample of each lot", "detection": 5, "refs": refs,
+             "action": "Ask for first-article data after die maintenance; gauge more samples until three good lots",
+             "action_owner": JORDAN, "res_severity": 8, "res_occurrence": 2, "res_detection": 4},
+            {"step": "Kit", "failure_mode": "Bolts missing from a kit", "effect": "Customer short of parts",
+             "severity": 5, "cause": "Count by eye", "occurrence": 3, "prevention": "Kit list", "detection_controls":
+             "Weigh each kit", "detection": 4, "refs": [sheet["name"]] if sheet else []},
+            {"step": "Pack", "failure_mode": "Box crushed", "effect": "Parts damaged in transit", "severity": 3,
+             "cause": "Light carton for heavy kits", "occurrence": 5, "prevention": "Carton spec",
+             "detection_controls": "Look at each box before sealing", "detection": 6,
+             "refs": [sheet["name"]] if sheet else []}):
+        F.add_row(conn, JORDAN, f["id"], row)
+    F.approve(conn, _u(conn, DANA), f["id"], SIGN)
+    return f"{f['name']} approved with 3 rows (RPN 160, 60, 90) on the demo company's own scales"
+
+
 PARTS: list[tuple[str, Callable]] = [
     ("Approved suppliers", suppliers), ("Measuring equipment", equipment), ("Incoming inspection", incoming),
     ("Documents", documents), ("Complaints", complaints), ("Changes", changes), ("Risk", risk),
     ("Production", production), ("Recall", recall), ("Registers", registers), ("Management review", review),
     ("Digital factory", digital), ("Quality tools", tools), ("Cause analysis", causes),
+    ("Process FMEA", fmea),
 ]
 
 
