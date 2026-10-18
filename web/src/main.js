@@ -49,6 +49,8 @@ import GaugePage from './pages/GaugePage.vue'
 import Complaints from './pages/Complaints.vue'
 import QualityTools from './pages/QualityTools.vue'
 import CauseAnalysis from './pages/CauseAnalysis.vue'
+import Fmea from './pages/Fmea.vue'
+import FmeaPage from './pages/FmeaPage.vue'
 import ComplaintPage from './pages/ComplaintPage.vue'
 import DocControlPage from './pages/DocControlPage.vue'
 import IqcPlan from './pages/IqcPlan.vue'
@@ -72,6 +74,8 @@ const router = createRouter({
     { path: '/quality', component: Quality, meta: { title: 'Quality' } },
     { path: '/quality/tools', component: QualityTools, meta: { title: 'Quality tools' } },
     { path: '/quality/causes/:id', component: CauseAnalysis, meta: { title: 'Cause analysis' } },
+    { path: '/quality/fmea', component: Fmea, meta: { title: 'Process FMEA' } },
+    { path: '/quality/fmea/:id', component: FmeaPage, meta: { title: 'PFMEA' } },
     { path: '/quality/complaints', component: Complaints, meta: { title: 'Complaints' } },
     { path: '/quality/complaints/:id', component: ComplaintPage, meta: { title: 'Complaint' } },
     { path: '/quality/gauges', component: Gauges, meta: { title: 'Measuring equipment' } },

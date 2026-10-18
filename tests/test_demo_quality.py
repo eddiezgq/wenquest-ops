@@ -70,6 +70,11 @@ def test_every_part_loads(demo):
                    "'HX-BOLT-M8'").fetchone()["sections"]["d4"]
     assert d4.startswith("Supplier rolling dies were not re-set") and d4.endswith("(from Fishbone RCA-00001)")
     assert c.execute("select count(*) as n from cause_items where origin = 'ai'").fetchone()["n"] == 0
+    # 22c: the company's own scales and rule, and an approved PFMEA with its RPNs
+    assert c.execute("select count(*) as n from fmea_scales").fetchone()["n"] == 30
+    f = c.execute("select * from fmea_files").fetchone()
+    assert f["status"] == "approved" and f["approved_by"] == "dana@demo.example"
+    assert [r["rpn"] for r in c.execute("select rpn from fmea_rows order by seq")] == [160, 60, 90]
     # a second run finds the records and changes nothing
     again = DQ.load(demo, DEMO, TODAY)
     assert all(v.startswith("skipped") for v in again.values()), again

@@ -73,18 +73,20 @@ def _add(out: dict, ref: str, kind: str, summary: str) -> None:
 def context(conn, s: dict, *, today: dt.date) -> list[dict]:
     """Records related to the one analysed: the record itself, other reports, inspections, complaints and lots of the
     same item or supplier, the measuring equipment used on the item, recent changes and earlier conclusions. The
-    model sees these and nothing else, and may cite only these."""
+    model sees these and nothing else, and may cite only these. A subject without a name (the item of a process
+    FMEA, 22c) gathers the related records only."""
     since = today - dt.timedelta(days=CONTEXT_DAYS)
     out: dict[str, dict] = {}
-    _add(out, s["name"], KINDS[s["kind"]], f"(the record analysed) {s['text']}"
-         + (f" Containment: {s['containment']}" if s.get("containment") else ""))
+    if s.get("name"):
+        _add(out, s["name"], KINDS[s["kind"]], f"(the record analysed) {s['text']}"
+             + (f" Containment: {s['containment']}" if s.get("containment") else ""))
     items = s.get("items") or ([s["item_code"]] if s.get("item_code") else [])
     sup = s.get("supplier")
     for r in conn.execute(
             "select n.name, n.title, n.description, n.item_code, n.supplier, n.status, n.created_at, e.sections "
-            "from ncr_records n left join eightd e on e.ncr_id = n.id where n.name <> %s and n.created_at >= %s "
-            "and (n.item_code = any(%s) or (%s::text is not null and n.supplier = %s)) "
-            "order by n.created_at desc limit 25", (s["name"], since, items, sup, sup)).fetchall():
+            "from ncr_records n left join eightd e on e.ncr_id = n.id where n.name is distinct from %s::text "
+            "and n.created_at >= %s and (n.item_code = any(%s) or (%s::text is not null and n.supplier = %s)) "
+            "order by n.created_at desc limit 25", (s.get("name"), since, items, sup, sup)).fetchall():
         d4 = (r["sections"] or {}).get("d4")
         _add(out, r["name"], "nonconformance report",
              f"{r['created_at']:%Y-%m-%d} {r['status']}; item {r['item_code'] or 'unknown'}, supplier "
@@ -100,8 +102,9 @@ def context(conn, s: dict, *, today: dt.date) -> list[dict]:
                  f"{r['lot_no'] or 'unknown'} ({r['lot_qty']}): {res}")
         for r in conn.execute(
                 "select name, item_code, lot_no, received_on, customer, description, root_cause, status from "
-                "complaints where item_code = any(%s) and name <> %s and received_on >= %s and status <> 'cancelled' "
-                "order by received_on desc limit 10", (items, s["name"], since)).fetchall():
+                "complaints where item_code = any(%s) and name is distinct from %s::text and received_on >= %s "
+                "and status <> 'cancelled' "
+                "order by received_on desc limit 10", (items, s.get("name"), since)).fetchall():
             _add(out, r["name"], "complaint",
                  f"{r['received_on']} from {r['customer']}, lot {r['lot_no'] or 'unknown'}, {r['status']}: "
                  f"{r['description']}" + (f" Root cause: {r['root_cause']}" if r["root_cause"] else ""))
@@ -132,7 +135,7 @@ def context(conn, s: dict, *, today: dt.date) -> list[dict]:
     for r in conn.execute(
             "select name, method, ref_name, conclusion, concluded_at from cause_analyses where status = 'concluded' "
             "and (ref_name = %s or ref_name in (select name from ncr_records where item_code = any(%s))) "
-            "order by concluded_at desc limit 5", (s["name"], items)).fetchall():
+            "order by concluded_at desc limit 5", (s.get("name"), items)).fetchall():
         _add(out, r["name"], "cause analysis",
              f"{r['concluded_at']:%Y-%m-%d} {CR.METHODS[r['method']]} on {r['ref_name']}: {r['conclusion']}")
     return list(out.values())
