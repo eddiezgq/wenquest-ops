@@ -2,6 +2,7 @@
 // A chart of the company overview (ADR-0018), drawn with Apache ECharts. ECharts is loaded only where a chart is
 // shown. A new option animates from the old values to the new ones, so a refresh shows what moved.
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { t } from '../i18n'
 
 const props = defineProps({ option: { type: Object, required: true }, height: { type: String, default: '160px' } })
 const el = ref(null)
@@ -30,5 +31,5 @@ onBeforeUnmount(() => { ro?.disconnect(); chart.value?.dispose() })
 </script>
 
 <template>
-  <div ref="el" :style="{ height }" class="w-full" role="img" :aria-label="option.aria || 'chart'" />
+  <div ref="el" :style="{ height }" class="w-full" role="img" :aria-label="option.aria || t('chart')" />
 </template>

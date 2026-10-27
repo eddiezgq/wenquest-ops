@@ -6,6 +6,7 @@ import PageTop from '../ui/PageTop.vue'
 import { api } from '../api'
 import { ago } from '../format'
 import Answer from '../components/Answer.vue'
+import { t } from '../i18n'
 
 const status = ref(null)
 const question = ref('')
@@ -39,29 +40,29 @@ async function rate(r, useful) {
 </script>
 
 <template>
-  <PageTop title="Assistant">
+  <PageTop :title="t('Assistant')">
     <Badge v-if="status" :theme="status.engine === 'model' ? 'violet' : 'gray'" variant="outline"
-           :label="status.engine === 'model' ? status.model : 'Built-in rules'" />
+           :label="status.engine === 'model' ? status.model : t('Built-in rules')" />
   </PageTop>
   <p v-if="status" data-help="assistant-engine" class="wq-muted mb-4">
-    {{ status.engine === 'model' ? `Using ${status.model}.` : 'No AI model key is set, so built-in rules answer common questions.' }}
-    The assistant sees what your role sees, cites what it used, and can only prepare drafts for someone to confirm.
+    {{ status.engine === 'model' ? t('Using {model}.', { model: status.model }) : t('No AI model key is set, so built-in rules answer common questions.') }}
+    {{ t('The assistant sees what your role sees, cites what it used, and can only prepare drafts for someone to confirm.') }}
   </p>
   <form data-help="assistant-ask" class="search flex gap-2" @submit.prevent="ask()">
-    <input v-model="question" class="wq-input flex-1" placeholder="Ask about orders, stock, suppliers or quality" :disabled="busy">
-    <Button type="submit" variant="solid" :loading="busy" :label="busy ? 'Thinking…' : 'Ask'" icon-left="lucide-sparkles" />
+    <input v-model="question" class="wq-input flex-1" :placeholder="t('Ask about orders, stock, suppliers or quality')" :disabled="busy">
+    <Button type="submit" variant="solid" :loading="busy" :label="busy ? t('Thinking…') : t('Ask')" icon-left="lucide-sparkles" />
   </form>
   <div data-help="assistant-examples" class="mt-3 flex flex-wrap gap-2">
-    <Button v-for="e in EXAMPLES" :key="e" size="sm" variant="outline" :label="e" @click="ask(e)" />
+    <Button v-for="e in EXAMPLES" :key="e" size="sm" variant="outline" :label="t(e)" @click="ask(t(e))" />
   </div>
   <section v-if="chats.length" data-help="assistant-chats" class="wq-panel mt-5 p-4">
-    <h2 class="wq-h2">Conversations</h2>
-    <p class="wq-muted mb-2">Your conversations from the <em>Ask AI</em> panel, on any page. Open one to go on with it.</p>
+    <h2 class="wq-h2">{{ t('Conversations') }}</h2>
+    <p class="wq-muted mb-2" v-html="t('Your conversations from the <em>Ask AI</em> panel, on any page. Open one to go on with it.')"></p>
     <ul class="divide-y divide-outline-gray-1">
       <li v-for="h in chats" :key="h.id" class="flex items-center justify-between gap-3 py-2">
-        <span class="truncate text-base text-ink-gray-8">{{ h.title || 'New conversation' }}</span>
-        <span class="flex shrink-0 items-center gap-3"><span class="wq-muted">{{ h.turns }} questions, {{ ago(h.updated_at) }}</span>
-          <Button size="sm" label="Open" @click="openChat(h.id)" /></span>
+        <span class="truncate text-base text-ink-gray-8">{{ h.title || t('New conversation') }}</span>
+        <span class="flex shrink-0 items-center gap-3"><span class="wq-muted">{{ t('{n} questions, {when}', { n: h.turns, when: ago(h.updated_at) }) }}</span>
+          <Button size="sm" :label="t('Open')" @click="openChat(h.id)" /></span>
       </li>
     </ul>
   </section>
@@ -69,21 +70,21 @@ async function rate(r, useful) {
   <article v-for="r in runs" :key="r.id" class="turn wq-panel mt-4 p-5">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
       <p class="text-base font-semibold text-ink-gray-9">{{ r.question }}</p>
-      <span class="wq-muted">{{ ago(r.created_at) }} · {{ r.engine }}</span>
+      <span class="wq-muted">{{ ago(r.created_at) }} · {{ t(r.engine) }}</span>
     </div>
     <Answer class="mt-2" :text="r.answer" :unverified="r.unverified" />
-    <p v-if="r.drafts.length" class="mt-3 text-sm text-ink-gray-7">Prepared {{ r.drafts.length }} draft(s):
-      <RouterLink to="/drafts" class="wq-link">review and confirm</RouterLink></p>
+    <p v-if="r.drafts.length" class="mt-3 text-sm text-ink-gray-7">{{ t('Prepared {n} draft(s):', { n: r.drafts.length }) }}
+      <RouterLink to="/drafts" class="wq-link">{{ t('review and confirm') }}</RouterLink></p>
     <details v-if="r.tool_calls.length" data-help="assistant-steps" class="mt-3 text-sm text-ink-gray-6">
-      <summary class="cursor-pointer select-none">How it found this ({{ r.tool_calls.length }} steps)</summary>
+      <summary class="cursor-pointer select-none">{{ t('How it found this ({n} steps)', { n: r.tool_calls.length }) }}</summary>
       <ol class="mt-2 list-decimal space-y-1 ps-5">
-        <li v-for="(t, i) in r.tool_calls" :key="i"><code class="rounded-3 bg-surface-gray-2 px-1">{{ t.tool }}</code>
-          <span class="text-ink-gray-5"> {{ JSON.stringify(t.args) }}</span>
-          <span :class="t.ok ? 'text-ink-gray-5' : 'text-ink-red-7'"> — {{ t.summary }}</span></li></ol>
+        <li v-for="(tc, i) in r.tool_calls" :key="i"><code class="rounded-3 bg-surface-gray-2 px-1">{{ tc.tool }}</code>
+          <span class="text-ink-gray-5"> {{ JSON.stringify(tc.args) }}</span>
+          <span :class="tc.ok ? 'text-ink-gray-5' : 'text-ink-red-7'"> — {{ tc.summary }}</span></li></ol>
     </details>
-    <div v-if="r.kind === 'ask'" data-help="assistant-useful" class="mt-3 flex items-center gap-1 text-sm text-ink-gray-5">Useful?
-      <Button size="sm" variant="ghost" icon="lucide-thumbs-up" label="Yes" :disabled="r.feedback === 1" @click="rate(r, true)" />
-      <Button size="sm" variant="ghost" icon="lucide-thumbs-down" label="No" :disabled="r.feedback === -1" @click="rate(r, false)" />
-      <span v-if="r.feedback">thanks</span></div>
+    <div v-if="r.kind === 'ask'" data-help="assistant-useful" class="mt-3 flex items-center gap-1 text-sm text-ink-gray-5">{{ t('Useful?') }}
+      <Button size="sm" variant="ghost" icon="lucide-thumbs-up" :label="t('Yes')" :disabled="r.feedback === 1" @click="rate(r, true)" />
+      <Button size="sm" variant="ghost" icon="lucide-thumbs-down" :label="t('No')" :disabled="r.feedback === -1" @click="rate(r, false)" />
+      <span v-if="r.feedback">{{ t('thanks') }}</span></div>
   </article>
 </template>

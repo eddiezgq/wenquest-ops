@@ -9,6 +9,7 @@ import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
 import { api } from '../api'
 import { ago } from '../format'
+import { t } from '../i18n'
 
 const route = useRoute()
 const p = ref(null)
@@ -64,7 +65,7 @@ async function add() {
   const body = { text: form.value.text, refs: refList(form.value.refs) }
   if (a.value.method === 'fishbone') body.category = form.value.category
   else body.level = p.value.next_level
-  if (await post('items', body, 'Cause added.')) form.value = { ...form.value, text: '', refs: '' }
+  if (await post('items', body, t('Cause added.'))) form.value = { ...form.value, text: '', refs: '' }
 }
 const decide = (i, action, text) => post(`items/${i.id}`, { action, text }, '').then(() => { editing.value = null })
 function startEdit(i) { editing.value = i.id; editText.value = i.text }
@@ -78,117 +79,123 @@ async function showContext(ev) {
   }
 }
 async function conclude() {
-  if (await post('conclude', { ...end.value }, 'Concluded and signed. The root cause of the record now includes it.')) end.value = { conclusion: '', password: '' }
+  if (await post('conclude', { ...end.value }, t('Concluded and signed. The root cause of the record now includes it.'))) end.value = { conclusion: '', password: '' }
 }
-async function addendum() { if (await post('addenda', { text: extra.value }, 'Addendum added.')) extra.value = '' }
-async function cancel() { if (await post('cancel', { reason: cancelWhy.value }, 'Cancelled.')) cancelWhy.value = '' }
+async function addendum() { if (await post('addenda', { text: extra.value }, t('Addendum added.'))) extra.value = '' }
+async function cancel() { if (await post('cancel', { reason: cancelWhy.value }, t('Cancelled.'))) cancelWhy.value = '' }
 // the deepest accepted answer is the usual root cause of a 5 Why: offered until the person writes their own
 watch(deepest, (d, before) => {
   if (a.value?.method === 'five_why' && (!end.value.conclusion || end.value.conclusion === before)) end.value.conclusion = d
 })
 const recordLink = computed(() => p.value?.links[a.value.ref_name])
+const writtenTo = (s) => {
+  const m = /^8D D4 of (.+)$/.exec(s || '') || null
+  if (m) return t('8D D4 of {name}', { name: m[1] })
+  const q = /^root cause of (.+)$/.exec(s || '')
+  return q ? t('root cause of {name}', { name: q[1] }) : s
+}
 </script>
 
 <template>
-  <PageTop :crumbs="[{ label: 'Quality tools', to: '/quality/tools?tab=causes' }]">
-    <template #title>{{ a ? `${a.name} · ${METHODS[a.method]}` : 'Cause analysis' }}</template>
+  <PageTop :crumbs="[{ label: t('Quality tools'), to: '/quality/tools?tab=causes' }]">
+    <template #title>{{ a ? `${a.name} · ${t(METHODS[a.method])}` : t('Cause analysis') }}</template>
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
   <template v-if="a">
     <div class="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-base">
-      <Badge :theme="THEME[a.status]" :label="a.status" />
-      <span class="text-ink-gray-6">{{ KINDS[a.ref_kind] }}</span>
+      <Badge :theme="THEME[a.status]" :label="t(a.status)" />
+      <span class="text-ink-gray-6">{{ t(KINDS[a.ref_kind]) }}</span>
       <RouterLink v-if="recordLink" :to="recordLink" class="wq-link font-medium">{{ a.ref_name }}</RouterLink><span v-else>{{ a.ref_name }}</span>
-      <span class="text-ink-gray-5">started by {{ a.created_by }} {{ ago(a.created_at) }}</span>
+      <span class="text-ink-gray-5">{{ t('started by {name} {when}', { name: a.created_by, when: ago(a.created_at) }) }}</span>
     </div>
 
     <!-- Fishbone: bones above and below the spine, the problem at the head -->
     <section v-if="a.method === 'fishbone'" data-help="cause-diagram" class="fish" :style="{ '--cols': half }">
       <div v-for="b in bones" :key="b.c" class="bone" :class="b.top ? 'top' : 'bottom'">
-        <h3 class="bone-name">{{ b.c }}</h3>
+        <h3 class="bone-name">{{ t(b.c) }}</h3>
         <ul class="causes">
           <li v-for="i in b.items" :key="i.id" class="cause" :class="i.status">
             <template v-if="editing === i.id">
               <textarea v-model="editText" rows="2" class="wq-input w-full" />
-              <div class="mt-1 flex gap-1"><Button size="sm" variant="solid" label="Save" :disabled="!editText.trim()" @click="decide(i, 'edit', editText)" /><Button size="sm" label="Back" @click="editing = null" /></div>
+              <div class="mt-1 flex gap-1"><Button size="sm" variant="solid" :label="t('Save')" :disabled="!editText.trim()" @click="decide(i, 'edit', editText)" /><Button size="sm" :label="t('Back')" @click="editing = null" /></div>
             </template>
             <template v-else>
               <p>{{ i.text }}</p>
               <p class="meta">
-                <span v-if="i.origin === 'ai'" class="tag ai" :title="i.status === 'proposed' ? 'Suggested by AI; not yet checked' : 'Suggested by AI, checked by ' + i.decided_by">AI</span>
-                <span v-if="i.edited" class="tag">edited</span>
+                <span v-if="i.origin === 'ai'" class="tag ai" :title="i.status === 'proposed' ? t('Suggested by AI; not yet checked') : t('Suggested by AI, checked by {name}', { name: i.decided_by })">{{ t('AI') }}</span>
+                <span v-if="i.edited" class="tag">{{ t('edited') }}</span>
                 <template v-for="r in i.refs" :key="r"><RouterLink v-if="p.links[r]" :to="p.links[r]" class="ref">{{ r }}</RouterLink><span v-else class="ref">{{ r }}</span></template>
               </p>
               <div v-if="edit" class="acts">
-                <Button v-if="i.status === 'proposed'" size="sm" variant="solid" label="Accept" @click="decide(i, 'accept')" />
-                <Button size="sm" label="Edit" @click="startEdit(i)" />
-                <Button size="sm" label="Remove" @click="decide(i, 'remove')" />
+                <Button v-if="i.status === 'proposed'" size="sm" variant="solid" :label="t('Accept')" @click="decide(i, 'accept')" />
+                <Button size="sm" :label="t('Edit')" @click="startEdit(i)" />
+                <Button size="sm" :label="t('Remove')" @click="decide(i, 'remove')" />
               </div>
             </template>
           </li>
-          <li v-if="!b.items.length" class="empty">No cause yet</li>
+          <li v-if="!b.items.length" class="empty">{{ t('No cause yet') }}</li>
         </ul>
       </div>
       <div class="spine" aria-hidden="true" />
-      <div class="head"><span class="text-sm text-ink-gray-5">Problem</span><p>{{ a.problem }}</p></div>
+      <div class="head"><span class="text-sm text-ink-gray-5">{{ t('Problem') }}</span><p>{{ a.problem }}</p></div>
     </section>
 
     <!-- 5 Why: one confirmed answer per level, each resting on the one above -->
     <section v-else data-help="cause-whys" class="whys">
-      <div class="why-problem"><span class="text-sm text-ink-gray-5">Problem</span><p>{{ a.problem }}</p></div>
+      <div class="why-problem"><span class="text-sm text-ink-gray-5">{{ t('Problem') }}</span><p>{{ a.problem }}</p></div>
       <div v-for="l in levels" :key="l.level" class="why">
-        <h3>Why {{ l.level }}?</h3>
+        <h3>{{ t('Why {n}?', { n: l.level }) }}</h3>
         <ul class="flex flex-col gap-2">
           <li v-for="i in l.items" :key="i.id" class="cause" :class="i.status">
             <template v-if="editing === i.id">
               <textarea v-model="editText" rows="2" class="wq-input w-full" />
-              <div class="mt-1 flex gap-1"><Button size="sm" variant="solid" label="Save" :disabled="!editText.trim()" @click="decide(i, 'edit', editText)" /><Button size="sm" label="Back" @click="editing = null" /></div>
+              <div class="mt-1 flex gap-1"><Button size="sm" variant="solid" :label="t('Save')" :disabled="!editText.trim()" @click="decide(i, 'edit', editText)" /><Button size="sm" :label="t('Back')" @click="editing = null" /></div>
             </template>
             <template v-else>
               <p>{{ i.text }}</p>
               <p class="meta">
-                <span v-if="i.origin === 'ai'" class="tag ai">AI</span><span v-if="i.edited" class="tag">edited</span>
+                <span v-if="i.origin === 'ai'" class="tag ai">{{ t('AI') }}</span><span v-if="i.edited" class="tag">{{ t('edited') }}</span>
                 <template v-for="r in i.refs" :key="r"><RouterLink v-if="p.links[r]" :to="p.links[r]" class="ref">{{ r }}</RouterLink><span v-else class="ref">{{ r }}</span></template>
               </p>
               <div v-if="edit" class="acts">
-                <Button v-if="i.status === 'proposed'" size="sm" variant="solid" label="Accept" @click="decide(i, 'accept')" />
-                <Button size="sm" label="Edit" @click="startEdit(i)" />
-                <Button size="sm" label="Remove" @click="decide(i, 'remove')" />
+                <Button v-if="i.status === 'proposed'" size="sm" variant="solid" :label="t('Accept')" @click="decide(i, 'accept')" />
+                <Button size="sm" :label="t('Edit')" @click="startEdit(i)" />
+                <Button size="sm" :label="t('Remove')" @click="decide(i, 'remove')" />
               </div>
             </template>
           </li>
-          <li v-if="!l.items.length" class="empty">{{ l.level === p.next_level ? 'Answer this why, or ask the AI for suggestions.' : '' }}</li>
+          <li v-if="!l.items.length" class="empty">{{ l.level === p.next_level ? t('Answer this why, or ask the AI for suggestions.') : '' }}</li>
         </ul>
       </div>
     </section>
 
     <div class="mt-6 grid gap-5 lg:grid-cols-2">
       <section v-if="edit" data-help="cause-add" class="wq-panel p-5">
-        <h3 class="mb-3 text-base font-semibold text-ink-gray-9">{{ a.method === 'fishbone' ? 'Add a cause' : `Answer why ${p.next_level}` }}</h3>
+        <h3 class="mb-3 text-base font-semibold text-ink-gray-9">{{ a.method === 'fishbone' ? t('Add a cause') : t('Answer why {n}', { n: p.next_level }) }}</h3>
         <form class="grid gap-3" @submit.prevent="add">
-          <label v-if="a.method === 'fishbone'" class="wq-field">Category<select v-model="form.category" class="wq-select"><option v-for="c in a.categories" :key="c">{{ c }}</option></select></label>
-          <label class="wq-field">{{ a.method === 'fishbone' ? 'Cause' : 'Because…' }}<textarea v-model="form.text" rows="2" class="wq-input" maxlength="500" /></label>
-          <label class="wq-field">Records it rests on (numbers, optional)<input v-model="form.refs" class="wq-input" placeholder="NCR-00002, IQC-00004"></label>
-          <div><Button type="submit" icon-left="lucide-plus" label="Add" :disabled="!form.text.trim() || busy" /></div>
+          <label v-if="a.method === 'fishbone'" class="wq-field">{{ t('Category') }}<select v-model="form.category" class="wq-select"><option v-for="c in a.categories" :key="c" :value="c">{{ t(c) }}</option></select></label>
+          <label class="wq-field">{{ a.method === 'fishbone' ? t('Cause') : t('Because…') }}<textarea v-model="form.text" rows="2" class="wq-input" maxlength="500" /></label>
+          <label class="wq-field">{{ t('Records it rests on (numbers, optional)') }}<input v-model="form.refs" class="wq-input" placeholder="NCR-00002, IQC-00004"></label>
+          <div><Button type="submit" icon-left="lucide-plus" :label="t('Add')" :disabled="!form.text.trim() || busy" /></div>
         </form>
       </section>
 
       <section v-if="open" data-help="cause-suggest" class="wq-panel p-5">
-        <h3 class="mb-2 text-base font-semibold text-ink-gray-9">Suggestions from the AI</h3>
-        <p class="mb-3 text-sm text-ink-gray-6">The AI reads this record and related ones, and must cite them. Suggestions that cite no record it was shown are dropped. You decide each one.</p>
-        <Button v-if="p.can_ask && edit" icon-left="lucide-sparkles" :label="a.method === 'fishbone' ? 'Suggest causes' : `Suggest answers to why ${p.next_level}`"
+        <h3 class="mb-2 text-base font-semibold text-ink-gray-9">{{ t('Suggestions from the AI') }}</h3>
+        <p class="mb-3 text-sm text-ink-gray-6">{{ t('The AI reads this record and related ones, and must cite them. Suggestions that cite no record it was shown are dropped. You decide each one.') }}</p>
+        <Button v-if="p.can_ask && edit" icon-left="lucide-sparkles" :label="a.method === 'fishbone' ? t('Suggest causes') : t('Suggest answers to why {n}', { n: p.next_level })"
                 :loading="busy" :disabled="busy || proposed > 0" @click="suggest" />
-        <p v-if="proposed" class="mt-2 text-sm text-ink-amber-7">{{ proposed }} suggestion{{ proposed > 1 ? 's' : '' }} to accept, edit or remove.</p>
-        <p v-else-if="!p.can_ask" class="wq-muted">Suggestions need a model key and a role that may use the AI. You can add causes yourself.</p>
+        <p v-if="proposed" class="mt-2 text-sm text-ink-amber-7">{{ proposed > 1 ? t('{n} suggestions to accept, edit or remove.', { n: proposed }) : t('1 suggestion to accept, edit or remove.') }}</p>
+        <p v-else-if="!p.can_ask" class="wq-muted">{{ t('Suggestions need a model key and a role that may use the AI. You can add causes yourself.') }}</p>
         <div v-if="ai" class="mt-3 text-sm">
-          <p>{{ ai.kept }} kept from {{ ai.shown }} records shown<span v-if="ai.dropped.length || ai.unusable">; {{ ai.dropped.length + ai.unusable }} dropped</span>.</p>
+          <p>{{ ai.dropped.length || ai.unusable ? t('{kept} kept from {shown} records shown; {dropped} dropped.', { kept: ai.kept, shown: ai.shown, dropped: ai.dropped.length + ai.unusable }) : t('{kept} kept from {shown} records shown.', { kept: ai.kept, shown: ai.shown }) }}</p>
           <ul v-if="ai.dropped.length" class="mt-1 list-disc ps-5 text-ink-gray-6"><li v-for="(d, k) in ai.dropped" :key="k">“{{ d.text }}”: {{ d.reason }}<span v-if="d.refs.length"> ({{ d.refs.join(', ') }})</span></li></ul>
-          <p v-if="ai.note" class="mt-1 text-ink-gray-6">AI note: {{ ai.note }}</p>
+          <p v-if="ai.note" class="mt-1 text-ink-gray-6">{{ t('AI note: {note}', { note: ai.note }) }}</p>
         </div>
         <details data-help="cause-records" class="mt-3 text-sm" @toggle="showContext">
-          <summary class="cursor-pointer text-ink-gray-7">Records the AI reads</summary>
-          <p v-if="!ctx" class="wq-muted mt-2">Loading…</p>
+          <summary class="cursor-pointer text-ink-gray-7">{{ t('Records the AI reads') }}</summary>
+          <p v-if="!ctx" class="wq-muted mt-2">{{ t('Loading…') }}</p>
           <ul v-else class="mt-2 flex flex-col gap-1.5">
             <li v-for="r in ctx.records" :key="r.ref"><RouterLink v-if="ctx.links[r.ref]" :to="ctx.links[r.ref]" class="ref">{{ r.ref }}</RouterLink><span v-else class="ref">{{ r.ref }}</span>
               <span class="text-ink-gray-5"> {{ r.kind }}:</span> {{ r.summary }}</li>
@@ -197,36 +204,36 @@ const recordLink = computed(() => p.value?.links[a.value.ref_name])
       </section>
 
       <section v-if="edit" data-help="cause-conclude" class="wq-panel p-5 lg:col-span-2">
-        <h3 class="mb-2 text-base font-semibold text-ink-gray-9">Conclude</h3>
-        <p class="mb-3 text-sm text-ink-gray-6">The conclusion is signed and added to the root cause of {{ a.ref_name }}{{ a.ref_kind === 'ncr' ? ' (8D, D4)' : '' }}. The analysis is then kept as it is; later findings go in addenda.</p>
-        <ul v-if="p.to_conclude.length" class="mb-3 list-disc ps-5 text-sm text-ink-amber-7"><li v-for="t in p.to_conclude" :key="t">{{ t }}</li></ul>
+        <h3 class="mb-2 text-base font-semibold text-ink-gray-9">{{ t('Conclude') }}</h3>
+        <p class="mb-3 text-sm text-ink-gray-6">{{ a.ref_kind === 'ncr' ? t('The conclusion is signed and added to the root cause of {name} (8D, D4). The analysis is then kept as it is; later findings go in addenda.', { name: a.ref_name }) : t('The conclusion is signed and added to the root cause of {name}. The analysis is then kept as it is; later findings go in addenda.', { name: a.ref_name }) }}</p>
+        <ul v-if="p.to_conclude.length" class="mb-3 list-disc ps-5 text-sm text-ink-amber-7"><li v-for="m in p.to_conclude" :key="m">{{ m }}</li></ul>
         <form class="grid gap-3" @submit.prevent="conclude">
-          <label class="wq-field">Root cause<textarea v-model="end.conclusion" rows="2" class="wq-input" maxlength="2000" /></label>
-          <div class="flex flex-wrap items-end gap-2"><label class="wq-field">Your password (signs it)<input v-model="end.password" type="password" class="wq-input" autocomplete="current-password"></label>
-            <Button type="submit" variant="solid" label="Conclude and sign" :disabled="busy || !!p.to_conclude.length || !end.conclusion.trim() || !end.password" /></div>
+          <label class="wq-field">{{ t('Root cause') }}<textarea v-model="end.conclusion" rows="2" class="wq-input" maxlength="2000" /></label>
+          <div class="flex flex-wrap items-end gap-2"><label class="wq-field">{{ t('Your password (signs it)') }}<input v-model="end.password" type="password" class="wq-input" autocomplete="current-password"></label>
+            <Button type="submit" variant="solid" :label="t('Conclude and sign')" :disabled="busy || !!p.to_conclude.length || !end.conclusion.trim() || !end.password" /></div>
         </form>
       </section>
     </div>
 
     <section v-if="a.status === 'concluded'" class="wq-panel mt-5 p-5">
-      <h3 class="mb-2 text-base font-semibold text-ink-gray-9">Root cause</h3>
+      <h3 class="mb-2 text-base font-semibold text-ink-gray-9">{{ t('Root cause') }}</h3>
       <p class="text-base text-ink-gray-9">{{ a.conclusion }}</p>
-      <p class="mt-1 text-sm text-ink-gray-5">Signed by {{ a.concluded_by }} {{ ago(a.concluded_at) }}; written to the {{ a.written_to }}.</p>
-      <h3 class="mb-2 mt-5 text-base font-semibold text-ink-gray-9">Addenda</h3>
-      <p v-if="!p.addenda.length" class="wq-muted">None.</p>
+      <p class="mt-1 text-sm text-ink-gray-5">{{ t('Signed by {name} {when}; written to the {where}.', { name: a.concluded_by, when: ago(a.concluded_at), where: writtenTo(a.written_to) }) }}</p>
+      <h3 class="mb-2 mt-5 text-base font-semibold text-ink-gray-9">{{ t('Addenda') }}</h3>
+      <p v-if="!p.addenda.length" class="wq-muted">{{ t('None.') }}</p>
       <ul class="flex flex-col gap-1 text-base"><li v-for="x in p.addenda" :key="x.id">{{ x.text }} <span class="text-sm text-ink-gray-5">· {{ x.email }} {{ ago(x.at) }}</span></li></ul>
-      <form v-if="p.can_edit" class="mt-3 flex flex-wrap gap-2" @submit.prevent="addendum"><input v-model="extra" class="wq-input min-w-0 flex-1" placeholder="A later finding" maxlength="2000"><Button type="submit" label="Add" :disabled="!extra.trim() || busy" /></form>
+      <form v-if="p.can_edit" class="mt-3 flex flex-wrap gap-2" @submit.prevent="addendum"><input v-model="extra" class="wq-input min-w-0 flex-1" :placeholder="t('A later finding')" maxlength="2000"><Button type="submit" :label="t('Add')" :disabled="!extra.trim() || busy" /></form>
     </section>
-    <p v-if="a.status === 'cancelled'" class="wq-panel mt-5 p-5 text-base">Cancelled: {{ a.cancel_reason }}</p>
+    <p v-if="a.status === 'cancelled'" class="wq-panel mt-5 p-5 text-base">{{ t('Cancelled: {reason}', { reason: a.cancel_reason }) }}</p>
 
-    <details v-if="removed.length" class="mt-5 text-sm"><summary class="cursor-pointer text-ink-gray-7">Removed ({{ removed.length }})</summary>
-      <ul class="mt-2 flex flex-col gap-1"><li v-for="i in removed" :key="i.id" class="text-ink-gray-6"><s>{{ i.text }}</s> · {{ i.origin === 'ai' ? 'AI suggestion' : i.created_by }}, removed by {{ i.decided_by }}</li></ul></details>
-    <details v-if="edit" class="mt-3 text-sm"><summary class="cursor-pointer text-ink-gray-7">Cancel this analysis</summary>
-      <div class="mt-2 flex gap-2"><input v-model="cancelWhy" class="wq-input w-96" placeholder="Why"><Button label="Cancel the analysis" :disabled="!cancelWhy.trim()" @click="cancel" /></div></details>
+    <details v-if="removed.length" class="mt-5 text-sm"><summary class="cursor-pointer text-ink-gray-7">{{ t('Removed ({n})', { n: removed.length }) }}</summary>
+      <ul class="mt-2 flex flex-col gap-1"><li v-for="i in removed" :key="i.id" class="text-ink-gray-6"><s>{{ i.text }}</s> · {{ t('{who}, removed by {name}', { who: i.origin === 'ai' ? t('AI suggestion') : i.created_by, name: i.decided_by }) }}</li></ul></details>
+    <details v-if="edit" class="mt-3 text-sm"><summary class="cursor-pointer text-ink-gray-7">{{ t('Cancel this analysis') }}</summary>
+      <div class="mt-2 flex gap-2"><input v-model="cancelWhy" class="wq-input w-96" :placeholder="t('Why')"><Button :label="t('Cancel the analysis')" :disabled="!cancelWhy.trim()" @click="cancel" /></div></details>
 
-    <h2 class="wq-h2 mt-8">Signatures</h2>
+    <h2 class="wq-h2 mt-8">{{ t('Signatures') }}</h2>
     <Trail :items="p.signatures" kind="signatures" />
-    <h2 class="wq-h2 mt-8">History</h2>
+    <h2 class="wq-h2 mt-8">{{ t('History') }}</h2>
     <Trail :items="p.history" />
   </template>
 </template>

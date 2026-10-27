@@ -5,6 +5,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button } from 'frappe-ui'
+import { t } from '../i18n'
 
 const props = defineProps({ permissions: Array, steps: { type: Array, default: null }, name: { type: String, default: '' } })
 const emit = defineEmits(['done'])
@@ -33,7 +34,7 @@ async function place() {
   for (let k = 0; k < 15 && !el; k++) {             // the page may still be loading its data
     await new Promise((r) => setTimeout(r, k ? 200 : 350))
     if (steps.value[i.value] !== s) return
-    el = s.target.split(',').map((t) => document.querySelector(t.trim())).find(Boolean)
+    el = s.target.split(',').map((q) => document.querySelector(q.trim())).find(Boolean)
   }
   missing.value = !el
   if (el) {
@@ -56,15 +57,15 @@ watch(i, place, { immediate: true })
 <template>
   <div class="tour rounded-5 border border-outline-gray-2 bg-surface-base p-4 shadow-xl" role="dialog" aria-live="polite"
        :style="{ top: box.top + 'px', left: box.left + 'px' }">
-    <p class="text-xs text-ink-gray-5">{{ name ? `${name}: ` : '' }}step {{ i + 1 }} of {{ steps.length }}</p>
-    <h3 v-if="steps[i].title" class="mt-1 text-base font-semibold text-ink-gray-9">{{ steps[i].title }}</h3>
-    <p class="mt-1 text-p-sm text-ink-gray-7">{{ steps[i].text }}</p>
-    <p v-if="missing" class="mt-2 text-p-sm text-ink-amber-7">{{ steps[i].elsewhere || 'This part is not on the page you are on: open it first, then choose Show me again.' }}</p>
+    <p class="text-xs text-ink-gray-5">{{ name ? t('{name}: step {i} of {n}', { name, i: i + 1, n: steps.length }) : t('step {i} of {n}', { i: i + 1, n: steps.length }) }}</p>
+    <h3 v-if="steps[i].title" class="mt-1 text-base font-semibold text-ink-gray-9">{{ t(steps[i].title) }}</h3>
+    <p class="mt-1 text-p-sm text-ink-gray-7">{{ t(steps[i].text) }}</p>
+    <p v-if="missing" class="mt-2 text-p-sm text-ink-amber-7">{{ t(steps[i].elsewhere || 'This part is not on the page you are on: open it first, then choose Show me again.') }}</p>
     <div class="mt-3 flex items-center gap-2">
-      <Button v-if="i > 0" label="Back" @click="i--" />
-      <Button v-if="i < steps.length - 1" variant="solid" label="Next" @click="i++" />
-      <Button v-else variant="solid" label="Done" @click="finish" />
-      <Button variant="ghost" :label="name ? 'Close' : 'Skip the tour'" class="ms-auto" @click="finish" />
+      <Button v-if="i > 0" :label="t('Back')" @click="i--" />
+      <Button v-if="i < steps.length - 1" variant="solid" :label="t('Next')" @click="i++" />
+      <Button v-else variant="solid" :label="t('Done')" @click="finish" />
+      <Button variant="ghost" :label="name ? t('Close') : t('Skip the tour')" class="ms-auto" @click="finish" />
     </div>
   </div>
 </template>

@@ -8,6 +8,7 @@ import PageTop from '../ui/PageTop.vue'
 import { CONF, DOC_STATE, STATUS, label } from '../ui/themes'
 import { api, apiForm } from '../api'
 import { ago, fmt } from '../format'
+import { t } from '../i18n'
 
 const ws = inject('workspace')
 const route = useRoute()
@@ -33,11 +34,19 @@ const reasons = ref({})
 let timer = null
 
 const canEdit = computed(() => meta.value?.can_edit)
-const typeName = (t) => meta.value?.types[t] || label(t || 'unknown')
-const procName = (p) => meta.value?.processes[p] || label(p || 'unknown')
+const typeName = (k) => meta.value?.types[k] || (k ? label(k) : t('unknown'))
+const procName = (p) => meta.value?.processes[p] || (p ? label(p) : t('unknown'))
 const size = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 const unverified = (d) => Object.values(d.evidence || {}).filter((e) => !e.verified).length
-const how = (d) => (d.engine === 'ai' ? 'AI' : d.engine === 'rules' ? 'rules' : d.engine === 'person' ? 'person' : 'same as earlier file')
+const how = (d) => (d.engine === 'ai' ? 'AI' : d.engine === 'rules' ? t('rules') : d.engine === 'person' ? t('person') : t('same as earlier file'))
+function importLine(i) {
+  const parts = [i.files === 1 ? t('1 file') : t('{n} files', { n: i.files })]
+  if (i.duplicates) parts.push(t('{n} identical to another file', { n: i.duplicates }))
+  if (i.text.ocr) parts.push(t('{n} read by OCR', { n: i.text.ocr }))
+  if (i.text.no_text) parts.push(t('{n} without text', { n: i.text.no_text }))
+  if (i.text.error) parts.push(t('{n} could not be read', { n: i.text.error }))
+  return parts.join(t(', ')) + t('.')
+}
 
 async function load() {
   error.value = ''
@@ -110,7 +119,7 @@ async function upload() {
     form.append('label', uploadLabel.value)
     await apiForm('/api/docs/imports', form)
     picked.value = []; uploadLabel.value = ''
-    notice.value = 'Uploaded. The text is being read; then choose how to classify the files.'
+    notice.value = t('Uploaded. The text is being read; then choose how to classify the files.')
     if (tab.value === 'imports') await load(); else tab.value = 'imports'
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
@@ -131,7 +140,7 @@ async function confirmChosen() {
   error.value = ''; notice.value = ''
   try {
     const r = await api('/api/docs/confirm-batch', { method: 'POST', body: { ids: [...chosen.value] } })
-    notice.value = `Confirmed ${r.confirmed.length}.` + (r.left.length ? ` ${r.left.length} need a look one by one.` : '')
+    notice.value = t('Confirmed {n}.', { n: r.confirmed.length }) + (r.left.length ? ' ' + t('{n} need a look one by one.', { n: r.left.length }) : '')
     await load()
   } catch (e) { error.value = e.message }
 }
@@ -161,15 +170,15 @@ async function act(path, id, body, message) {
   try { await api(`/api/docs/${id}/${path}`, { method: 'POST', body }); notice.value = message; await load() }
   catch (e) { error.value = e.message }
 }
-async function saveRule(t) {
+async function saveRule(ty) {
   error.value = ''; notice.value = ''
   try {
-    await api(`/api/docs/numbering/${t}`, { method: 'PUT', body: { template: rules.value[t].template, digits: Number(rules.value[t].digits) } })
-    notice.value = 'Numbering rule saved.'; await load()
+    await api(`/api/docs/numbering/${ty}`, { method: 'PUT', body: { template: rules.value[ty].template, digits: Number(rules.value[ty].digits) } })
+    notice.value = t('Numbering rule saved.'); await load()
   } catch (e) { error.value = e.message }
 }
-async function clearRule(t) {
-  try { await api(`/api/docs/numbering/${t}`, { method: 'DELETE' }); notice.value = 'Back to the convention learned from your numbers.'; await load() }
+async function clearRule(ty) {
+  try { await api(`/api/docs/numbering/${ty}`, { method: 'DELETE' }); notice.value = t('Back to the convention learned from your numbers.'); await load() }
   catch (e) { error.value = e.message }
 }
 watch(issueProcess, () => tab.value === 'problems' && load())
@@ -178,41 +187,40 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
 </script>
 
 <template>
-  <PageTop title="Documents">
+  <PageTop :title="t('Documents')">
     <form class="hidden items-center sm:flex" @submit.prevent="search">
-      <input v-model="f.q" class="wq-input w-64" type="search" placeholder="Search titles, numbers and text" aria-label="Search documents">
+      <input v-model="f.q" class="wq-input w-64" type="search" :placeholder="t('Search titles, numbers and text')" :aria-label="t('Search documents')">
     </form>
   </PageTop>
 
   <p v-if="meta && !meta.ai" class="mb-4 rounded-3 border border-outline-amber-2 bg-surface-amber-1 px-3 py-2 text-base text-ink-amber-8">
-    No AI model is set up for this company, so files are classified by rules (file names, folders and labels such as
-    “Doc No.”), with limited accuracy. Add the company's model key to use AI.</p>
+    {{ t("No AI model is set up for this company, so files are classified by rules (file names, folders and labels such as “Doc No.”), with limited accuracy. Add the company's model key to use AI.") }}</p>
 
   <section v-if="canEdit" data-help="docs-drop" class="drop mb-5 rounded-5 border-2 border-dashed p-5 transition-colors"
            :class="dragging ? 'border-outline-gray-5 bg-surface-gray-2' : 'border-outline-gray-2 bg-surface-gray-1'"
            @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="drop">
     <div class="flex flex-wrap items-center gap-3">
       <span class="lucide-upload size-5 text-ink-gray-5" />
-      <p class="text-base text-ink-gray-8">Drop files, folders or zip files here</p>
-      <label class="cursor-pointer text-base text-ink-gray-8 underline underline-offset-2">choose files
+      <p class="text-base text-ink-gray-8">{{ t('Drop files, folders or zip files here') }}</p>
+      <label class="cursor-pointer text-base text-ink-gray-8 underline underline-offset-2">{{ t('choose files') }}
         <input type="file" multiple class="sr-only" accept=".pdf,.docx,.doc,.xlsx,.xlsm,.xls,.csv,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.gif,.webp,.zip" @change="choose"></label>
-      <label class="cursor-pointer text-base text-ink-gray-8 underline underline-offset-2">choose a folder
+      <label class="cursor-pointer text-base text-ink-gray-8 underline underline-offset-2">{{ t('choose a folder') }}
         <input type="file" webkitdirectory multiple class="sr-only" @change="choose"></label>
-      <span class="wq-muted">PDF, Word, Excel, CSV, text and scans; up to {{ meta?.max_mb }} MB a file. Folder names are kept.</span>
+      <span class="wq-muted">{{ t('PDF, Word, Excel, CSV, text and scans; up to {n} MB a file. Folder names are kept.', { n: meta?.max_mb ?? '' }) }}</span>
     </div>
     <div v-if="picked.length" class="mt-4 flex flex-wrap items-center gap-3">
-      <span class="text-base font-medium text-ink-gray-9">{{ picked.length }} file{{ picked.length === 1 ? '' : 's' }}, {{ size(pickedSize) }}</span>
-      <input v-model="uploadLabel" class="wq-input w-64" placeholder="Name this import (optional)">
-      <Button variant="solid" icon-left="lucide-upload" :loading="busy" label="Upload" @click="upload" />
-      <Button variant="ghost" label="Clear" @click="picked = []" />
-      <span class="wq-muted">Nothing is sent to the AI until you choose to classify.</span>
+      <span class="text-base font-medium text-ink-gray-9">{{ picked.length === 1 ? t('1 file, {size}', { size: size(pickedSize) }) : t('{n} files, {size}', { n: picked.length, size: size(pickedSize) }) }}</span>
+      <input v-model="uploadLabel" class="wq-input w-64" :placeholder="t('Name this import (optional)')">
+      <Button variant="solid" icon-left="lucide-upload" :loading="busy" :label="t('Upload')" @click="upload" />
+      <Button variant="ghost" :label="t('Clear')" @click="picked = []" />
+      <span class="wq-muted">{{ t('Nothing is sent to the AI until you choose to classify.') }}</span>
     </div>
   </section>
 
   <nav data-help="docs-tabs" class="tabs mb-5 flex gap-5 overflow-x-auto border-b border-outline-gray-2">
     <a v-for="(l, k) in TABS" :key="k" href="#" @click.prevent="tab = k"
        class="-mb-px whitespace-nowrap border-b-2 py-2.5 text-base transition-colors"
-       :class="tab === k ? 'border-outline-gray-9 font-medium text-ink-gray-9' : 'border-transparent text-ink-gray-5 hover:text-ink-gray-8'">{{ l }}</a>
+       :class="tab === k ? 'border-outline-gray-9 font-medium text-ink-gray-9' : 'border-transparent text-ink-gray-5 hover:text-ink-gray-8'">{{ t(l) }}</a>
   </nav>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="notice" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ notice }}</p>
@@ -222,26 +230,26 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
     <section class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <article v-for="(n, k) in { 'In the library': overview.totals.library, 'To review': overview.totals.to_review, 'Waiting for approval': overview.totals.in_review + overview.totals.approved, 'Problems to look at': overview.issues.high + overview.issues.medium }"
                :key="k" class="rounded-5 border border-outline-gray-2 bg-surface-base p-4">
-        <h3 class="text-sm font-medium text-ink-gray-5">{{ k }}</h3>
+        <h3 class="text-sm font-medium text-ink-gray-5">{{ t(k) }}</h3>
         <p class="mt-1 text-3xl font-semibold tracking-tight text-ink-gray-9">{{ n }}</p>
       </article>
     </section>
     <p v-if="overview.totals.to_review" class="mb-4 text-base text-ink-gray-7">
-      {{ overview.totals.to_review }} file{{ overview.totals.to_review === 1 ? ' waits' : 's wait' }} for review.
-      <a href="#" class="wq-link" @click.prevent="tab = 'review'">Review them</a></p>
+      {{ overview.totals.to_review === 1 ? t('1 file waits for review.') : t('{n} files wait for review.', { n: overview.totals.to_review }) }}
+      <a href="#" class="wq-link" @click.prevent="tab = 'review'">{{ t('Review them') }}</a></p>
     <p v-if="overview.issues.high + overview.issues.medium" class="mb-4 text-base text-ink-gray-7">
-      The checks found {{ overview.issues.high + overview.issues.medium }} problem{{ overview.issues.high + overview.issues.medium === 1 ? '' : 's' }}
-      (duplicates, revisions, numbers, missing forms). <a href="#" class="wq-link" @click.prevent="toProblems('')">See them</a></p>
-    <h2 class="wq-h2">By process and type</h2>
-    <p class="wq-muted mb-3">Documents in the library (confirmed, drafts, waiting for approval, effective). Click a number to see them.</p>
+      {{ overview.issues.high + overview.issues.medium === 1 ? t('The checks found 1 problem (duplicates, revisions, numbers, missing forms).') : t('The checks found {n} problems (duplicates, revisions, numbers, missing forms).', { n: overview.issues.high + overview.issues.medium }) }}
+      <a href="#" class="wq-link" @click.prevent="toProblems('')">{{ t('See them') }}</a></p>
+    <h2 class="wq-h2">{{ t('By process and type') }}</h2>
+    <p class="wq-muted mb-3">{{ t('Documents in the library (confirmed, drafts, waiting for approval, effective). Click a number to see them.') }}</p>
     <div data-help="docs-overview" class="wq-panel overflow-x-auto">
       <table class="wq-table">
-        <thead><tr><th>Process</th><th v-for="(n, t) in meta.types" :key="t" class="text-right">{{ n }}</th><th class="text-right">All</th><th class="text-right">Problems</th></tr></thead>
+        <thead><tr><th>{{ t('Process') }}</th><th v-for="(n, ty) in meta.types" :key="ty" class="text-right">{{ n }}</th><th class="text-right">{{ t('All') }}</th><th class="text-right">{{ t('Problems') }}</th></tr></thead>
         <tbody><tr v-for="(pn, p) in overview.processes" :key="p">
           <td class="whitespace-nowrap">{{ pn }}
-            <Badge v-if="overview.empty_processes.includes(p)" theme="amber" label="none yet" class="ms-2" /></td>
-          <td v-for="(n, t) in meta.types" :key="t" class="text-right">
-            <a v-if="cell(p, t)" href="#" class="wq-link" @click.prevent="toLibrary(p, t)">{{ cell(p, t) }}</a>
+            <Badge v-if="overview.empty_processes.includes(p)" theme="amber" :label="t('none yet')" class="ms-2" /></td>
+          <td v-for="(n, ty) in meta.types" :key="ty" class="text-right">
+            <a v-if="cell(p, ty)" href="#" class="wq-link" @click.prevent="toLibrary(p, ty)">{{ cell(p, ty) }}</a>
             <span v-else class="text-ink-gray-4">·</span></td>
           <td class="text-right font-medium"><a v-if="rowTotal(p)" href="#" class="wq-link" @click.prevent="toLibrary(p, '')">{{ rowTotal(p) }}</a>
             <span v-else class="text-ink-gray-4">0</span></td>
@@ -255,14 +263,14 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
   <!-- problems -->
   <template v-if="tab === 'problems' && problems && meta">
     <div data-help="docs-problems" class="mb-3 flex flex-wrap items-center gap-2">
-      <select v-model="issueProcess" class="wq-select" aria-label="Process"><option value="">Every process</option>
+      <select v-model="issueProcess" class="wq-select" :aria-label="t('Process')"><option value="">{{ t('Every process') }}</option>
         <option v-for="(n, p) in meta.processes" :key="p" :value="p">{{ n }}</option></select>
-      <span class="wq-muted">Found by fixed checks of the library; you decide what to do. Nothing changes by itself.</span>
+      <span class="wq-muted">{{ t('Found by fixed checks of the library; you decide what to do. Nothing changes by itself.') }}</span>
     </div>
-    <p v-if="!problems.issues.length" class="wq-muted">No problems found.</p>
+    <p v-if="!problems.issues.length" class="wq-muted">{{ t('No problems found.') }}</p>
     <article v-for="(i, n) in problems.issues" :key="n" class="issue wq-panel mb-3 p-4">
       <div class="flex flex-wrap items-center gap-2">
-        <Badge :theme="SEV_THEME[i.severity]" :label="i.severity === 'info' ? 'note' : i.severity" />
+        <Badge :theme="SEV_THEME[i.severity]" :label="i.severity === 'info' ? t('note') : t(i.severity)" />
         <h3 class="text-base font-medium text-ink-gray-9">{{ i.title }}</h3>
         <span v-if="i.process" class="ms-auto text-sm text-ink-gray-5">{{ meta.processes[i.process] }}</span>
       </div>
@@ -271,70 +279,66 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
         <li v-for="id in i.docs" :key="id" class="flex flex-wrap items-center gap-2 py-1.5">
           <RouterLink :to="`/documents/${id}`" class="wq-link">{{ problems.docs[id].label }}</RouterLink>
           <span class="text-ink-gray-5">{{ problems.docs[id].path }}/{{ problems.docs[id].file }}</span>
-          <Badge :theme="STATUS[problems.docs[id].status] || 'gray'" :label="DOC_STATE[problems.docs[id].status] || label(problems.docs[id].status)" />
-          <Badge v-if="i.keep === id" theme="green" variant="outline" :label="i.kind === 'revisions' ? 'current' : 'keep this one'" />
+          <Badge :theme="STATUS[problems.docs[id].status] || 'gray'" :label="t(DOC_STATE[problems.docs[id].status] || label(problems.docs[id].status))" />
+          <Badge v-if="i.keep === id" theme="green" variant="outline" :label="i.kind === 'revisions' ? t('current') : t('keep this one')" />
           <template v-if="canEdit && canAct(id) && i.keep && i.keep !== id">
             <span class="ms-auto" />
-            <Button v-if="i.kind === 'revisions'" size="sm" label="Keep as obsolete"
-                    @click="act('archive', id, { reason: `older revision; current is ${problems.docs[i.keep].label}` }, 'Kept as obsolete.')" />
-            <Button v-if="i.kind === 'duplicate' && problems.docs[id].status !== 'draft'" size="sm" label="Not keep this copy"
-                    @click="act('reject', id, { reason: `same file as ${problems.docs[i.keep].path}/${problems.docs[i.keep].file}` }, 'Copy not kept.')" />
+            <Button v-if="i.kind === 'revisions'" size="sm" :label="t('Keep as obsolete')"
+                    @click="act('archive', id, { reason: `older revision; current is ${problems.docs[i.keep].label}` }, t('Kept as obsolete.'))" />
+            <Button v-if="i.kind === 'duplicate' && problems.docs[id].status !== 'draft'" size="sm" :label="t('Not keep this copy')"
+                    @click="act('reject', id, { reason: `same file as ${problems.docs[i.keep].path}/${problems.docs[i.keep].file}` }, t('Copy not kept.'))" />
           </template>
-          <span v-if="i.suggest && i.docs.length === 1" class="ms-auto text-ink-gray-6">suggested number <b class="text-ink-gray-9">{{ i.suggest }}</b>
-            (open it to use)</span>
+          <span v-if="i.suggest && i.docs.length === 1" class="ms-auto text-ink-gray-6">{{ t('suggested number') }} <b class="text-ink-gray-9">{{ i.suggest }}</b>
+            {{ t('(open it to use)') }}</span>
         </li>
       </ul>
     </article>
 
-    <h2 data-help="docs-numbering" class="wq-h2 mt-8">Numbering</h2>
-    <p class="wq-muted mb-3 max-w-3xl">How suggested numbers are made. Without a rule of your own, the convention is learned from the numbers
-      your documents already have. Write a rule as a prefix and <code>{seq}</code>, optionally with <code>{process}</code> for the process code
-      (for example <code>F-{process}-{seq}</code> with 3 digits gives F-QA-013). Original file names are never changed.</p>
+    <h2 data-help="docs-numbering" class="wq-h2 mt-8">{{ t('Numbering') }}</h2>
+    <p class="wq-muted mb-3 max-w-3xl" v-html="t('How suggested numbers are made. Without a rule of your own, the convention is learned from the numbers your documents already have. Write a rule as a prefix and <code>{seq}</code>, optionally with <code>{process}</code> for the process code (for example <code>F-{process}-{seq}</code> with 3 digits gives F-QA-013). Original file names are never changed.')"></p>
     <div class="wq-panel overflow-x-auto">
       <table class="wq-table">
-        <thead><tr><th>Type</th><th>Convention</th><th>From</th><th v-if="canEdit">Your rule</th></tr></thead>
-        <tbody><tr v-for="(c, t) in problems.conventions" :key="t">
-          <td class="whitespace-nowrap">{{ meta.types[t] }}</td>
-          <td class="whitespace-nowrap font-mono text-sm">{{ c.template }} · {{ c.digits }} digits
-            <div v-if="c.examples" class="font-sans text-ink-gray-5">e.g. {{ c.examples.join(', ') }}</div></td>
-          <td class="text-sm text-ink-gray-6">{{ SOURCE[c.source] }}</td>
-          <td v-if="canEdit"><form class="flex items-center gap-2" @submit.prevent="saveRule(t)">
-            <input v-model="rules[t].template" class="wq-input w-44 font-mono" aria-label="Rule">
-            <input v-model="rules[t].digits" class="wq-input w-16" type="number" min="1" max="6" aria-label="Digits">
-            <Button type="submit" size="sm" label="Save" />
-            <Button v-if="c.source === 'rule'" size="sm" variant="ghost" label="Use learned" @click="clearRule(t)" />
+        <thead><tr><th>{{ t('Type') }}</th><th>{{ t('Convention') }}</th><th>{{ t('From') }}</th><th v-if="canEdit">{{ t('Your rule') }}</th></tr></thead>
+        <tbody><tr v-for="(c, ty) in problems.conventions" :key="ty">
+          <td class="whitespace-nowrap">{{ meta.types[ty] }}</td>
+          <td class="whitespace-nowrap font-mono text-sm">{{ c.template }} · {{ t('{n} digits', { n: c.digits }) }}
+            <div v-if="c.examples" class="font-sans text-ink-gray-5">{{ t('e.g. {list}', { list: c.examples.join(', ') }) }}</div></td>
+          <td class="text-sm text-ink-gray-6">{{ t(SOURCE[c.source]) }}</td>
+          <td v-if="canEdit"><form class="flex items-center gap-2" @submit.prevent="saveRule(ty)">
+            <input v-model="rules[ty].template" class="wq-input w-44 font-mono" :aria-label="t('Rule')">
+            <input v-model="rules[ty].digits" class="wq-input w-16" type="number" min="1" max="6" :aria-label="t('Digits')">
+            <Button type="submit" size="sm" :label="t('Save')" />
+            <Button v-if="c.source === 'rule'" size="sm" variant="ghost" :label="t('Use learned')" @click="clearRule(ty)" />
           </form></td>
         </tr></tbody>
       </table>
     </div>
-    <p class="wq-muted mt-2">Process codes in numbers: <span v-for="(code, p) in problems.codes" :key="p" class="me-3 whitespace-nowrap">{{ meta.processes[p] }} {{ code }}</span></p>
+    <p class="wq-muted mt-2">{{ t('Process codes in numbers:') }} <span v-for="(code, p) in problems.codes" :key="p" class="me-3 whitespace-nowrap">{{ meta.processes[p] }} {{ code }}</span></p>
   </template>
 
   <!-- review queue -->
   <template v-if="tab === 'review'">
-    <p class="wq-muted mb-3 max-w-3xl">Each proposal shows where it came from (AI or rules) and how sure it is. Every field quotes the
-      file; quotes the system could not find in the file are marked. High-confidence proposals with every quote found can be
-      confirmed together; open the others to check and correct them. Your corrections teach the next classification.</p>
+    <p class="wq-muted mb-3 max-w-3xl">{{ t('Each proposal shows where it came from (AI or rules) and how sure it is. Every field quotes the file; quotes the system could not find in the file are marked. High-confidence proposals with every quote found can be confirmed together; open the others to check and correct them. Your corrections teach the next classification.') }}</p>
     <div v-if="canEdit && rows.length" class="mb-3 flex flex-wrap items-center gap-2">
-      <Button :disabled="!batchable.length" :label="`Select the ${batchable.length} high-confidence`" @click="chosen = new Set(batchable.map((d) => d.id))" />
-      <Button variant="solid" :disabled="!chosen.size" icon-left="lucide-check" :label="`Confirm ${chosen.size} selected`" @click="confirmChosen" />
+      <Button :disabled="!batchable.length" :label="t('Select the {n} high-confidence', { n: batchable.length })" @click="chosen = new Set(batchable.map((d) => d.id))" />
+      <Button variant="solid" :disabled="!chosen.size" icon-left="lucide-check" :label="t('Confirm {n} selected', { n: chosen.size })" @click="confirmChosen" />
     </div>
-    <p v-if="!rows.length" class="wq-muted">Nothing to review.</p>
+    <p v-if="!rows.length" class="wq-muted">{{ t('Nothing to review.') }}</p>
     <div v-else data-help="docs-review-list" class="wq-panel overflow-x-auto">
       <table class="wq-table">
-        <thead><tr><th v-if="canEdit"></th><th>File</th><th>Type</th><th>Process</th><th>Number</th><th>Title</th><th>Proposal</th></tr></thead>
+        <thead><tr><th v-if="canEdit"></th><th>{{ t('File') }}</th><th>{{ t('Type') }}</th><th>{{ t('Process') }}</th><th>{{ t('Number') }}</th><th>{{ t('Title') }}</th><th>{{ t('Proposal') }}</th></tr></thead>
         <tbody><tr v-for="d in rows" :key="d.id">
           <td v-if="canEdit"><input type="checkbox" class="form-checkbox" :disabled="!d.batch_ok" :checked="chosen.has(d.id)"
-                                    :title="d.batch_ok ? 'Can be confirmed with others' : 'Open it to check'" @change="toggle(d)"></td>
+                                    :title="d.batch_ok ? t('Can be confirmed with others') : t('Open it to check')" @change="toggle(d)"></td>
           <td><RouterLink :to="`/documents/${d.id}`" class="font-medium text-ink-gray-9 hover:underline">{{ d.original_name }}</RouterLink>
             <div class="text-sm text-ink-gray-5">{{ d.path }}</div>
-            <Badge v-if="d.duplicate_of" theme="gray" label="same file as another" class="mt-1" /></td>
+            <Badge v-if="d.duplicate_of" theme="gray" :label="t('same file as another')" class="mt-1" /></td>
           <td class="whitespace-nowrap">{{ typeName(d.doc_type) }}</td>
           <td class="whitespace-nowrap">{{ procName(d.process) }}</td>
-          <td class="whitespace-nowrap">{{ d.number || '—' }}<span v-if="d.revision" class="text-ink-gray-5"> rev {{ d.revision }}</span></td>
+          <td class="whitespace-nowrap">{{ d.number || '—' }}<span v-if="d.revision" class="text-ink-gray-5"> {{ t('rev {rev}', { rev: d.revision }) }}</span></td>
           <td>{{ d.title }}</td>
-          <td class="whitespace-nowrap"><Badge :theme="CONF[d.confidence] || 'gray'" :label="`${d.confidence || 'low'} · ${how(d)}`" />
-            <div v-if="unverified(d)" class="mt-1 text-sm text-ink-amber-7">{{ unverified(d) }} not found in the file</div></td>
+          <td class="whitespace-nowrap"><Badge :theme="CONF[d.confidence] || 'gray'" :label="`${t(d.confidence || 'low')} · ${how(d)}`" />
+            <div v-if="unverified(d)" class="mt-1 text-sm text-ink-amber-7">{{ t('{n} not found in the file', { n: unverified(d) }) }}</div></td>
         </tr></tbody>
       </table>
     </div>
@@ -343,21 +347,21 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
   <!-- library -->
   <template v-if="tab === 'library' && meta">
     <form data-help="docs-library-filter" class="mb-3 flex flex-wrap items-center gap-2" @submit.prevent="load">
-      <input v-model="f.q" class="wq-input w-64 sm:hidden" type="search" placeholder="Search">
-      <select v-model="f.status" class="wq-select" aria-label="Status">
-        <option value="library">In the library</option><option value="effective">Effective</option><option value="confirmed">Kept records</option>
-        <option value="in_review">Waiting for approval</option><option value="approved">Approved, not yet in effect</option><option value="draft">Drafts</option><option value="obsolete">Obsolete</option>
-        <option value="all">All files</option></select>
-      <select v-model="f.process" class="wq-select" aria-label="Process"><option value="">Every process</option>
+      <input v-model="f.q" class="wq-input w-64 sm:hidden" type="search" :placeholder="t('Search')">
+      <select v-model="f.status" class="wq-select" :aria-label="t('Status')">
+        <option value="library">{{ t('In the library') }}</option><option value="effective">{{ t('Effective') }}</option><option value="confirmed">{{ t('Kept records') }}</option>
+        <option value="in_review">{{ t('Waiting for approval') }}</option><option value="approved">{{ t('Approved, not yet in effect') }}</option><option value="draft">{{ t('Drafts') }}</option><option value="obsolete">{{ t('Obsolete') }}</option>
+        <option value="all">{{ t('All files') }}</option></select>
+      <select v-model="f.process" class="wq-select" :aria-label="t('Process')"><option value="">{{ t('Every process') }}</option>
         <option v-for="(n, p) in meta.processes" :key="p" :value="p">{{ n }}</option></select>
-      <select v-model="f.type" class="wq-select" aria-label="Type"><option value="">Every type</option>
-        <option v-for="(n, t) in meta.types" :key="t" :value="t">{{ n }}</option></select>
-      <Button v-if="f.q" variant="ghost" :label="`Clear “${f.q}”`" @click="f.q = ''; load()" />
+      <select v-model="f.type" class="wq-select" :aria-label="t('Type')"><option value="">{{ t('Every type') }}</option>
+        <option v-for="(n, ty) in meta.types" :key="ty" :value="ty">{{ n }}</option></select>
+      <Button v-if="f.q" variant="ghost" :label="t('Clear “{q}”', { q: f.q })" @click="f.q = ''; load()" />
     </form>
-    <p v-if="!rows.length" class="wq-muted">No documents.</p>
+    <p v-if="!rows.length" class="wq-muted">{{ t('No documents.') }}</p>
     <div v-else class="wq-panel overflow-x-auto">
       <table class="wq-table">
-        <thead><tr><th>Number</th><th>Title</th><th>Rev</th><th>Type</th><th>Process</th><th>Status</th><th>Effective</th></tr></thead>
+        <thead><tr><th>{{ t('Number') }}</th><th>{{ t('Title') }}</th><th>{{ t('Rev') }}</th><th>{{ t('Type') }}</th><th>{{ t('Process') }}</th><th>{{ t('Status') }}</th><th>{{ t('Effective') }}</th></tr></thead>
         <tbody><tr v-for="d in rows" :key="d.id">
           <td class="whitespace-nowrap">{{ d.number || '—' }}</td>
           <td><RouterLink :to="`/documents/${d.id}`" class="font-medium text-ink-gray-9 hover:underline">{{ d.title || d.original_name }}</RouterLink>
@@ -365,7 +369,7 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
           <td>{{ d.revision || '—' }}</td>
           <td class="whitespace-nowrap">{{ typeName(d.doc_type) }}</td>
           <td class="whitespace-nowrap">{{ procName(d.process) }}</td>
-          <td><Badge :theme="STATUS[d.status] || 'gray'" :label="DOC_STATE[d.status] || label(d.status)" /></td>
+          <td><Badge :theme="STATUS[d.status] || 'gray'" :label="t(DOC_STATE[d.status] || label(d.status))" /></td>
           <td class="whitespace-nowrap text-sm text-ink-gray-6">{{ d.effective_date || '—' }}</td>
         </tr></tbody>
       </table>
@@ -374,27 +378,27 @@ const toLibrary = (p, t) => { f.value = { ...f.value, process: p || '', type: t 
 
   <!-- imports -->
   <template v-if="tab === 'imports'">
-    <p v-if="!imports.length" class="wq-muted">No imports yet.</p>
+    <p v-if="!imports.length" class="wq-muted">{{ t('No imports yet.') }}</p>
     <article v-for="i in imports" :key="i.id" data-help="docs-import" class="wq-panel mb-4 p-4">
       <div class="flex flex-wrap items-center gap-2">
-        <h3 class="text-base font-semibold text-ink-gray-9">{{ i.label || `Import ${i.id}` }}</h3>
-        <Badge :theme="STATUS[i.status] || 'gray'" :label="i.status === 'extracting' ? 'reading text' : i.status === 'ready' ? 'ready to classify' : label(i.status)" />
-        <Badge v-if="i.engine" :label="i.engine === 'ai' ? 'AI' : i.engine" variant="outline" />
+        <h3 class="text-base font-semibold text-ink-gray-9">{{ i.label || t('Import {id}', { id: i.id }) }}</h3>
+        <Badge :theme="STATUS[i.status] || 'gray'" :label="i.status === 'extracting' ? t('reading text') : i.status === 'ready' ? t('ready to classify') : t(label(i.status))" />
+        <Badge v-if="i.engine" :label="i.engine === 'ai' ? 'AI' : t(i.engine)" variant="outline" />
         <span class="ms-auto text-sm text-ink-gray-5">{{ i.created_by }} · {{ ago(i.created_at) }}</span>
       </div>
-      <p class="mt-2 text-base text-ink-gray-7">{{ i.files }} file{{ i.files === 1 ? '' : 's' }}<span v-if="i.duplicates">, {{ i.duplicates }} identical to another file</span><span v-if="i.text.ocr">, {{ i.text.ocr }} read by OCR</span><span v-if="i.text.no_text">, {{ i.text.no_text }} without text</span><span v-if="i.text.error">, {{ i.text.error }} could not be read</span>.
-        <template v-for="(n, s) in i.counts" :key="s"><Badge :theme="STATUS[s] || 'gray'" :label="`${n} ${DOC_STATE[s] || label(s)}`" class="ms-1" /></template></p>
+      <p class="mt-2 text-base text-ink-gray-7">{{ importLine(i) }}
+        <template v-for="(n, s) in i.counts" :key="s"><Badge :theme="STATUS[s] || 'gray'" :label="`${n} ${t(DOC_STATE[s] || label(s))}`" class="ms-1" /></template></p>
       <p v-if="i.error" class="wq-error mt-2">{{ i.error }}</p>
-      <details v-if="i.skipped.length" class="mt-2 text-sm text-ink-gray-6"><summary class="cursor-pointer">{{ i.skipped.length }} not taken</summary>
+      <details v-if="i.skipped.length" class="mt-2 text-sm text-ink-gray-6"><summary class="cursor-pointer">{{ t('{n} not taken', { n: i.skipped.length }) }}</summary>
         <ul class="mt-1 list-disc ps-5"><li v-for="s in i.skipped" :key="s.name">{{ s.name }}: {{ s.reason }}</li></ul></details>
       <div v-if="canEdit && i.status !== 'extracting' && i.status !== 'classifying' && i.counts.to_classify" class="mt-3 flex flex-wrap items-center gap-2">
-        <Button v-if="meta?.ai" variant="solid" icon-left="lucide-sparkles" label="Classify with AI" @click="classify(i, 'ai')" />
-        <Button :variant="meta?.ai ? 'subtle' : 'solid'" label="Classify with rules" @click="classify(i, 'rules')" />
-        <span v-if="meta?.ai" class="wq-muted">The AI reads {{ i.estimate.files }} file{{ i.estimate.files === 1 ? '' : 's' }}, about {{ fmt(i.estimate.tokens) }} tokens with the company's key ({{ meta.model }}).</span>
-        <span v-else class="wq-muted">Rules classify with limited accuracy; every proposal still waits for a person.</span>
+        <Button v-if="meta?.ai" variant="solid" icon-left="lucide-sparkles" :label="t('Classify with AI')" @click="classify(i, 'ai')" />
+        <Button :variant="meta?.ai ? 'subtle' : 'solid'" :label="t('Classify with rules')" @click="classify(i, 'rules')" />
+        <span v-if="meta?.ai" class="wq-muted">{{ i.estimate.files === 1 ? t("The AI reads 1 file, about {tokens} tokens with the company's key ({model}).", { tokens: fmt(i.estimate.tokens), model: meta.model }) : t("The AI reads {n} files, about {tokens} tokens with the company's key ({model}).", { n: i.estimate.files, tokens: fmt(i.estimate.tokens), model: meta.model }) }}</span>
+        <span v-else class="wq-muted">{{ t('Rules classify with limited accuracy; every proposal still waits for a person.') }}</span>
       </div>
       <p v-if="i.status === 'done' && i.counts.to_review" class="mt-3 text-base">
-        <a href="#" class="wq-link" @click.prevent="tab = 'review'">Review {{ i.counts.to_review }} proposal{{ i.counts.to_review === 1 ? '' : 's' }}</a></p>
+        <a href="#" class="wq-link" @click.prevent="tab = 'review'">{{ i.counts.to_review === 1 ? t('Review 1 proposal') : t('Review {n} proposals', { n: i.counts.to_review }) }}</a></p>
     </article>
   </template>
 </template>

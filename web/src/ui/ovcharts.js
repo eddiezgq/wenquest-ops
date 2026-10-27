@@ -1,5 +1,6 @@
 // Chart options for the company overview (ADR-0018). One look for the workspace (light) and the big screen (dark).
 import { fmt } from '../format'
+import { t as tr } from '../i18n'
 
 export const LIGHT = { green: '#2f9e5b', amber: '#d9902a', red: '#d1453b', unknown: '#9aa3ae' }
 const THEMES = {
@@ -25,7 +26,7 @@ export function curve(s, { dark = false, big = false, scaled = false } = {}) {
     aria: s.label,
     animationDuration: 900, animationDurationUpdate: 700,
     grid: { left: big ? 64 : 44, right: big ? 28 : 18, top: 12, bottom: big ? 32 : 24 },
-    tooltip: { trigger: 'axis', valueFormatter: (v) => (scaled ? `${v}% of the best week` : fmt(v, s.unit)) },
+    tooltip: { trigger: 'axis', valueFormatter: (v) => (scaled ? tr('{v}% of the best week', { v }) : fmt(v, s.unit)) },
     xAxis: { type: 'category', boundaryGap: false, data: s.points.map((p) => short(p.week_ending)),
       axisLine: { lineStyle: { color: t.grid } }, axisTick: { show: false }, axisLabel: { color: t.axis, fontSize: fs } },
     yAxis: { type: 'value', splitNumber: 3, min: s.unit === '%' && !scaled ? (v) => Math.max(0, Math.floor(v.min / 10) * 10) : 0,

@@ -5,6 +5,7 @@ import { computed, inject, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { grouped, search, visible } from '../help'
 import { count } from '../help/progress'
+import { t } from '../i18n'
 
 const props = defineProps({ current: { type: String, default: '' } })
 const ws = inject('workspace')
@@ -27,11 +28,11 @@ function key(e) {
 </script>
 
 <template>
-  <nav class="help-nav no-print" aria-label="Help topics">
+  <nav class="help-nav no-print" :aria-label="t('Help topics')">
     <div class="relative mb-4">
-      <input v-model="q" type="search" class="wq-input" placeholder="Search the help" aria-label="Search the help" @keydown="key">
+      <input v-model="q" type="search" class="wq-input" :placeholder="t('Search the help')" :aria-label="t('Search the help')" @keydown="key">
       <ol v-if="q.trim()" class="hits absolute left-0 top-full w-[min(26rem,calc(100vw-2rem))] z-20 mt-1 max-h-[70vh] overflow-auto rounded-4 border border-outline-gray-2 bg-surface-base p-1 shadow-lg">
-        <li v-if="!hits.length" class="px-3 py-2 text-sm text-ink-gray-5">Nothing found. Try fewer or other words.</li>
+        <li v-if="!hits.length" class="px-3 py-2 text-sm text-ink-gray-5">{{ t('Nothing found. Try fewer or other words.') }}</li>
         <li v-for="(h, i) in hits" :key="h.topic.slug">
           <button class="w-full rounded-3 px-3 py-2 text-left" :class="i === pick ? 'bg-surface-gray-3' : 'hover:bg-surface-gray-2'" @click="go(h)" @mouseenter="pick = i">
             <span class="block text-sm font-medium text-ink-gray-9">{{ h.topic.title }}</span>
@@ -42,17 +43,17 @@ function key(e) {
     </div>
     <div class="lg:hidden">
       <button class="item w-full" :aria-expanded="open" @click="open = !open">
-        <span>All help topics</span><span :class="open ? 'lucide-chevron-up' : 'lucide-chevron-down'" class="size-4" aria-hidden="true" />
+        <span>{{ t('All help topics') }}</span><span :class="open ? 'lucide-chevron-up' : 'lucide-chevron-down'" class="size-4" aria-hidden="true" />
       </button>
     </div>
     <div :class="open ? 'block' : 'hidden lg:block'">
-    <RouterLink to="/help" class="item" :class="{ on: props.current === 'home' }">Help home</RouterLink>
-    <RouterLink to="/help/checklist" class="item" :class="{ on: props.current === 'checklist' }">Test checklist</RouterLink>
+    <RouterLink to="/help" class="item" :class="{ on: props.current === 'home' }">{{ t('Help home') }}</RouterLink>
+    <RouterLink to="/help/checklist" class="item" :class="{ on: props.current === 'checklist' }">{{ t('Test checklist') }}</RouterLink>
     <section v-for="g in groups" :key="g.name" class="mt-4">
-      <h2 class="px-2.5 pb-1 text-sm font-semibold text-ink-gray-5">{{ g.name }}</h2>
-      <RouterLink v-for="t in g.topics" :key="t.slug" :to="`/help/${t.slug}`" class="item" :class="{ on: t.slug === props.current }">
-        <span class="truncate">{{ t.title }}</span>
-        <span v-if="t.try.length" class="tally" :class="{ full: count(t) === t.try.length }">{{ count(t) }}/{{ t.try.length }}</span>
+      <h2 class="px-2.5 pb-1 text-sm font-semibold text-ink-gray-5">{{ t(g.name) }}</h2>
+      <RouterLink v-for="tp in g.topics" :key="tp.slug" :to="`/help/${tp.slug}`" class="item" :class="{ on: tp.slug === props.current }">
+        <span class="truncate">{{ tp.title }}</span>
+        <span v-if="tp.try.length" class="tally" :class="{ full: count(tp) === tp.try.length }">{{ count(tp) }}/{{ tp.try.length }}</span>
       </RouterLink>
     </section>
     </div>

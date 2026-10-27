@@ -5,6 +5,7 @@ import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import { api } from '../api'
+import { t } from '../i18n'
 
 const props = defineProps({ kind: String, id: [Number, String], status: String })
 const router = useRouter()
@@ -29,20 +30,20 @@ async function start() {
 
 <template>
   <section v-if="data && (data.analyses.length || data.can_start)" data-help="cause-start" class="wq-panel mt-5 p-5">
-    <h2 class="wq-h2">Cause analysis</h2>
+    <h2 class="wq-h2">{{ t('Cause analysis') }}</h2>
     <p v-if="error" class="wq-error mb-3">{{ error }}</p>
     <ul v-if="data.analyses.length" class="mb-3 text-base">
       <li v-for="a in data.analyses" :key="a.id" class="flex flex-wrap items-center gap-2 border-b border-outline-gray-1 py-2">
         <RouterLink :to="`/quality/causes/${a.id}`" class="font-medium text-ink-gray-9 hover:underline">{{ a.name }}</RouterLink>
-        <span class="text-ink-gray-6">{{ data.methods[a.method] }}</span>
-        <Badge :theme="THEME[a.status]" :label="a.status" />
+        <span class="text-ink-gray-6">{{ t(data.methods[a.method]) }}</span>
+        <Badge :theme="THEME[a.status]" :label="t(a.status)" />
         <span class="min-w-0 flex-1 truncate text-ink-gray-6">{{ a.conclusion || a.problem }}</span>
       </li>
     </ul>
     <div v-if="data.can_start" class="flex flex-wrap items-center gap-2">
-      <select v-model="method" class="wq-select"><option v-for="(l, k) in data.methods" :key="k" :value="k">{{ l }}</option></select>
-      <Button icon-left="lucide-git-fork" label="Start an analysis" @click="start" />
-      <span class="text-sm text-ink-gray-5">The signed conclusion is added to this record's root cause.</span>
+      <select v-model="method" class="wq-select"><option v-for="(l, k) in data.methods" :key="k" :value="k">{{ t(l) }}</option></select>
+      <Button icon-left="lucide-git-fork" :label="t('Start an analysis')" @click="start" />
+      <span class="text-sm text-ink-gray-5">{{ t("The signed conclusion is added to this record's root cause.") }}</span>
     </div>
   </section>
 </template>

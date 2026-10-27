@@ -6,6 +6,7 @@ import PageTop from '../ui/PageTop.vue'
 import HelpNav from '../components/HelpNav.vue'
 import { bySlug, grouped, visible } from '../help'
 import { count, load } from '../help/progress'
+import { t } from '../i18n'
 
 const ws = inject('workspace')
 const startTour = inject('startTour')
@@ -20,24 +21,22 @@ load()
 </script>
 
 <template>
-  <PageTop title="Help">
-    <Button icon-left="lucide-map" label="Take the guided tour" @click="startTour()" />
+  <PageTop :title="t('Help')">
+    <Button icon-left="lucide-map" :label="t('Take the guided tour')" @click="startTour()" />
   </PageTop>
   <div class="grid gap-8 lg:grid-cols-[14rem_minmax(0,1fr)]">
     <HelpNav current="home" />
     <div class="max-w-4xl">
-      <p class="mb-8 max-w-2xl text-xl leading-8 text-ink-gray-7">How WenQuest Ops works, page by page. Every topic
-        says what the page is for, lets you try it on the demo company step by step, and lists what the system will
-        not let anyone do.</p>
+      <p class="mb-8 max-w-2xl text-xl leading-8 text-ink-gray-7">{{ t('How WenQuest Ops works, page by page. Every topic says what the page is for, lets you try it on the demo company step by step, and lists what the system will not let anyone do.') }}</p>
 
       <section class="mb-10">
-        <h2 class="mb-3 text-base font-semibold text-ink-gray-9">Start here</h2>
+        <h2 class="mb-3 text-base font-semibold text-ink-gray-9">{{ t('Start here') }}</h2>
         <ol class="path">
-          <li v-for="(t, i) in path" :key="t.slug">
-            <RouterLink :to="`/help/${t.slug}`" class="block h-full rounded-5 border border-outline-gray-2 p-4 hover:border-outline-gray-4">
+          <li v-for="(tp, i) in path" :key="tp.slug">
+            <RouterLink :to="`/help/${tp.slug}`" class="block h-full rounded-5 border border-outline-gray-2 p-4 hover:border-outline-gray-4">
               <span class="text-sm tabular-nums text-ink-gray-5">{{ i + 1 }}</span>
-              <span class="mt-1 block text-base font-semibold text-ink-gray-9">{{ t.title }}</span>
-              <span class="mt-1 block text-sm leading-5 text-ink-gray-6">{{ t.summary }}</span>
+              <span class="mt-1 block text-base font-semibold text-ink-gray-9">{{ tp.title }}</span>
+              <span class="mt-1 block text-sm leading-5 text-ink-gray-6">{{ tp.summary }}</span>
             </RouterLink>
           </li>
         </ol>
@@ -45,26 +44,26 @@ load()
 
       <RouterLink v-if="items" to="/help/checklist" class="check mb-10 flex flex-wrap items-center gap-4 rounded-5 border border-outline-gray-2 p-4 hover:border-outline-gray-4">
         <span class="grow">
-          <span class="block text-base font-semibold text-ink-gray-9">Test checklist</span>
-          <span class="block text-sm text-ink-gray-6">Every "Try it" step of every topic on one page, to work through, print or export.</span>
+          <span class="block text-base font-semibold text-ink-gray-9">{{ t('Test checklist') }}</span>
+          <span class="block text-sm text-ink-gray-6">{{ t('Every "Try it" step of every topic on one page, to work through, print or export.') }}</span>
         </span>
         <span class="flex items-center gap-3">
           <span class="bar"><span :style="{ width: `${(100 * ticked) / items}%` }" /></span>
-          <span class="text-sm tabular-nums text-ink-gray-7">{{ ticked }} of {{ items }}</span>
+          <span class="text-sm tabular-nums text-ink-gray-7">{{ t('{done} of {total}', { done: ticked, total: items }) }}</span>
         </span>
       </RouterLink>
 
       <div class="grid gap-x-10 gap-y-8 md:grid-cols-2">
         <section v-for="g in groups" :key="g.name">
-          <h2 class="mb-2 text-base font-semibold text-ink-gray-9">{{ g.name }}</h2>
+          <h2 class="mb-2 text-base font-semibold text-ink-gray-9">{{ t(g.name) }}</h2>
           <ul>
-            <li v-for="t in g.topics" :key="t.slug" class="border-t border-outline-gray-1 py-2.5">
-              <RouterLink :to="`/help/${t.slug}`" class="group block">
+            <li v-for="tp in g.topics" :key="tp.slug" class="border-t border-outline-gray-1 py-2.5">
+              <RouterLink :to="`/help/${tp.slug}`" class="group block">
                 <span class="flex items-baseline justify-between gap-3">
-                  <span class="text-base font-medium text-ink-gray-9 group-hover:underline">{{ t.title }}</span>
-                  <span v-if="t.try.length" class="shrink-0 text-xs tabular-nums text-ink-gray-4">{{ count(t) }}/{{ t.try.length }} tried</span>
+                  <span class="text-base font-medium text-ink-gray-9 group-hover:underline">{{ tp.title }}</span>
+                  <span v-if="tp.try.length" class="shrink-0 text-xs tabular-nums text-ink-gray-4">{{ t('{done}/{total} tried', { done: count(tp), total: tp.try.length }) }}</span>
                 </span>
-                <span class="block text-sm text-ink-gray-6">{{ t.summary }}</span>
+                <span class="block text-sm text-ink-gray-6">{{ tp.summary }}</span>
               </RouterLink>
             </li>
           </ul>

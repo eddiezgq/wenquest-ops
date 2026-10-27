@@ -5,6 +5,7 @@
 import { ref, watch } from 'vue'
 import { Button } from 'frappe-ui'
 import { api } from '../api'
+import { t } from '../i18n'
 
 const props = defineProps({ recordId: { type: Number, required: true } })
 const v = ref(null)
@@ -46,11 +47,11 @@ async function zpl() {
   try {
     const r = await fetch(`/api/production/${props.recordId}/label`, { method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json' }, body: JSON.stringify({ format: 'zpl', copies: copies.value, expiry: expiry.value || null }) })
-    if (!r.ok) throw new Error((await r.json()).detail || 'the label could not be made')
+    if (!r.ok) throw new Error((await r.json()).detail || t('the label could not be made'))
     const url = URL.createObjectURL(await r.blob())
     Object.assign(document.createElement('a'), { href: url, download: `${v.value.label.record}-label.zpl` }).click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
-    done.value = 'ZPL file saved: send it to the Zebra printer.'
+    done.value = t('ZPL file saved: send it to the Zebra printer.')
     await load()
   } catch (e) { error.value = e.message }
 }
@@ -58,7 +59,7 @@ async function zpl() {
 
 <template>
   <section data-help="production-label" class="label-panel wq-panel mb-5 p-5">
-    <h2 class="wq-h2">Device label</h2>
+    <h2 class="wq-h2">{{ t('Device label') }}</h2>
     <p v-if="error" class="wq-error mb-3">{{ error }}</p>
     <div v-if="v?.label" class="flex flex-wrap items-start gap-6">
       <figure v-if="!error" class="device-label flex items-center gap-4 rounded-4 border border-outline-gray-3 bg-white p-4">
@@ -69,17 +70,16 @@ async function zpl() {
         </figcaption>
       </figure>
       <div class="no-print flex flex-col gap-3">
-        <label class="wq-field">Expiry date (if the device has one)<input v-model="expiry" type="date" class="wq-input"></label>
-        <label class="wq-field">Copies (Zebra)<input v-model.number="copies" type="number" min="1" max="500" class="wq-input w-28"></label>
+        <label class="wq-field">{{ t('Expiry date (if the device has one)') }}<input v-model="expiry" type="date" class="wq-input"></label>
+        <label class="wq-field">{{ t('Copies (Zebra)') }}<input v-model.number="copies" type="number" min="1" max="500" class="wq-input w-28"></label>
         <div v-if="v.can_print && !error" class="flex gap-2">
-          <Button variant="solid" icon-left="lucide-printer" label="Print" @click="printIt" />
-          <Button icon-left="lucide-download" label="ZPL for a Zebra printer" @click="zpl" />
+          <Button variant="solid" icon-left="lucide-printer" :label="t('Print')" @click="printIt" />
+          <Button icon-left="lucide-download" :label="t('ZPL for a Zebra printer')" @click="zpl" />
         </div>
         <p v-if="done" class="text-sm text-ink-green-7">{{ done }}</p>
       </div>
     </div>
-    <p v-if="v?.prints?.length" class="no-print mt-3 text-sm text-ink-gray-6">Printed {{ v.prints.length }} time(s); last by
-      {{ v.prints.at(-1).printed_by }} ({{ v.prints.at(-1).format }}, {{ v.prints.at(-1).copies }} copies).</p>
+    <p v-if="v?.prints?.length" class="no-print mt-3 text-sm text-ink-gray-6">{{ t('Printed {n} time(s); last by {by} ({format}, {copies} copies).', { n: v.prints.length, by: v.prints.at(-1).printed_by, format: v.prints.at(-1).format, copies: v.prints.at(-1).copies }) }}</p>
   </section>
 </template>
 

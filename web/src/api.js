@@ -1,3 +1,4 @@
+import { t } from './i18n'
 // Calls to the hub. A 401 sends the person to the sign-in page and back here afterwards.
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status }
@@ -12,7 +13,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   })
   if (r.status === 401) {
     location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search)
-    throw new ApiError(401, 'sign in first')
+    throw new ApiError(401, t('sign in first'))
   }
   const data = r.headers.get('content-type')?.includes('json') ? await r.json() : await r.text()
   if (!r.ok) throw new ApiError(r.status, data?.detail || String(data))
@@ -24,7 +25,7 @@ export async function apiForm(path, form) {
   const r = await fetch(path, { method: 'POST', body: form, credentials: 'same-origin' })
   if (r.status === 401) {
     location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search)
-    throw new ApiError(401, 'sign in first')
+    throw new ApiError(401, t('sign in first'))
   }
   const data = r.headers.get('content-type')?.includes('json') ? await r.json() : await r.text()
   if (!r.ok) throw new ApiError(r.status, data?.detail || String(data))

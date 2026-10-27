@@ -5,6 +5,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Button } from 'frappe-ui'
 import { api } from '../api'
+import { t } from '../i18n'
 import Answer from './Answer.vue'
 
 const props = defineProps({ open: Boolean })
@@ -82,7 +83,7 @@ async function ask(q) {
     await load(chat.value.id)
   } catch (e) {
     error.value = e.message
-    chat.value.turns = chat.value.turns.filter((t) => !t.pending)
+    chat.value.turns = chat.value.turns.filter((x) => !x.pending)
     question.value = text
   } finally { busy.value = false; nextTick(() => input.value?.focus()) }
 }
@@ -111,48 +112,48 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
 </script>
 
 <template>
-  <button v-if="!open" data-help="chat-open" class="chat-fab no-print" aria-label="Ask the AI assistant (Ctrl+J)" title="Ask the AI assistant (Ctrl+J)" @click="emit('update:open', true)">
-    <span class="lucide-sparkles size-4" aria-hidden="true" /><span>Ask AI</span>
+  <button v-if="!open" data-help="chat-open" class="chat-fab no-print" :aria-label="t('Ask the AI assistant (Ctrl+J)')" :title="t('Ask the AI assistant (Ctrl+J)')" @click="emit('update:open', true)">
+    <span class="lucide-sparkles size-4" aria-hidden="true" /><span>{{ t('Ask AI') }}</span>
   </button>
   <Transition name="chat">
-    <aside v-if="open" class="chat no-print" role="dialog" aria-label="AI assistant">
+    <aside v-if="open" class="chat no-print" role="dialog" :aria-label="t('AI assistant')">
       <header class="flex items-center gap-2 border-b border-outline-gray-2 px-4 py-3">
         <span class="lucide-sparkles size-4 text-ink-gray-7" aria-hidden="true" />
-        <h2 class="grow text-base font-semibold text-ink-gray-9">Assistant</h2>
-        <Button size="sm" variant="ghost" icon="lucide-history" aria-label="Earlier conversations" title="Earlier conversations" @click="list" />
-        <Button size="sm" variant="ghost" icon="lucide-square-pen" aria-label="New conversation" title="New conversation" @click="fresh" />
-        <Button size="sm" variant="ghost" icon="lucide-x" aria-label="Close" title="Close (Esc)" @click="close" />
+        <h2 class="grow text-base font-semibold text-ink-gray-9">{{ t('Assistant') }}</h2>
+        <Button size="sm" variant="ghost" icon="lucide-history" :aria-label="t('Earlier conversations')" :title="t('Earlier conversations')" @click="list" />
+        <Button size="sm" variant="ghost" icon="lucide-square-pen" :aria-label="t('New conversation')" :title="t('New conversation')" @click="fresh" />
+        <Button size="sm" variant="ghost" icon="lucide-x" :aria-label="t('Close')" :title="t('Close (Esc)')" @click="close" />
       </header>
       <div v-if="showList" class="border-b border-outline-gray-2 bg-surface-gray-1 px-2 py-2">
-        <p v-if="!chats.length" class="px-2 py-1 text-sm text-ink-gray-5">No earlier conversations.</p>
+        <p v-if="!chats.length" class="px-2 py-1 text-sm text-ink-gray-5">{{ t('No earlier conversations.') }}</p>
         <button v-for="h in chats" :key="h.id" class="block w-full truncate rounded-3 px-2 py-1.5 text-left text-sm text-ink-gray-8 hover:bg-surface-gray-3"
-                @click="load(h.id)">{{ h.title || 'New conversation' }}<span class="ms-2 text-ink-gray-4">{{ h.turns }}</span></button>
+                @click="load(h.id)">{{ h.title || t('New conversation') }}<span class="ms-2 text-ink-gray-4">{{ h.turns }}</span></button>
       </div>
       <div ref="scroller" class="grow overflow-y-auto px-4 py-4">
         <p v-if="status && status.engine !== 'model'" class="mb-3 rounded-4 bg-surface-gray-2 px-3 py-2 text-sm text-ink-gray-6">
-          No AI model key is set, so built-in rules answer common questions. Whoever runs the system can add one.</p>
+          {{ t('No AI model key is set, so built-in rules answer common questions. Whoever runs the system can add one.') }}</p>
         <div v-if="!chat?.turns?.length" class="text-sm text-ink-gray-6">
-          <p class="mb-3">{{ record ? `Ask about this ${record.label}, or anything else you may see.` : 'Ask about orders, stock, suppliers or quality.' }}
-            Answers cite your records; anything to write becomes a draft for someone to confirm.</p>
+          <p class="mb-3">{{ record ? t('Ask about this {label}, or anything else you may see.', { label: t(record.label) }) : t('Ask about orders, stock, suppliers or quality.') }}
+            {{ t('Answers cite your records; anything to write becomes a draft for someone to confirm.') }}</p>
           <div class="flex flex-col items-start gap-2">
-            <Button v-for="s in suggestions" :key="s" size="sm" variant="outline" :label="s" @click="ask(s)" />
+            <Button v-for="s in suggestions" :key="s" size="sm" variant="outline" :label="t(s)" @click="ask(s)" />
           </div>
         </div>
-        <div v-for="t in chat?.turns || []" :key="t.id" class="mb-5">
-          <p class="ms-auto mb-2 w-fit max-w-[85%] rounded-5 bg-surface-gray-3 px-3 py-2 text-base text-ink-gray-9">{{ t.question }}</p>
-          <p v-if="t.pending" class="thinking text-sm text-ink-gray-5">Looking at your records…</p>
+        <div v-for="turn in chat?.turns || []" :key="turn.id" class="mb-5">
+          <p class="ms-auto mb-2 w-fit max-w-[85%] rounded-5 bg-surface-gray-3 px-3 py-2 text-base text-ink-gray-9">{{ turn.question }}</p>
+          <p v-if="turn.pending" class="thinking text-sm text-ink-gray-5">{{ t('Looking at your records…') }}</p>
           <template v-else>
-            <Answer :text="t.answer" :unverified="t.unverified" />
-            <p v-if="t.drafts?.length" class="mt-1 text-sm"><RouterLink to="/drafts" class="wq-link">{{ t.drafts.length }} draft(s) waiting for confirmation</RouterLink></p>
+            <Answer :text="turn.answer" :unverified="turn.unverified" />
+            <p v-if="turn.drafts?.length" class="mt-1 text-sm"><RouterLink to="/drafts" class="wq-link">{{ t('{n} draft(s) waiting for confirmation', { n: turn.drafts.length }) }}</RouterLink></p>
           </template>
         </div>
         <p v-if="error" class="wq-error">{{ error }}</p>
       </div>
       <form class="border-t border-outline-gray-2 p-3" @submit.prevent="ask()">
-        <p v-if="record" class="mb-2 text-xs text-ink-gray-5">Looking at this {{ record.label }}</p>
+        <p v-if="record" class="mb-2 text-xs text-ink-gray-5">{{ t('Looking at this {label}', { label: t(record.label) }) }}</p>
         <div class="flex items-end gap-2">
-          <textarea ref="input" v-model="question" rows="2" class="wq-input grow resize-none" placeholder="Ask a question (Enter to send)" aria-label="Your question" :disabled="busy" @keydown="key" />
-          <Button type="submit" variant="solid" icon="lucide-arrow-up" aria-label="Send" :loading="busy" :disabled="!question.trim()" />
+          <textarea ref="input" v-model="question" rows="2" class="wq-input grow resize-none" :placeholder="t('Ask a question (Enter to send)')" :aria-label="t('Your question')" :disabled="busy" @keydown="key" />
+          <Button type="submit" variant="solid" icon="lucide-arrow-up" :aria-label="t('Send')" :loading="busy" :disabled="!question.trim()" />
         </div>
       </form>
     </aside>

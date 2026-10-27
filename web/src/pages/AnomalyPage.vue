@@ -3,10 +3,11 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
-import { SEV, STATUS } from '../ui/themes'
+import { SEV, STATUS, label } from '../ui/themes'
 import { api, objectPath } from '../api'
 import { ago } from '../format'
 import Chain from '../components/Chain.vue'
+import { t } from '../i18n'
 
 const route = useRoute()
 const a = ref(null)
@@ -32,10 +33,10 @@ watch(() => route.params.id, load, { immediate: true })
 </script>
 
 <template>
-  <PageTop :title="a ? a.title : 'Anomaly'" :crumbs="[{ label: 'Anomalies', to: '/anomalies' }]">
+  <PageTop :title="a ? a.title : t('Anomaly')" :crumbs="[{ label: t('Anomalies'), to: '/anomalies' }]">
     <template v-if="a">
-      <Badge :theme="SEV[a.severity]" :label="a.severity" size="lg" class="capitalize" />
-      <Badge :theme="STATUS[a.status] || 'gray'" :label="a.status" variant="outline" size="lg" />
+      <Badge :theme="SEV[a.severity]" :label="t(a.severity)" size="lg" class="capitalize" />
+      <Badge :theme="STATUS[a.status] || 'gray'" :label="t(label(a.status))" variant="outline" size="lg" />
     </template>
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
@@ -45,30 +46,30 @@ watch(() => route.params.id, load, { immediate: true })
       <p class="mt-1 text-p-base text-ink-gray-9">{{ a.detail }}</p>
       <div data-help="anomaly-hint" class="mt-4 flex gap-3 rounded-4 bg-surface-gray-1 p-3">
         <span class="lucide-lightbulb mt-0.5 size-4 shrink-0 text-ink-amber-6" />
-        <p class="text-p-sm text-ink-gray-8"><b>Suggested:</b> {{ a.hint }}
-          <span class="text-ink-gray-5">(usually handled by: {{ a.owner?.replace('_', ' ') }})</span></p>
+        <p class="text-p-sm text-ink-gray-8"><b>{{ t('Suggested:') }}</b> {{ a.hint }}
+          <span class="text-ink-gray-5">({{ t('usually handled by: {role}', { role: a.owner ? t(a.owner.replace('_', ' ')) : '' }) }})</span></p>
       </div>
-      <p class="mt-4 text-sm text-ink-gray-6">About
+      <p class="mt-4 text-sm text-ink-gray-6">{{ t('About') }}
         <RouterLink :to="objectPath(...a.subject)" class="wq-link">{{ a.subject[1] }}</RouterLink>
         <template v-for="r in a.related" :key="r.join()"> · <RouterLink :to="objectPath(...r)" class="wq-link">{{ r[1] }}</RouterLink></template></p>
       <div v-if="NEXT[a.status]" data-help="anomaly-status" class="mt-4 flex flex-wrap items-center gap-2">
-        <input v-model="note" class="wq-input max-w-md flex-1" placeholder="Note (optional)">
-        <Button v-for="s in NEXT[a.status]" :key="s" :label="LABEL[s]" :variant="s === 'closed' ? 'solid' : 'subtle'"
+        <input v-model="note" class="wq-input max-w-md flex-1" :placeholder="t('Note (optional)')">
+        <Button v-for="s in NEXT[a.status]" :key="s" :label="t(LABEL[s])" :variant="s === 'closed' ? 'solid' : 'subtle'"
                 @click="setStatus(s)" />
       </div>
-      <p v-else class="mt-4 wq-muted">Status: {{ a.status }} {{ a.ended_at ? 'on ' + ago(a.ended_at) : '' }}</p>
+      <p v-else class="mt-4 wq-muted">{{ a.ended_at ? t('Status: {status} on {when}', { status: t(label(a.status)), when: ago(a.ended_at) }) : t('Status: {status}', { status: t(label(a.status)) }) }}</p>
     </section>
 
-    <h2 data-help="anomaly-causes" class="wq-h2 mt-8">Causes and impact</h2>
+    <h2 data-help="anomaly-causes" class="wq-h2 mt-8">{{ t('Causes and impact') }}</h2>
     <Chain :explain="a.explain" />
 
-    <h2 class="wq-h2 mt-8">Log</h2>
+    <h2 class="wq-h2 mt-8">{{ t('Log') }}</h2>
     <ol data-help="anomaly-log" class="wq-panel divide-y divide-outline-gray-1">
       <li v-for="(l, i) in a.log" :key="i" class="flex flex-wrap gap-x-3 px-4 py-2.5 text-sm">
         <span class="text-ink-gray-5">{{ ago(l.at) }}</span>
-        <span class="font-medium text-ink-gray-8">{{ l.action }}</span>
+        <span class="font-medium text-ink-gray-8">{{ t(l.action) }}</span>
         <span class="text-ink-gray-7">{{ l.email || 'WenQuest Ops' }}</span>
-        <span class="text-ink-gray-5">{{ l.note }}</span></li>
+        <span class="text-ink-gray-5">{{ t(l.note) }}</span></li>
     </ol>
   </template>
 </template>

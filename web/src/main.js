@@ -61,6 +61,7 @@ import '@fontsource/barlow-condensed/500.css'
 import '@fontsource/barlow-condensed/600.css'
 import './style.css'
 import Wall from './pages/Wall.vue'
+import { lang, locale, t } from './i18n'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -127,6 +128,10 @@ const router = createRouter({
   ],
   scrollBehavior: (to) => (to.hash ? false : { top: 0 }),   // a help topic scrolls to its own anchors
 })
-router.afterEach((to) => { document.title = `${to.meta.title} · WenQuest Ops` })
+router.afterEach((to) => { document.title = `${t(to.meta.title)} · WenQuest Ops` })
+document.documentElement.lang = locale()
 
-createApp(App).use(router).mount('#app')
+const app = createApp(App)
+app.config.globalProperties.t = t      // every template can write {{ t('…') }} (ADR-0023)
+app.config.globalProperties.lang = lang
+app.use(router).mount('#app')
