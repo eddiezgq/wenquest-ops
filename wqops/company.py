@@ -30,6 +30,7 @@ REQUIRED_MODULES = ("core", "hub")
 WEIGHT_UNITS = ("lb", "kg")
 LENGTH_UNITS = ("in", "cm")
 DATE_FORMATS = ("mm-dd-yyyy", "dd-mm-yyyy", "yyyy-mm-dd")
+LANGUAGES = ("en", "zh")   # ADR-0023: the language of the workspace, the hub's texts and its documents
 DEMO_DIR = Path(__file__).resolve().parents[1] / "companies"
 DEMO_FILE = DEMO_DIR / "demo-harbor-lane.yaml"
 
@@ -83,6 +84,7 @@ def validate(m) -> list[str]:  # noqa: PLR0912, PLR0915 - one flat checklist rea
         fy = c.get("fiscal_year_start", "01-01")
         need(isinstance(fy, str) and _MMDD.match(fy), "company.fiscal_year_start", "MM-DD, e.g. 01-01")
         need(c.get("date_format", "mm-dd-yyyy") in DATE_FORMATS, "company.date_format", " / ".join(DATE_FORMATS))
+        need(c.get("language", "en") in LANGUAGES, "company.language", " / ".join(LANGUAGES))
         u = c.get("units") or {}
         need(isinstance(u, dict), "company.units", "a mapping")
         if isinstance(u, dict):
@@ -164,6 +166,7 @@ def normalize(m: dict) -> dict:
     c = dict(m["company"])
     c.setdefault("fiscal_year_start", "01-01")
     c.setdefault("date_format", "mm-dd-yyyy")
+    c.setdefault("language", "en")
     c["units"] = {"weight": "lb", "length": "in", **(c.get("units") or {})}
     m["company"] = c
     m.setdefault("demo", False)

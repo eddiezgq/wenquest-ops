@@ -16,13 +16,14 @@ from wqops.hub.quality import causes_ai as CAI
 from wqops.hub.quality import causes_rules as CR
 from wqops.hub.quality import complaints as CP
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR0915, PLR0917 - one route per action
           db_url: str | None = None) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(fn):
         try:
@@ -30,7 +31,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         except (CR.CauseError, Q.QualityError, CP.ComplaintError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -39,12 +40,12 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         try:
             d = (await request.json()) if raw else {}
         except ValueError as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         return d if isinstance(d, dict) else {}
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     def ai_ready() -> bool:
@@ -63,7 +64,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
     def for_record(kind: str, ref_id: int, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "quality:view")
         if kind not in C.KINDS:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         s = run(lambda: C.subject(c, kind, ident(ref_id)))
         return {"analyses": C.for_record(c, kind, ref_id), "methods": CR.METHODS, "bones": list(CR.BONES),
                 "can_start": P.allows(u["roles"], "quality:edit") and s["status"] in C.OPEN[kind] and not s["locked"]}
@@ -74,7 +75,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         b = await body(request)
         rid = b.get("ref_id")
         if not isinstance(rid, int) or isinstance(rid, bool):
-            raise HTTPException(400, "which record is analysed")
+            raise HTTPException(400, say("which record is analysed"))
         return run(lambda: C.start(c, u["email"], str(b.get("kind")), ident(rid), str(b.get("method")),
                                    problem=b.get("problem"), categories=b.get("categories")))
 
@@ -112,7 +113,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         for perm in ("quality:edit", "ai:use"):
             need(u, perm)
         if not ai_ready():
-            raise HTTPException(409, "there is no model key; add the causes yourself")
+            raise HTTPException(409, say("there is no model key; add the causes yourself"))
 
         def work():
             with DB.connect(db_url) as c:
@@ -120,7 +121,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
                     out = run(lambda: CAI.suggest(c, {"email": u["email"], "roles": u["roles"]}, ident(aid), model,
                                                   today=OA.today(company()[0])))
                 except L.LlmError as exc:
-                    raise HTTPException(502, f"the model could not suggest causes: {exc}") from exc
+                    raise HTTPException(502, say("the model could not suggest causes: {exc}", exc=exc)) from exc
                 return {"suggested": {k: out[k] for k in ("run", "dropped", "unusable", "note", "shown")}
                         | {"kept": len(out["items"])}} | page(c, u, aid)
 

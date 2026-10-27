@@ -21,6 +21,7 @@ from wqops.hub.docs import ledger as LG
 from wqops.hub.docs import ledgers as LS
 from wqops.hub.docs import library as LIB
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 MASTERS = {"erp_item": "Item", "erp_customer": "Customer", "erp_supplier": "Supplier"}
 
@@ -78,8 +79,9 @@ def opening_account(erp: ErpClient, company: str) -> str:
     """The company's temporary opening account, which ERPNext needs for opening stock (an asset or liability)."""
     rows = erp.find("Account", {"account_type": "Temporary", "company": company, "is_group": 0})
     if not rows:
-        raise ErpImportError(f"ERPNext has no Temporary account for {company} (normally 'Temporary Opening'); "
-                             "add it in ERPNext's chart of accounts first")
+        raise ErpImportError(say("ERPNext has no Temporary account for {company} (normally 'Temporary Opening'); add "
+                                 "it in ERPNext's chart of accounts first",
+                                 company=company))
     return rows[0]["name"]
 
 
@@ -98,9 +100,9 @@ def run(conn, erp: ErpClient, user: dict, lid: int, password: str, *, company: s
     imp = LS.get(conn, lid)
     target = imp["target"]
     if not target.startswith("erp_"):
-        raise ErpImportError("this import is not for ERPNext")
+        raise ErpImportError(say("this import is not for ERPNext"))
     if seen != LS.mapping_print(imp):
-        raise ErpImportError("the mapping changed since you looked at it: look at the rows again, then sign")
+        raise ErpImportError(say("the mapping changed since you looked at it: look at the rows again, then sign"))
     Q.check_signer(conn, user, password)              # before anything is written: a failed attempt stays recorded
     account = opening_account(erp, company) if target == "erp_opening_stock" else ""
     lock = f"wqo-erp-import:{target}"
@@ -116,7 +118,7 @@ def _run(conn, erp, user, imp, *, company, today, submit, account):  # noqa: PLR
     with conn.transaction():                          # claim it: a second run of the same import stops here
         if conn.execute("select status from ledger_imports where id = %s for update", (lid,)).fetchone()["status"] \
                 != "proposed":
-            raise ErpImportError("this import has been run; start a new one on the same file to bring in the rest")
+            raise ErpImportError(say("this import has been run; start a new one on the same file to bring in the rest"))
         doc = LIB.get(conn, imp["document_id"])
         conn.execute("update ledger_imports set status = 'imported', imported_by = %s, imported_at = now(), "
                      "submit = %s where id = %s", (user["email"], submit, lid))

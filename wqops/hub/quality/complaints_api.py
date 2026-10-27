@@ -11,12 +11,13 @@ from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import complaints as C
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per action
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(fn):
         try:
@@ -24,7 +25,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except (C.ComplaintError, Q.QualityError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -38,7 +39,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     def page(c, u, cid: int) -> dict:
@@ -86,7 +87,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             need(u, "qms:configure")
             dl = d.get("deadline_id")
             if dl is not None and (type(dl) is not int or not 0 < dl < 2**63):
-                raise HTTPException(400, "deadline_id is a deadline number")
+                raise HTTPException(400, say("deadline_id is a deadline number"))
             fn = {"no-investigation": lambda: C.no_investigation(c, u["email"], cid, str(d.get("reason") or "")),
                   "assess": lambda: C.assess(c, u, cid, str(d.get("password") or ""),
                                              answers=d.get("answers") if isinstance(d.get("answers"), dict) else {},
@@ -94,7 +95,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
                                              deadline_id=dl),
                   "close": lambda: C.close(c, u, cid, str(d.get("password") or ""))}[action]
         else:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         run(fn)
         return page(c, u, cid)
 
@@ -104,6 +105,6 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         d = await body(request)
         did = d.get("id")
         if did is not None and (type(did) is not int or not 0 < did < 2**63):
-            raise HTTPException(400, "id is a deadline number")
+            raise HTTPException(400, say("id is a deadline number"))
         return run(lambda: C.save_deadline(c, u["email"], did, str(d.get("label") or ""), d.get("days"),
                                            active=d.get("active", True)))

@@ -26,6 +26,8 @@ from dataclasses import dataclass
 import httpx
 import jwt
 
+from wqops.i18n import say
+
 PENDING_MINUTES = 10
 LEEWAY_S = 60
 LABELS = {"microsoft": "Microsoft 365", "google": "Google"}
@@ -102,18 +104,19 @@ class Client:
                            (state or "", self.p.name)).fetchone()
         now = now or dt.datetime.now(dt.UTC)
         if row is None or row["created_at"] < now - dt.timedelta(minutes=PENDING_MINUTES):
-            raise OidcError("this sign-in link has expired or was already used; start again")
+            raise OidcError(say("this sign-in link has expired or was already used; start again"))
         r = self.http.post(self.meta()["token_endpoint"], data={
             "grant_type": "authorization_code", "code": code, "redirect_uri": redirect,
             "client_id": self.p.client_id, "client_secret": self.p.client_secret, "code_verifier": row["verifier"]})
         if r.status_code != 200:
-            raise OidcError(f"{self.p.label} did not accept the sign-in ({r.status_code})")
+            raise OidcError(say("{label} did not accept the sign-in ({status_code})",
+                                label=self.p.label, status_code=r.status_code))
         token = r.json().get("id_token")
         if not token:
-            raise OidcError(f"{self.p.label} returned no ID token")
+            raise OidcError(say("{label} returned no ID token", label=self.p.label))
         claims = self.verify(token, now)
         if claims.get("nonce") != row["nonce"]:
-            raise OidcError("the sign-in response does not match this request (nonce)")
+            raise OidcError(say("the sign-in response does not match this request (nonce)"))
         return self.email(claims), row.get("next")
 
     def verify(self, token: str, now: dt.datetime) -> dict:
@@ -125,21 +128,21 @@ class Client:
                                 options={"require": ["exp", "iat", "iss", "aud", "sub"], "verify_exp": False,
                                          "verify_iat": False})
         except jwt.PyJWTError as exc:
-            raise OidcError(f"the ID token is not valid: {exc}") from exc
+            raise OidcError(say("the ID token is not valid: {exc}", exc=exc)) from exc
         t = now.timestamp()
         if claims["exp"] < t - LEEWAY_S or claims["iat"] > t + LEEWAY_S:
-            raise OidcError("the ID token has expired or is not valid yet")
+            raise OidcError(say("the ID token has expired or is not valid yet"))
         return claims
 
     def email(self, claims: dict) -> str:
         if self.p.name == "google":
             if not claims.get("email") or claims.get("email_verified") is not True:
-                raise OidcError("Google did not confirm this email address")
+                raise OidcError(say("Google did not confirm this email address"))
             if self.p.hosted_domain and claims.get("hd") != self.p.hosted_domain:
-                raise OidcError(f"only {self.p.hosted_domain} accounts can sign in")
+                raise OidcError(say("only {hosted_domain} accounts can sign in", hosted_domain=self.p.hosted_domain))
             return claims["email"].lower()
         # Microsoft: accounts of the one configured tenant (the issuer check above); the tenant manages them
         email = claims.get("email") or claims.get("preferred_username")
         if not email or "@" not in email:
-            raise OidcError("Microsoft returned no email address for this account")
+            raise OidcError(say("Microsoft returned no email address for this account"))
         return email.lower()

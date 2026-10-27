@@ -15,6 +15,7 @@ import datetime as dt
 
 from wqops.hub.quality import complaint_rules as CR
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 SOURCES = ("customer", "distributor", "field", "other")
 YNU = ("yes", "no", "unknown")
@@ -59,25 +60,25 @@ def _day(v, what: str) -> dt.date | None:
     try:
         return dt.date.fromisoformat(str(v)[:10])
     except ValueError as exc:
-        raise ComplaintError(f"{what} is a date like 2026-10-31") from exc
+        raise ComplaintError(say("{what} is a date like 2026-10-31", what=what)) from exc
 
 
 def _clean(conn, data: dict, today: dt.date) -> dict:  # noqa: PLR0912 - one branch per kind of field
     out = {}
     for k, v in data.items():
         if k not in EDITABLE:
-            raise ComplaintError(f"a complaint has no field {k!r} to change")
+            raise ComplaintError(say("a complaint has no field {k} to change", k=repr(k)))
         if k in ("received_on", "aware_on", "reported_on"):
             out[k] = _day(v, k.replace("_", " "))
             if out[k] and out[k] > today:
-                raise ComplaintError(f"{k.replace('_', ' ')} cannot be after today")
+                raise ComplaintError(say("{k} cannot be after today", k=k.replace('_', ' ')))
         elif k == "source":
             if v not in SOURCES:
-                raise ComplaintError("the source is customer, distributor, field or other")
+                raise ComplaintError(say("the source is customer, distributor, field or other"))
             out[k] = v
         elif k in ("injury", "malfunction"):
             if v not in YNU:
-                raise ComplaintError(f"{k}: yes, no or unknown")
+                raise ComplaintError(say("{k}: yes, no or unknown", k=k))
             out[k] = v
         elif k == "quantity":
             if v in (None, ""):
@@ -86,14 +87,14 @@ def _clean(conn, data: dict, today: dt.date) -> dict:  # noqa: PLR0912 - one bra
                 try:
                     q = float(v)
                 except (TypeError, ValueError) as exc:
-                    raise ComplaintError("the quantity is a number") from exc
+                    raise ComplaintError(say("the quantity is a number")) from exc
                 if not q > 0:
-                    raise ComplaintError("the quantity is above 0")
+                    raise ComplaintError(say("the quantity is above 0"))
                 out[k] = q
         elif k == "owner":
             o = str(v or "").strip().lower() or None
             if o and not conn.execute("select 1 from users where email = %s and active", (o,)).fetchone():
-                raise ComplaintError(f"{o} is not a person in the company")
+                raise ComplaintError(say("{o} is not a person in the company", o=o))
             out[k] = o
         else:
             out[k] = str(v or "").strip()[:4000] or ("" if k != "item_code" else None)
@@ -105,12 +106,12 @@ def create(conn, email: str, data: dict, *, today: dt.date) -> dict:
     for need, what in (("received_on", "the day it was received"), ("customer", "the customer"),
                        ("description", "what happened")):
         if not d.get(need):
-            raise ComplaintError(f"give {what}")
+            raise ComplaintError(say("give {what}", what=what))
     d.setdefault("aware_on", d["received_on"])
     if d["aware_on"] is None:
         d["aware_on"] = d["received_on"]
     if d["aware_on"] > d["received_on"]:
-        raise ComplaintError("the company knew of it on or before the day it was received")
+        raise ComplaintError(say("the company knew of it on or before the day it was received"))
     with conn.transaction():
         name = Q._next_name(conn, "complaints", "CMP")
         cols = ["name", "created_by", *d]
@@ -127,21 +128,21 @@ def update(conn, user: dict, cid: int, data: dict, *, today: dt.date) -> dict:
 
     c = get(conn, cid)
     if c["status"] in ("closed", "cancelled"):
-        raise ComplaintError(f"the complaint is {c['status']}")
+        raise ComplaintError(say("the complaint is {status}", status=c['status']))
     d = _clean(conn, data, today)
     for k in REQUIRED:
         if k in d and d[k] in (None, ""):
-            raise ComplaintError(f"{k.replace('_', ' ')} cannot be emptied")
+            raise ComplaintError(say("{k} cannot be emptied", k=k.replace('_', ' ')))
     if (d.get("aware_on") or c["aware_on"]) > (d.get("received_on") or c["received_on"]):
-        raise ComplaintError("the company knew of it on or before the day it was received")
+        raise ComplaintError(say("the company knew of it on or before the day it was received"))
     if c["status"] == "assessed" and set(d) & (BEFORE_ASSESSMENT | {"owner"}):
-        raise ComplaintError("the complaint is assessed: what the decision rests on, and its owner, are fixed")
+        raise ComplaintError(say("the complaint is assessed: what the decision rests on, and its owner, are fixed"))
     d = {k: v for k, v in d.items() if v != c[k]}
     if "owner" in d and c["status"] != "new":
         if not P.allows(user["roles"], "qms:configure"):
-            raise PermissionError("once the investigation has started, Quality changes the owner")
+            raise PermissionError(say("once the investigation has started, Quality changes the owner"))
         if user["email"] == c["owner"]:
-            raise PermissionError("someone other than the owner reassigns it")
+            raise PermissionError(say("someone other than the owner reassigns it"))
     if "response" in d:
         d["responded_on"] = today if d["response"] else None
     if not d:
@@ -151,7 +152,7 @@ def update(conn, user: dict, cid: int, data: dict, *, today: dt.date) -> dict:
                            + ", updated_at = now() where id = %(id)s and status = %(st)s returning *",
                            {**d, "id": cid, "st": c["status"]}).fetchone()
         if row is None:
-            raise ComplaintError("the complaint changed meanwhile: open it again")
+            raise ComplaintError(say("the complaint changed meanwhile: open it again"))
         log(conn, cid, user["email"], "changed", "; ".join(
             f"{k}: {c[k] or '-'} -> {d[k] or '-'}" if k in TRACED else k for k in sorted(d)))
     return row
@@ -160,7 +161,7 @@ def update(conn, user: dict, cid: int, data: dict, *, today: dt.date) -> dict:
 def start(conn, email: str, cid: int) -> dict:
     c = get(conn, cid)
     if c["status"] != "new":
-        raise ComplaintError(f"the complaint is {c['status']}")
+        raise ComplaintError(say("the complaint is {status}", status=c['status']))
     missing = CR.to_investigate(c)
     if missing:
         raise ComplaintError("still needed: " + ", ".join(missing))
@@ -175,17 +176,17 @@ def no_investigation(conn, email: str, cid: int, reason: str) -> dict:
     """Quality approves not investigating, with the reason (for example, the same event was already investigated)."""
     c = get(conn, cid)
     if c["status"] != "investigation":
-        raise ComplaintError("only a complaint under investigation")
+        raise ComplaintError(say("only a complaint under investigation"))
     if not reason.strip():
-        raise ComplaintError("give the reason")
+        raise ComplaintError(say("give the reason"))
     if email == c["owner"]:
-        raise PermissionError("someone other than the owner approves not investigating")
+        raise PermissionError(say("someone other than the owner approves not investigating"))
     with conn.transaction():
         row = conn.execute("update complaints set investigate = false, no_investigation_reason = %s, "
                            "no_investigation_by = %s, updated_at = now() where id = %s and status = 'investigation' "
                            "returning *", (reason.strip()[:2000], email, cid)).fetchone()
         if row is None:
-            raise ComplaintError("the complaint changed meanwhile: open it again")
+            raise ComplaintError(say("the complaint changed meanwhile: open it again"))
         log(conn, cid, email, "no investigation", reason.strip())
     return row
 
@@ -196,7 +197,7 @@ def deadlines(conn) -> list[dict]:
 
 def save_deadline(conn, email: str, did: int | None, label: str, days, *, active: bool = True) -> list[dict]:
     if not label.strip() or type(days) is not int or not 1 <= days <= 365 or type(active) is not bool:
-        raise ComplaintError("a deadline has a name and 1 to 365 days")
+        raise ComplaintError(say("a deadline has a name and 1 to 365 days"))
     if did is None:
         conn.execute("insert into complaint_deadlines (label, days, active, sort) values (%s, %s, %s, "
                      "(select coalesce(max(sort), 0) + 1 from complaint_deadlines))", (label.strip()[:200], days,
@@ -213,14 +214,14 @@ def assess(conn, user: dict, cid: int, password: str, *, answers: dict, reportab
     yes, the deadline the assessor chooses (company configuration) is counted from the day the company knew."""
     c = get(conn, cid)
     if c["status"] != "investigation":
-        raise ComplaintError("assess a complaint under investigation")
+        raise ComplaintError(say("assess a complaint under investigation"))
     if user["email"] == c["owner"]:
-        raise PermissionError("someone other than the owner assesses it")
+        raise PermissionError(say("someone other than the owner assesses it"))
     a = CR.assessment(answers or {}, reportable, reason)
     if a["errors"]:
         raise ComplaintError("; ".join(a["errors"]))
     if c["investigate"] and not c["investigation"].strip():
-        raise ComplaintError("record the investigation's conclusion first (or have not investigating approved)")
+        raise ComplaintError(say("record the investigation's conclusion first (or have not investigating approved)"))
     dl = None
     if a["any_yes"] or reportable:
         live = [x for x in deadlines(conn) if x["active"]]
@@ -228,7 +229,7 @@ def assess(conn, user: dict, cid: int, password: str, *, answers: dict, reportab
             deadline_id = live[0]["id"]
         dl = next((x for x in live if x["id"] == deadline_id), None)
         if dl is None:
-            raise ComplaintError("choose the reporting deadline that applies")
+            raise ComplaintError(say("choose the reporting deadline that applies"))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         row = conn.execute(
@@ -240,7 +241,7 @@ def assess(conn, user: dict, cid: int, password: str, *, answers: dict, reportab
              a["exception"], dl["label"] if dl else None, dl["days"] if dl else None,
              c["aware_on"] + dt.timedelta(days=dl["days"]) if dl else None, user["email"], cid)).fetchone()
         if row is None:
-            raise ComplaintError("the complaint changed meanwhile: open it again")
+            raise ComplaintError(say("the complaint changed meanwhile: open it again"))
         Q._sign(conn, user, "Reportable" if reportable else "Not reportable", "complaint", cid, c["name"])
         log(conn, cid, user["email"], "assessed", ("reportable" if reportable else "not reportable")
             + (" (a question was answered yes)" if a["exception"] else "") + f": {reason.strip()}")
@@ -253,13 +254,13 @@ def close(conn, user: dict, cid: int, password: str) -> dict:
     if missing:
         raise ComplaintError("still needed: " + "; ".join(missing))
     if user["email"] == c["owner"]:
-        raise PermissionError("someone other than the owner closes it")
+        raise PermissionError(say("someone other than the owner closes it"))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         row = conn.execute("update complaints set status = 'closed', closed_by = %s, closed_at = now(), updated_at = "
                            "now() where id = %s and status = 'assessed' returning *", (user["email"], cid)).fetchone()
         if row is None:
-            raise ComplaintError("the complaint changed meanwhile: open it again")
+            raise ComplaintError(say("the complaint changed meanwhile: open it again"))
         Q._sign(conn, user, "Complaint closed", "complaint", cid, c["name"])
         log(conn, cid, user["email"], "closed")
     return row
@@ -267,14 +268,15 @@ def close(conn, user: dict, cid: int, password: str) -> dict:
 
 def cancel(conn, email: str, cid: int, reason: str) -> dict:
     if not reason.strip():
-        raise ComplaintError("give the reason (a duplicate, or not a complaint)")
+        raise ComplaintError(say("give the reason (a duplicate, or not a complaint)"))
     with conn.transaction():
         row = conn.execute("update complaints set status = 'cancelled', cancel_reason = %s, updated_at = now() where "
                            "id = %s and status in ('new', 'investigation') returning *",
                            (reason.strip()[:1000], cid)).fetchone()
         if row is None:
-            raise ComplaintError(f"a {get(conn, cid)['status']} complaint cannot be cancelled (once the reporting "
-                                 "decision is made, the complaint is closed)")
+            raise ComplaintError(say("a {status} complaint cannot be cancelled (once the reporting decision is made, "
+                                     "the complaint is closed)",
+                                     status=get(conn, cid)['status']))
         log(conn, cid, email, "cancelled", reason.strip())
     return row
 
@@ -282,9 +284,9 @@ def cancel(conn, email: str, cid: int, reason: str) -> dict:
 def open_ncr(conn, email: str, cid: int) -> dict:
     c = get(conn, cid)
     if c["ncr_id"]:
-        raise ComplaintError("it already has a nonconformance report")
+        raise ComplaintError(say("it already has a nonconformance report"))
     if c["status"] in ("closed", "cancelled"):
-        raise ComplaintError(f"the complaint is {c['status']}")
+        raise ComplaintError(say("the complaint is {status}", status=c['status']))
     with conn.transaction():
         n = Q.create_ncr(conn, email, title=f"Complaint {c['name']}: {c['customer']}",
                          description=f"From complaint {c['name']} received {c['received_on']}: {c['description']}",
@@ -292,7 +294,7 @@ def open_ncr(conn, email: str, cid: int) -> dict:
                          severity="major" if c["injury"] == "yes" else "minor")
         if conn.execute("update complaints set ncr_id = %s, updated_at = now() where id = %s and ncr_id is null "
                         "returning id", (n["id"], cid)).fetchone() is None:
-            raise ComplaintError("it already has a nonconformance report")
+            raise ComplaintError(say("it already has a nonconformance report"))
         log(conn, cid, email, "nonconformance opened", n["name"])
     return n
 
@@ -300,15 +302,15 @@ def open_ncr(conn, email: str, cid: int) -> dict:
 def open_capa(conn, email: str, cid: int) -> dict:
     c = get(conn, cid)
     if c["capa_id"]:
-        raise ComplaintError("it already has a corrective action")
+        raise ComplaintError(say("it already has a corrective action"))
     if c["status"] in ("closed", "cancelled"):
-        raise ComplaintError(f"the complaint is {c['status']}")
+        raise ComplaintError(say("the complaint is {status}", status=c['status']))
     with conn.transaction():
         cp = Q.create_capa(conn, email, kind="corrective", title=f"Complaint {c['name']}: {c['customer']}",
                            description=c["description"], ncr_ids=[c["ncr_id"]] if c["ncr_id"] else None)
         if conn.execute("update complaints set capa_id = %s, updated_at = now() where id = %s and capa_id is null "
                         "returning id", (cp["id"], cid)).fetchone() is None:
-            raise ComplaintError("it already has a corrective action")
+            raise ComplaintError(say("it already has a corrective action"))
         log(conn, cid, email, "corrective action opened", cp["name"])
     return cp
 

@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 import wqops
 from wqops import company as C
+from wqops import i18n as I18N
 from wqops.erp import ErpError
 from wqops.hub import accounts as A
 from wqops.hub import db as DB
@@ -40,6 +41,7 @@ from wqops.hub import sync as Y
 from wqops.hub.ont import anomaly as AN
 from wqops.hub.ont import api as OA
 from wqops.hub.ont import project as OP
+from wqops.i18n import say
 
 log = logging.getLogger("wqops.hub")
 
@@ -192,10 +194,12 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 await task
 
     app = FastAPI(title="WenQuest Ops", version=wqops.__version__, lifespan=lifespan)
+    app.add_middleware(I18N.LanguageMiddleware)
+    I18N.set_company_language(((company()[0] or {}).get("company") or {}).get("language"))
 
     def conn():
         if not db_url:
-            raise HTTPException(503, "the hub database is not configured")
+            raise HTTPException(503, say("the hub database is not configured"))
         c = DB.connect(db_url)
         try:
             yield c
@@ -207,13 +211,14 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
 
     def current_user(u=Depends(user_or_none)) -> dict:
         if u is None:
-            raise HTTPException(401, "sign in first")
+            raise HTTPException(401, say("sign in first"))
         return u
 
     def require(permission: str):
         def dep(u=Depends(current_user)) -> dict:
             if not P.allows(u["roles"], permission):
-                raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[permission]}")
+                raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                             PERMISSIONS=P.PERMISSIONS[permission]))
             return u
         return dep
 
@@ -247,7 +252,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     def oidc_client(provider: str) -> O.Client:
         p = O.providers().get(provider)
         if p is None:
-            raise HTTPException(404, f"sign-in with {provider} is not set up")
+            raise HTTPException(404, say("sign-in with {provider} is not set up", provider=provider))
         return O.Client(p, oidc_http)
 
     def public_url(request: Request) -> str:
@@ -318,7 +323,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     def oauth_authorize(request: Request, *, client_id: str = "", redirect_uri: str = "", state: str = "",
                         u=Depends(user_or_none), c=Depends(conn)):
         if client_id != S.CLIENT_ID:
-            raise HTTPException(400, "unknown client")
+            raise HTTPException(400, say("unknown client"))
         try:
             S.check_redirect(redirect_uri, os.environ.get("WQO_ERP_PUBLIC_URL", ""))
         except S.SsoError as exc:
@@ -329,7 +334,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         try:
             S.ensure_erp_user(erp_client(), u)
         except (ErpError, httpx.HTTPError) as exc:
-            raise HTTPException(502, f"could not prepare your ERPNext account: {exc}") from exc
+            raise HTTPException(502, say("could not prepare your ERPNext account: {exc}", exc=exc)) from exc
         code = S.issue_code(c, u, redirect_uri)
         sep = "&" if "?" in redirect_uri else "?"
         return RedirectResponse(f"{redirect_uri}{sep}{urllib.parse.urlencode({'code': code, 'state': state})}",
@@ -374,10 +379,11 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         data = await request.json()
         email = str(data.get("email") or u["email"]).lower()
         if email != u["email"] and not P.allows(u["roles"], "users:manage"):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS['users:manage']}")
+            raise HTTPException(403, say("your role does not allow: {users_manage}",
+                                         users_manage=P.PERMISSIONS['users:manage']))
         if email == u["email"] and u["password_hash"] and not A.check_password(str(data.get("current", "")),
                                                                                 u["password_hash"]):
-            raise HTTPException(400, "current password is wrong")
+            raise HTTPException(400, say("current password is wrong"))
         try:
             A.set_password(c, email, str(data.get("password", "")), by=u["email"])
         except A.AccountError as exc:
@@ -462,10 +468,12 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         """What the web workspace needs to start: who is signed in, the company, where ERPNext is."""
         m, _ = company()
         c = (m or {}).get("company", {})
-        return {"company": c.get("name", "WenQuest Ops"), "demo": bool(m and m.get("demo")),
-                "currency": c.get("currency", "USD"), "timezone": c.get("timezone", "UTC"),
-                "erp_url": os.environ.get("WQO_ERP_PUBLIC_URL"), "user": A.public(u), "version": wqops.__version__,
-                "may": [P.PERMISSIONS[p] for p in sorted(P.of(u["roles"]))]}
+        I18N.set_company_language(c.get("language"))
+        return {"company": c.get("name", "WenQuest Ops"), "language": c.get("language", "en"),
+                "demo": bool(m and m.get("demo")), "currency": c.get("currency", "USD"),
+                "timezone": c.get("timezone", "UTC"), "erp_url": os.environ.get("WQO_ERP_PUBLIC_URL"),
+                "user": A.public(u), "version": wqops.__version__,
+                "may": [I18N.label(P.PERMISSIONS[p]) for p in sorted(P.of(u["roles"]))]}
 
     @app.get("/api/sync/status")
     def sync_status(_=Depends(require("dashboard:view")), c=Depends(conn)):
@@ -478,7 +486,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         except Y.SyncBusy as exc:
             raise HTTPException(409, str(exc)) from exc
         except (ErpError, httpx.HTTPError) as exc:
-            raise HTTPException(502, f"ERPNext did not answer as expected: {exc}") from exc
+            raise HTTPException(502, say("ERPNext did not answer as expected: {exc}", exc=exc)) from exc
 
     def draft_out(d: dict) -> dict:
         base = os.environ.get("WQO_ERP_PUBLIC_URL")
@@ -492,13 +500,13 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         except D.NotAllowed as exc:
             raise HTTPException(403, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "no such draft") from exc
+            raise HTTPException(404, say("no such draft")) from exc
         except D.Conflict as exc:
             raise HTTPException(409, str(exc)) from exc
         except D.DraftError as exc:
             raise HTTPException(400, str(exc)) from exc
         except (ErpError, httpx.HTTPError) as exc:
-            raise HTTPException(502, f"ERPNext did not accept the draft: {exc}") from exc
+            raise HTTPException(502, say("ERPNext did not accept the draft: {exc}", exc=exc)) from exc
 
     @app.post("/api/erp/drafts", status_code=201)
     async def propose_draft(request: Request, u=Depends(current_user), c=Depends(conn)):

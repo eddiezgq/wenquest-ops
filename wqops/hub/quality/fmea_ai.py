@@ -17,6 +17,7 @@ from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
 from wqops.hub.quality import fmea as F
 from wqops.hub.quality import fmea_rules as FR
+from wqops.i18n import say
 
 MAX_ROWS = 15
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -56,17 +57,17 @@ def _t(v, n: int = 500) -> str:
 
 def suggest(conn, user: dict, fid: int, model: L.Anthropic | None, *, today: dt.date) -> dict:
     if model is None or not model.configured():
-        raise NoModel("there is no model key; write the rows yourself")
+        raise NoModel(say("there is no model key; write the rows yourself"))
     f = F.get(conn, fid)
     if f["status"] != "draft":
-        raise F.FmeaError(f"the PFMEA is {f['status']}: start a new version to change it")
+        raise F.FmeaError(say("the PFMEA is {status}: start a new version to change it", status=f['status']))
     have = F.rows(conn, fid)
     if any(not r["confirmed"] for r in have):
-        raise F.FmeaError("confirm or remove the rows the AI drafted before asking again")
+        raise F.FmeaError(say("confirm or remove the rows the AI drafted before asking again"))
     recs = F.context(conn, f, today=today)
     if not recs:
-        raise F.FmeaError("there are no records about this PFMEA's item for the AI to read (give the item, or write "
-                          "the rows yourself)")
+        raise F.FmeaError(say("there are no records about this PFMEA's item for the AI to read (give the item, or "
+                              "write the rows yourself)"))
     shown = {r["ref"] for r in recs}
     listing = "\n".join(f"[{r['ref']}] {r['kind']}: {r['summary']}" for r in recs)
     rows_now = "\n".join(f"- {r['step']}: {r['failure_mode']} ({r['cause']})" for r in have) or "none yet"
@@ -79,10 +80,10 @@ def suggest(conn, user: dict, fid: int, model: L.Anthropic | None, *, today: dt.
         resp = model.create(SYSTEM, [{"role": "user", "content": ask}], [TOOL], 4000,
                             tool_choice={"type": "tool", "name": "draft_rows"})
         if resp.get("stop_reason") == "max_tokens":
-            raise L.LlmError("the model's answer was cut off")
+            raise L.LlmError(say("the model's answer was cut off"))
         use = next((b for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
         if use is None or not isinstance(use.get("input"), dict):
-            raise L.LlmError("the model did not draft any rows")
+            raise L.LlmError(say("the model did not draft any rows"))
         raw = use["input"].get("rows")
         clean, bad = [], 0
         for p in (raw if isinstance(raw, list) else [])[:MAX_ROWS]:

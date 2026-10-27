@@ -27,6 +27,7 @@ import sys
 from collections.abc import Callable, Iterator
 
 from wqops.demo import scenario as S
+from wqops.i18n import say
 
 DANA, SAM, PAT, JORDAN = (f"{n}@demo.example" for n in ("dana", "sam", "pat", "jordan"))
 SIGN = "demo-installer"        # stands for the password while the demo history is written (see the module docstring)
@@ -42,7 +43,7 @@ def demo_signing(manifest: dict) -> Iterator[None]:
     from wqops.hub.quality import records as Q  # noqa: PLC0415
 
     if not manifest.get("demo"):
-        raise DemoQualityError("sample quality records are only loaded into a company manifest marked demo: true")
+        raise DemoQualityError(say("sample quality records are only loaded into a company manifest marked demo: true"))
     real = Q.check_signer
 
     def check(conn, user: dict, password: str) -> None:
@@ -61,7 +62,7 @@ def _u(conn, email: str) -> dict:
 
     u = Acc.get(conn, email)
     if u is None:
-        raise DemoQualityError(f"{email} is not a person of the company yet")
+        raise DemoQualityError(say("{email} is not a person of the company yet", email=email))
     return u
 
 

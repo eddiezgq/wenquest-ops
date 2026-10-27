@@ -26,6 +26,7 @@ from wqops.hub.quality import records as Q
 from wqops.hub.quality import review as MR
 from wqops.hub.quality import risk as RK
 from wqops.hub.system import rules as R
+from wqops.i18n import say
 
 PACKS = Path(__file__).resolve().parent / "packs"
 STANDARDS = ("iso9001", "iso13485")
@@ -83,7 +84,7 @@ def enable(conn, user: dict, standard: str, edition: str, password: str, today: 
         raise QmsError("the pack is wrong: " + "; ".join(bad))
     ed = (pack.get("editions") or {}).get(edition)
     if not ed:
-        raise QmsError(f"{pack['label']} has no edition {edition!r}")
+        raise QmsError(say("{label} has no edition {edition}", label=pack['label'], edition=repr(edition)))
     if not ed.get("ready"):
         raise QmsError(f"{ed['label']} is not ready yet: {ed.get('note', '')}".rstrip(": "))
     fp = fingerprint(pack)
@@ -92,7 +93,7 @@ def enable(conn, user: dict, standard: str, edition: str, password: str, today: 
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-qms:{standard}",))
         old = enabled(conn, standard)
         if old and old["fingerprint"] == fp and old["edition"] == edition:
-            raise QmsError(f"{ed['label']} is already in use with this version of the pack")
+            raise QmsError(say("{label} is already in use with this version of the pack", label=ed['label']))
         if old:
             conn.execute("update qms_packs set status = 'retired', retired_at = now() where id = %s", (old["id"],))
         row = conn.execute("insert into qms_packs (standard, edition, version, content, fingerprint, enabled_by) "
@@ -114,14 +115,14 @@ def declare(conn, user: dict, standard: str, control: str, applies: bool, reason
     """Say, with a signature and a reason, whether a control point that may be excluded applies."""
     row = enabled(conn, standard)
     if row is None:
-        raise QmsError("adopt the standard first")
+        raise QmsError(say("adopt the standard first"))
     c = controls(row["content"]).get(control)
     if c is None:
         raise KeyError(control)
     if not c.get("may_exclude"):
-        raise QmsError("this requirement always applies")
+        raise QmsError(say("this requirement always applies"))
     if not reason.strip():
-        raise QmsError("give the reason")
+        raise QmsError(say("give the reason"))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         out = conn.execute("insert into qms_applicability (standard, control, applies, reason, email) values "
@@ -145,15 +146,16 @@ def set_setting(conn, email: str, standard: str, key: str, value, today: dt.date
     """Change one setting; the next check uses it."""
     row = enabled(conn, standard)
     if row is None:
-        raise QmsError("adopt the standard first")
+        raise QmsError(say("adopt the standard first"))
     spec = (row["content"].get("settings") or {}).get(key)
     if spec is None:
         raise KeyError(key)
     if type(spec["value"]) is bool:
         if type(value) is not bool:
-            raise QmsError(f"{spec['label']}: yes or no")
+            raise QmsError(say("{label}: yes or no", label=spec['label']))
     elif type(value) is not int or not spec.get("min", 0) <= value <= spec.get("max", 3650):
-        raise QmsError(f"{spec['label']}: a whole number from {spec.get('min', 0)} to {spec.get('max', 3650)}")
+        raise QmsError(say("{label}: a whole number from {spec} to {spec2}",
+                           label=spec['label'], spec=spec.get('min', 0), spec2=spec.get('max', 3650)))
     out = conn.execute("insert into qms_settings (standard, key, value, email) values (%s, %s, %s, %s) returning *",
                        (standard, key, Jsonb(value), email)).fetchone()
     evaluate(conn, standard, today, "changed", email, tz=tz)
@@ -181,15 +183,15 @@ def link(conn, email: str, standard: str, control: str, document_id: int, linked
          note: str = "", tz: str = "UTC") -> dict:
     row = enabled(conn, standard)
     if row is None:
-        raise QmsError("adopt the standard first")
+        raise QmsError(say("adopt the standard first"))
     c = controls(row["content"]).get(control)
     if c is None:
         raise KeyError(control)
     if c["rule"] not in R.LINKED and not c.get("switch"):
-        raise QmsError("this requirement is judged from the records, not from a linked document")
+        raise QmsError(say("this requirement is judged from the records, not from a linked document"))
     doc = LIB.get(conn, document_id)
     if linked and doc["status"] in ("rejected", "to_classify", "to_review"):
-        raise QmsError("link a document that is confirmed in the library")
+        raise QmsError(say("link a document that is confirmed in the library"))
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-qms-evidence:{standard}:{control}",))
         current = {d["id"] for d in evidence(conn, standard).get(control, [])}

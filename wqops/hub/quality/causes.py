@@ -16,6 +16,7 @@ import datetime as dt
 from wqops.hub.quality import causes_rules as CR
 from wqops.hub.quality import complaints as CP
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 CauseError = CR.CauseError
 KINDS = {"ncr": "nonconformance report", "capa": "corrective action", "complaint": "complaint"}
@@ -60,7 +61,7 @@ def subject(conn, kind: str, ref_id: int) -> dict:
                 "title": r["description"][:120], "text": f"From {r['customer']}: {r['description']}",
                 "item_code": r["item_code"], "supplier": None, "root_cause": r["root_cause"] or "",
                 "locked": False, "lot_no": r["lot_no"], "containment": ""}
-    raise CauseError("an analysis is on a nonconformance report, a CAPA or a complaint")
+    raise CauseError(say("an analysis is on a nonconformance report, a CAPA or a complaint"))
 
 
 # ---------------------------------------------------------------- the records the model may read
@@ -221,13 +222,13 @@ def listing(conn, limit: int = 200) -> list[dict]:
 def start(conn, email: str, kind: str, ref_id: int, method: str, *, problem: str | None = None,
           categories=None) -> dict:
     if method not in CR.METHODS:
-        raise CauseError("the method is fishbone or five_why")
+        raise CauseError(say("the method is fishbone or five_why"))
     if kind not in KINDS:
-        raise CauseError("an analysis is on a nonconformance report, a CAPA or a complaint")
+        raise CauseError(say("an analysis is on a nonconformance report, a CAPA or a complaint"))
     s = subject(conn, kind, ref_id)
     if s["status"] not in OPEN[kind] or s["locked"]:
         why = "its 8D is complete" if s["locked"] else f"it is {s['status'].replace('_', ' ')}"
-        raise CauseError(f"{s['name']} cannot take a new root cause: {why}")
+        raise CauseError(say("{name} cannot take a new root cause: {why}", name=s['name'], why=why))
     cats = CR.categories(categories) if method == "fishbone" else []
     p = CR.text(problem or s["title"], "the problem", 1000)
     with conn.transaction():
@@ -252,7 +253,7 @@ def _open(conn, aid: int) -> dict:
     if a is None:
         raise KeyError(aid)
     if a["status"] != "open":
-        raise CauseError(f"{a['name']} is {a['status']}; add an addendum instead")
+        raise CauseError(say("{name} is {status}; add an addendum instead", name=a['name'], status=a['status']))
     return a
 
 
@@ -268,9 +269,9 @@ def add(conn, email: str, aid: int, data: dict) -> dict:
         refs = CR.refs(data.get("refs"))
         missing = [r for r in refs if r not in exists(conn, refs)]
         if missing:
-            raise CauseError(f"no record with the number: {', '.join(missing)}")
+            raise CauseError(say("no record with the number: {missing}", missing=', '.join(missing)))
         if lv is not None and CR.accepted(its, lv):
-            raise CauseError(f"why {lv} already has an accepted answer; remove it first")
+            raise CauseError(say("why {lv} already has an accepted answer; remove it first", lv=lv))
         row = conn.execute("insert into cause_items (analysis_id, category, level, text, refs, origin, status, "
                            "decided_by, decided_at, created_by) values (%s, %s, %s, %s, %s, 'person', 'accepted', %s, "
                            "now(), %s) returning *", (aid, cat, lv, t, refs, email, email)).fetchone()
@@ -304,13 +305,13 @@ def _item(conn, aid: int, iid: int) -> dict:
 def decide(conn, email: str, aid: int, iid: int, action: str, *, new_text: str | None = None) -> dict:
     """accept, edit (accepts with the person's wording; the old wording stays in the history) or remove."""
     if action not in ("accept", "edit", "remove"):
-        raise CauseError("accept, edit or remove")
+        raise CauseError(say("accept, edit or remove"))
     with conn.transaction():
         a = _open(conn, aid)
         its = items(conn, aid)
         it = _item(conn, aid, iid)
         if it["status"] == "removed":
-            raise CauseError("this cause was removed; add it again if it is needed")
+            raise CauseError(say("this cause was removed; add it again if it is needed"))
         if action == "remove":
             CR.can_remove(a, its, it)
             row = conn.execute("update cause_items set status = 'removed', decided_by = %s, decided_at = now() "
@@ -340,7 +341,7 @@ def conclude(conn, user: dict, aid: int, conclusion: str, password: str, *, toda
     with conn.transaction():
         a = _open(conn, aid)
         if CR.ready(a, items(conn, aid)):
-            raise CauseError("the analysis changed meanwhile: open it again")
+            raise CauseError(say("the analysis changed meanwhile: open it again"))
         try:
             if a["ref_kind"] == "ncr":
                 Q.save_8d(conn, a["ref_id"], user["email"], {"d4": text})
@@ -352,7 +353,8 @@ def conclude(conn, user: dict, aid: int, conclusion: str, password: str, *, toda
                 CP.update(conn, user, a["ref_id"], {"root_cause": text}, today=today)
                 where = f"root cause of {a['ref_name']}"
         except (Q.QualityError, CP.ComplaintError) as exc:
-            raise CauseError(f"the root cause of {a['ref_name']} cannot be written now: {exc}") from exc
+            raise CauseError(say("the root cause of {ref_name} cannot be written now: {exc}",
+                                 ref_name=a['ref_name'], exc=exc)) from exc
         row = conn.execute("update cause_analyses set status = 'concluded', conclusion = %s, written_to = %s, "
                            "concluded_by = %s, concluded_at = now() where id = %s returning *",
                            (c, where, user["email"], aid)).fetchone()
@@ -365,7 +367,7 @@ def conclude(conn, user: dict, aid: int, conclusion: str, password: str, *, toda
 def addendum(conn, email: str, aid: int, text: str) -> dict:
     a = get(conn, aid)
     if a["status"] == "open":
-        raise CauseError("the analysis is open: change it directly")
+        raise CauseError(say("the analysis is open: change it directly"))
     t = CR.text(text, "the addendum", 2000)
     with conn.transaction():
         row = conn.execute("insert into cause_addenda (analysis_id, text, email) values (%s, %s, %s) returning *",

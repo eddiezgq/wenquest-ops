@@ -13,6 +13,7 @@ from wqops.hub.ai import agent as AG
 from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
 from wqops.hub.docs import ledger as LG
+from wqops.i18n import say
 
 SAMPLE = 15
 
@@ -103,10 +104,10 @@ def propose(conn, user: dict, t: LG.Table, targets: dict[str, dict[str, LG.Field
             tool_choice={"type": "tool", "name": "propose_mapping"})
         use = next((b for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
         if use is None:
-            raise L.LlmError("the model did not propose a mapping")
+            raise L.LlmError(say("the model did not propose a mapping"))
         tg, prop = _proposal(use.get("input") or {})
         if tg not in allowed:
-            raise L.LlmError(f"the model chose an unknown ledger kind {tg!r}")
+            raise L.LlmError(say("the model chose an unknown ledger kind {tg}", tg=repr(tg)))
         out.update(usage=resp.get("usage", {}), answer=json.dumps({"target": tg} | prop)[:4000],
                    tool_calls=[{"tool": "propose_mapping", "args": {"sheet": t.sheet}, "ok": True,
                                 "summary": f"{tg}: {len(prop['mapping'])} fields"}])

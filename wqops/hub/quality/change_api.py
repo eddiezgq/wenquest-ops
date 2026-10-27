@@ -11,12 +11,13 @@ from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import change_control as CC
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(fn):
         try:
@@ -24,7 +25,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         except (CC.ChangeError, Q.QualityError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -38,7 +39,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     def page(c, u, cid: int) -> dict:
@@ -87,7 +88,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
                  "approve": ("qms:configure", lambda: CC.approve(c, u, cid, pw)),
                  "close": ("qms:configure", lambda: CC.close(c, u, cid, pw))}
         if action not in steps:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         need(u, steps[action][0])
         run(steps[action][1])
         return page(c, u, cid)

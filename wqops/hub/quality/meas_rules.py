@@ -20,6 +20,8 @@ import csv
 import io
 import re
 
+from wqops.i18n import say
+
 MAX_BYTES = 5_000_000
 PART = ("part", "part no", "part number", "part id", "sample", "sample no", "serial", "serial number", "piece",
         "unit", "teil", "teilenummer", "#")
@@ -48,18 +50,18 @@ def _norm(s: str) -> str:
 
 def decode(raw: bytes) -> str:
     if len(raw) > MAX_BYTES:
-        raise MeasError("the file is larger than 5 MB")
+        raise MeasError(say("the file is larger than 5 MB"))
     if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):            # Excel's "Unicode text"
         try:
             return raw.decode("utf-16")
         except UnicodeDecodeError as exc:
-            raise MeasError("the file says it is UTF-16 but cannot be read as it") from exc
+            raise MeasError(say("the file says it is UTF-16 but cannot be read as it")) from exc
     for enc in ("utf-8-sig", "cp1252"):
         try:
             return raw.decode(enc)
         except UnicodeDecodeError:
             continue
-    raise MeasError("the file is not text")  # pragma: no cover - cp1252 decodes almost anything
+    raise MeasError(say("the file is not text"))  # pragma: no cover - cp1252 decodes almost anything
 
 
 def number(v, comma: bool = False) -> float | None:
@@ -108,7 +110,7 @@ def _rows(text: str) -> tuple[list[list[str]], str, list[int]]:
         lines = lines[1:]
     kept = [(k, ln) for k, ln in enumerate(lines, start=2 if delim else 1) if ln.strip()]
     if len(kept) < 2:
-        raise MeasError("the file has no rows under its header")
+        raise MeasError(say("the file has no rows under its header"))
     if delim is None:
         try:
             delim = csv.Sniffer().sniff("\n".join(ln for _, ln in kept[:20]), delimiters=",;\t").delimiter
@@ -117,9 +119,9 @@ def _rows(text: str) -> tuple[list[list[str]], str, list[int]]:
     try:
         rows = list(csv.reader(io.StringIO("\n".join(ln for _, ln in kept)), delimiter=delim))
     except csv.Error as exc:
-        raise MeasError(f"the CSV file cannot be read: {exc}") from exc
+        raise MeasError(say("the CSV file cannot be read: {exc}", exc=exc)) from exc
     if len(rows) != len(kept):
-        raise MeasError("a quoted field runs over several lines: save the file without line breaks in cells")
+        raise MeasError(say("a quoted field runs over several lines: save the file without line breaks in cells"))
     return rows, delim, [k for k, _ in kept]
 
 
@@ -140,7 +142,7 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
     fcol, pcol, vcol = _col(head, FEATURE), _col(head, PART), _col(head, VALUE)
     if fcol is not None:                                            # long: a row per measured feature
         if vcol is None:
-            raise MeasError("there is a feature column but no measured value column (Measured, Actual or Value)")
+            raise MeasError(say("there is a feature column but no measured value column (Measured, Actual or Value)"))
         out["shape"] = "long"
         acol, ncol = _col(head, AXIS), _col(head, NOMINAL)
         ucol, lcol, uscol, lscol = _col(head, UPPER), _col(head, LOWER), _col(head, USL), _col(head, LSL)
@@ -173,8 +175,9 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
             _feature(out, name, nominal=nom, lsl=lsl, usl=usl)
             v = number(raw, comma)
             if (part, name) in out["values"] and pcol is None:
-                raise MeasError(f"{name} is in the file more than once and there is no part column: "
-                                "export with the part number, or one file per part")
+                raise MeasError(say("{name} is in the file more than once and there is no part column: export with "
+                                    "the part number, or one file per part",
+                                    name=name))
             _part(out, part)
             if v is None:
                 out["problems"].append(f"line {k}: {name} of part {part}: {raw!r} is not a number")
@@ -279,7 +282,7 @@ def parse_dfq(text: str) -> dict:  # noqa: PLR0912, PLR0915 - one branch per kin
             v, _ = columns[idx or 1][-1]
             columns[idx or 1][-1] = (v, _attribute(val))
     if not names:
-        raise MeasError("no characteristics (K2001 or K2002) in the Q-DAS file")
+        raise MeasError(say("no characteristics (K2001 or K2002) in the Q-DAS file"))
     for _, line in value_lines:                                 # one line per part
         for i, chunk in enumerate(line.split("\x0f"), start=1):
             fields = chunk.split("\x14")
@@ -315,7 +318,7 @@ def parse(file_name: str, raw: bytes) -> dict:
         return parse_dfq(text)
     if ext in ("csv", "txt", "tsv", ""):
         return parse_csv(text)
-    raise MeasError("read CSV exports and Q-DAS files (.dfq, .dfd, .dfx); save other reports as CSV")
+    raise MeasError(say("read CSV exports and Q-DAS files (.dfq, .dfd, .dfx); save other reports as CSV"))
 
 
 def match(features: list[dict], chars: list[dict], mapping: dict | None = None) -> dict[str, str]:
@@ -328,7 +331,7 @@ def match(features: list[dict], chars: list[dict], mapping: dict | None = None) 
             want = mapping[f["name"]]
             if want:
                 if _norm(want) not in measured:
-                    raise MeasError(f"{want!r} is not a measured characteristic of the plan")
+                    raise MeasError(say("{want} is not a measured characteristic of the plan", want=repr(want)))
                 out[f["name"]] = measured[_norm(want)]
         elif _norm(f["name"]) in measured:
             out[f["name"]] = measured[_norm(f["name"])]
@@ -344,11 +347,11 @@ def place(parsed: dict, chars: list[dict], n: int, first_sample: int, mapping: d
     problems = list(parsed["problems"])
     notes = list(parsed.get("notes", []))
     if not 1 <= first_sample <= n:
-        raise MeasError(f"the first sample is 1 to {n}")
+        raise MeasError(say("the first sample is 1 to {n}", n=n))
     parts = parsed["parts"]
     if first_sample - 1 + len(parts) > n:
-        raise MeasError(f"the file has {len(parts)} parts; from sample {first_sample} there are only "
-                        f"{n - first_sample + 1} samples")
+        raise MeasError(say("the file has {parts} parts; from sample {first_sample} there are only {v} samples",
+                            parts=len(parts), first_sample=first_sample, v=n - first_sample + 1))
     sample = {p: first_sample + i for i, p in enumerate(parts)}
     plan = {c["name"]: c for c in chars}
     for f in parsed["features"]:

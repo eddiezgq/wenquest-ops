@@ -24,6 +24,7 @@ from wqops.hub.quality import cal_rules as CALR
 from wqops.hub.quality import iqc as I
 from wqops.hub.quality import prod_rules as PR
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 STEP_FIELDS = {"name", "instruction", "kind", "low", "high", "unit", "gauge_required"}
 
@@ -59,10 +60,10 @@ def _items(conn) -> set[str]:
 def _item(conn, code) -> str:
     code = str(code or "").strip()
     if not code:
-        raise ProdError("choose the item")
+        raise ProdError(say("choose the item"))
     known = _items(conn)
     if known and code not in known:
-        raise ProdError(f"{code} is not an item in ERPNext")
+        raise ProdError(say("{code} is not an item in ERPNext", code=code))
     return code
 
 
@@ -86,11 +87,11 @@ def template_steps(conn, tid: int) -> list[dict]:
 def create_template(conn, email: str, data: dict) -> dict:
     code = str(data.get("code") or "").strip().upper()
     if not code:
-        raise ProdError("give the template a code")
+        raise ProdError(say("give the template a code"))
     item = _item(conn, data.get("item_code"))
     with conn.transaction():
         if conn.execute("select 1 from prod_templates where code = %s", (code,)).fetchone():
-            raise ProdError(f"template {code} exists: start a new version of it")
+            raise ProdError(say("template {code} exists: start a new version of it", code=code))
         row = conn.execute("insert into prod_templates (code, item_code, title, editors, created_by) values "
                            "(%s, %s, %s, %s, %s) returning *", (code[:60], item, str(data.get("title") or "")[:300],
                                                                 [email], email)).fetchone()
@@ -101,7 +102,7 @@ def create_template(conn, email: str, data: dict) -> dict:
 def _draft_template(conn, tid: int) -> dict:
     t = template(conn, tid, lock=True)
     if t["status"] != "draft":
-        raise ProdError(f"the template is {t['status']}: start a new version to change it")
+        raise ProdError(say("the template is {status}: start a new version to change it", status=t['status']))
     return t
 
 
@@ -113,7 +114,7 @@ def _touch_template(conn, t: dict, email: str) -> None:
 def update_template(conn, email: str, tid: int, data: dict) -> dict:
     bad = set(data) - {"title", "item_code", "documents", "materials"}
     if bad:
-        raise ProdError(f"{sorted(bad)[0].replace('_', ' ')} cannot be changed here")
+        raise ProdError(say("{bad} cannot be changed here", bad=sorted(bad)[0].replace('_', ' ')))
     with conn.transaction():
         t = _draft_template(conn, tid)
         d = {}
@@ -124,7 +125,7 @@ def update_template(conn, email: str, tid: int, data: dict) -> dict:
         if "documents" in data:
             nums = data["documents"]
             if not isinstance(nums, list) or any(not isinstance(x, str) for x in nums):
-                raise ProdError("the documents are document numbers")
+                raise ProdError(say("the documents are document numbers"))
             nums = sorted({x.strip() for x in nums if x.strip()})
             known = {r["number"] for r in conn.execute("select distinct number from documents where number = any(%s) "
                                                        "and status = 'effective'", (nums,))}
@@ -134,7 +135,7 @@ def update_template(conn, email: str, tid: int, data: dict) -> dict:
         if "materials" in data:
             codes = data["materials"]
             if not isinstance(codes, list) or any(not isinstance(x, str) for x in codes):
-                raise ProdError("the materials are item codes")
+                raise ProdError(say("the materials are item codes"))
             d["materials"] = Jsonb(sorted({_item(conn, x) for x in codes if x.strip()}))
         d = {k: v for k, v in d.items() if (v.obj if isinstance(v, Jsonb) else v) != t[k]}
         if d:
@@ -148,14 +149,14 @@ def update_template(conn, email: str, tid: int, data: dict) -> dict:
 def _step_values(data: dict, current: dict | None = None) -> dict:
     bad = set(data) - STEP_FIELDS
     if bad:
-        raise ProdError(f"{sorted(bad)[0]} is not part of a step")
+        raise ProdError(say("{bad} is not part of a step", bad=sorted(bad)[0]))
     s = {**(current or {"kind": "check", "low": None, "high": None, "unit": "", "gauge_required": False,
                         "instruction": "", "name": ""}), **data}
     if s["kind"] not in PR.KINDS:
-        raise ProdError("a step is a check, a measurement or a record")
+        raise ProdError(say("a step is a check, a measurement or a record"))
     s["name"] = str(s.get("name") or "").strip()[:300]
     if not s["name"]:
-        raise ProdError("name the step")
+        raise ProdError(say("name the step"))
     s["instruction"] = str(s.get("instruction") or "")[:4000]
     s["unit"] = str(s.get("unit") or "")[:40]
     for k in ("low", "high"):
@@ -164,13 +165,13 @@ def _step_values(data: dict, current: dict | None = None) -> dict:
         else:
             v = PR.stored(s[k])
             if v is None:
-                raise ProdError(f"the {'lower' if k == 'low' else 'upper'} limit is a number")
+                raise ProdError(say("the {v} limit is a number", v='lower' if k == 'low' else 'upper'))
             s[k] = v
     s["gauge_required"] = bool(s.get("gauge_required"))
     if s["kind"] != "measure":
         s.update(low=None, high=None, gauge_required=False)
     elif s["low"] is not None and s["high"] is not None and s["low"] > s["high"]:
-        raise ProdError("the lower limit is above the upper limit")
+        raise ProdError(say("the lower limit is above the upper limit"))
     return {k: s[k] for k in STEP_FIELDS}
 
 
@@ -223,15 +224,15 @@ def activate(conn, user: dict, tid: int, password: str) -> dict:
     it is retired."""
     t = template(conn, tid)
     if t["status"] != "draft":
-        raise ProdError("activate a draft template")
+        raise ProdError(say("activate a draft template"))
     by_other = I.settings(conn)["template_by_other"]
     if by_other and (user["email"] in t["editors"] or user["email"] == t["created_by"]):
-        raise PermissionError("someone who did not draft or edit the template activates it")
+        raise PermissionError(say("someone who did not draft or edit the template activates it"))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         t = _draft_template(conn, tid)
         if by_other and user["email"] in t["editors"]:
-            raise PermissionError("someone who did not draft or edit the template activates it")
+            raise PermissionError(say("someone who did not draft or edit the template activates it"))
         steps = template_steps(conn, tid)
         missing = PR.template_needs(t, steps)
         if missing:
@@ -256,11 +257,11 @@ def new_version(conn, email: str, tid: int) -> dict:
         t = template(conn, tid, lock=True)
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-template:{t['code']}",))
         if conn.execute("select 1 from prod_templates where code = %s and status = 'draft'", (t["code"],)).fetchone():
-            raise ProdError("a new version is already being drafted")
+            raise ProdError(say("a new version is already being drafted"))
         latest = conn.execute("select max(version) as v, bool_or(status = 'active') as live from prod_templates "
                               "where code = %s", (t["code"],)).fetchone()
         if not (t["status"] == "active" or (not latest["live"] and t["version"] == latest["v"])):
-            raise ProdError("start a new version from the active one")
+            raise ProdError(say("start a new version from the active one"))
         v = conn.execute("select max(version) + 1 as v from prod_templates where code = %s",
                          (t["code"],)).fetchone()["v"]
         row = conn.execute("insert into prod_templates (code, version, previous_id, item_code, title, documents, "
@@ -279,12 +280,12 @@ def new_version(conn, email: str, tid: int) -> dict:
 def end_template(conn, email: str, tid: int, reason: str) -> dict:
     """Withdraw a draft, or retire the active version (no new lots start from it), with a reason."""
     if not reason.strip():
-        raise ProdError("give the reason")
+        raise ProdError(say("give the reason"))
     with conn.transaction():
         t = template(conn, tid, lock=True)
         to = {"draft": "withdrawn", "active": "retired"}.get(t["status"])
         if to is None:
-            raise ProdError(f"the template is {t['status']}")
+            raise ProdError(say("the template is {status}", status=t['status']))
         row = conn.execute("update prod_templates set status = %s, updated_at = now() where id = %s returning *",
                            (to, tid)).fetchone()
         log(conn, "template", tid, email, to, reason.strip())
@@ -331,7 +332,7 @@ def materials(conn, rid: int) -> list[dict]:
 
 def _int(v, what: str) -> int:
     if type(v) is not int:
-        raise ProdError(f"{what} is a whole number")
+        raise ProdError(say("{what} is a whole number", what=what))
     return v
 
 
@@ -339,20 +340,21 @@ def start(conn, email: str, data: dict) -> dict:
     """A lot started from an active template: its steps are copied (later versions do not change it)."""
     tid = data.get("template_id")
     if type(tid) is not int:
-        raise ProdError("choose the template")
+        raise ProdError(say("choose the template"))
     lot = str(data.get("lot_no") or "").strip()
     if not lot:
-        raise ProdError("give the lot or serial number")
+        raise ProdError(say("give the lot or serial number"))
     qty = _int(data.get("planned_qty"), "the quantity planned")
     if qty < 1:
-        raise ProdError("the quantity planned is at least 1")
+        raise ProdError(say("the quantity planned is at least 1"))
     with conn.transaction():
         t = conn.execute("select * from prod_templates where id = %s for share", (tid,)).fetchone()
         if t is None or t["status"] != "active":
-            raise ProdError("start a lot from an active template")
+            raise ProdError(say("start a lot from an active template"))
         if conn.execute("select 1 from prod_records where item_code = %s and lower(btrim(lot_no)) = lower(%s) and "
                         "status <> 'cancelled'", (t["item_code"], lot)).fetchone():
-            raise ProdError(f"lot {lot} of {t['item_code']} already has a production record")
+            raise ProdError(say("lot {lot} of {item_code} already has a production record",
+                                lot=lot, item_code=t['item_code']))
         name = Q._next_name(conn, "prod_records", "DHR")
         row = conn.execute("insert into prod_records (name, template_id, template_print, item_code, lot_no, "
                            "work_order, planned_qty, created_by) values (%s, %s, %s, %s, %s, %s, %s, %s) returning *",
@@ -370,7 +372,7 @@ def start(conn, email: str, data: dict) -> dict:
 def _producing(conn, rid: int) -> dict:
     r = record(conn, rid, lock=True)
     if r["status"] != "in_production":
-        raise ProdError(f"the production record is {r['status'].replace('_', ' ')}")
+        raise ProdError(say("the production record is {status}", status=r['status'].replace('_', ' ')))
     return r
 
 
@@ -386,13 +388,14 @@ def _trained(conn, email: str, t: dict) -> None:
         d = conn.execute("select id, number, revision, needs_training from documents where number = %s and "
                          "status = 'effective' order by id desc limit 1", (num,)).fetchone()
         if d is None:
-            raise ProdError(f"{num} has no revision in effect")
+            raise ProdError(say("{num} has no revision in effect", num=num))
         if not d["needs_training"]:
             continue
         ok = conn.execute("select 1 from doc_training where document_id = %s and email = %s and status in "
                           "('acknowledged', 'waived')", (d["id"], email)).fetchone()
         if not ok:
-            raise ProdError(f"confirm reading {num} rev {d['revision'] or '-'} first (My reading)")
+            raise ProdError(say("confirm reading {num} rev {revision} first (My reading)",
+                                num=num, revision=d['revision'] or '-'))
 
 
 def record_step(conn, user: dict, rid: int, seq: int, password: str, data: dict, *,  # noqa: PLR0917
@@ -404,9 +407,9 @@ def record_step(conn, user: dict, rid: int, seq: int, password: str, data: dict,
         ss = steps(conn, rid)
         nxt = PR.next_step(ss)
         if nxt is None:
-            raise ProdError("every step is recorded")
+            raise ProdError(say("every step is recorded"))
         if seq != nxt:
-            raise ProdError(f"record step {nxt} first")
+            raise ProdError(say("record step {nxt} first", nxt=nxt))
         s = next(x for x in ss if x["seq"] == seq)
         if I.settings(conn)["production_training"]:
             _trained(conn, user["email"], template(conn, r["template_id"]))
@@ -416,19 +419,19 @@ def record_step(conn, user: dict, rid: int, seq: int, password: str, data: dict,
         gid, gcode, gdue = data.get("gauge_id"), None, None
         if gid not in (None, ""):
             if s["kind"] != "measure" or type(gid) is not int:
-                raise ProdError("equipment is named for a measurement")
+                raise ProdError(say("equipment is named for a measurement"))
             # shared lock: an out-of-tolerance approval (which locks it) waits, or comes first and is seen here
             g = conn.execute("select * from gauges where id = %s for share", (gid,)).fetchone()
             if g is None:
                 raise KeyError(gid)
             ok, msg = CALR.usable(g, today)
             if not ok:
-                raise ProdError(f"{g['code']}: {msg}; measure with equipment in calibration")
+                raise ProdError(say("{code}: {msg}; measure with equipment in calibration", code=g['code'], msg=msg))
             gcode, gdue = g["code"], g["next_due"]
         else:
             gid = None
             if s["gauge_required"]:
-                raise ProdError("name the equipment used")
+                raise ProdError(say("name the equipment used"))
         conn.execute("update prod_steps set result = %s, value = %s, text_value = %s, verdict = %s, gauge_id = %s, "
                      "gauge_code = %s, gauge_due = %s, done_by = %s, done_at = now() where id = %s",
                      (data.get("result") if s["kind"] == "check" else None,
@@ -446,15 +449,15 @@ def step_ncr(conn, email: str, rid: int, seq: int) -> dict:
     with conn.transaction():
         r = record(conn, rid, lock=True)
         if r["status"] not in ("in_production", "qa_review"):
-            raise ProdError(f"the production record is {r['status']}")
+            raise ProdError(say("the production record is {status}", status=r['status']))
         s = conn.execute("select * from prod_steps where record_id = %s and seq = %s for update",
                          (rid, seq)).fetchone()
         if s is None:
             raise KeyError(seq)
         if s["verdict"] != "fail":
-            raise ProdError("a nonconformance report is opened for a failed step")
+            raise ProdError(say("a nonconformance report is opened for a failed step"))
         if s["ncr_id"] and Q.ncr(conn, s["ncr_id"])["status"] != "cancelled":
-            raise ProdError("this step already has a nonconformance report")
+            raise ProdError(say("this step already has a nonconformance report"))
         found = (f"reading {s['value']} {s['unit']}, limits {PR.fmt_limits(s)}" if s["kind"] == "measure"
                  else "the check failed")
         n = Q.create_ncr(conn, email, title=f"{r['item_code']} lot {r['lot_no']}: step {seq} {s['name']} failed",
@@ -469,20 +472,21 @@ def add_material(conn, email: str, rid: int, inspection_id, qty) -> dict:
     """A material lot used: a released incoming inspection; all lots of the record together never use more than the
     incoming lot held."""
     if type(inspection_id) is not int:
-        raise ProdError("choose the incoming lot")
+        raise ProdError(say("choose the incoming lot"))
     q = PR.stored(qty)
     if q is None or q <= 0:
-        raise ProdError("the quantity used is a number above 0")
+        raise ProdError(say("the quantity used is a number above 0"))
     with conn.transaction():
         r = _producing(conn, rid)
         ins = conn.execute("select * from iqc_inspections where id = %s for update", (inspection_id,)).fetchone()
         if ins is None or ins["status"] != "released":
-            raise ProdError("use a lot that incoming inspection released")
+            raise ProdError(say("use a lot that incoming inspection released"))
         used = conn.execute("select coalesce(sum(qty), 0) as q from prod_materials where inspection_id = %s",
                             (inspection_id,)).fetchone()["q"]
         if used + q > ins["lot_qty"]:
-            raise ProdError(f"lot {ins['lot_no'] or ins['name']} held {ins['lot_qty']}; "
-                            f"{Decimal(used).normalize():f} is already used")
+            raise ProdError(say("lot {lot_no} held {lot_qty}; {used} is already used",
+                                lot_no=ins['lot_no'] or ins['name'], lot_qty=ins['lot_qty'],
+                                used=format(Decimal(used).normalize(), 'f')))
         row = conn.execute("insert into prod_materials (record_id, item_code, inspection_id, lot_no, supplier, qty, "
                            "added_by) values (%s, %s, %s, %s, %s, %s, %s) returning *",
                            (rid, ins["item_code"], inspection_id, ins["lot_no"], ins["supplier"], q, email)).fetchone()
@@ -495,7 +499,7 @@ def add_material(conn, email: str, rid: int, inspection_id, qty) -> dict:
 def set_quantities(conn, email: str, rid: int, data: dict) -> dict:
     bad = set(data) - {"good_qty", "scrap_qty", "work_order"}
     if bad:
-        raise ProdError(f"{sorted(bad)[0].replace('_', ' ')} cannot be changed here")
+        raise ProdError(say("{bad} cannot be changed here", bad=sorted(bad)[0].replace('_', ' ')))
     with conn.transaction():
         r = _producing(conn, rid)
         d = {}
@@ -503,11 +507,11 @@ def set_quantities(conn, email: str, rid: int, data: dict) -> dict:
             if k in data:
                 d[k] = _int(data[k], k.replace("_", " "))
                 if d[k] < 0:
-                    raise ProdError(f"the {k.replace('_qty', '')} quantity is not negative")
+                    raise ProdError(say("the {k} quantity is not negative", k=k.replace('_qty', '')))
         if "work_order" in data:
             d["work_order"] = str(data["work_order"] or "").strip()[:140] or None
         if d.get("good_qty", r["good_qty"]) + d.get("scrap_qty", r["scrap_qty"]) > r["planned_qty"]:
-            raise ProdError("good and scrapped together are at most the quantity planned")
+            raise ProdError(say("good and scrapped together are at most the quantity planned"))
         d = {k: v for k, v in d.items() if v != r[k]}
         if d:
             conn.execute("update prod_records set " + ", ".join(f"{k} = %({k})s" for k in d)  # noqa: S608
@@ -546,11 +550,11 @@ def submit(conn, email: str, rid: int) -> dict:
 
 def send_back(conn, email: str, rid: int, reason: str) -> dict:
     if not reason.strip():
-        raise ProdError("say what needs to change")
+        raise ProdError(say("say what needs to change"))
     with conn.transaction():
         r = record(conn, rid, lock=True)
         if r["status"] != "qa_review":
-            raise ProdError("a record in review is sent back")
+            raise ProdError(say("a record in review is sent back"))
         row = conn.execute("update prod_records set status = 'in_production', updated_at = now() where id = %s "
                            "returning *", (rid,)).fetchone()
         log(conn, "record", rid, email, "sent back", reason.strip())
@@ -562,16 +566,16 @@ def decide(conn, user: dict, rid: int, password: str, release: bool, note: str =
     nonconformances closed and no open out-of-tolerance assessment on equipment it used. Fixed with a fingerprint."""
     r = record(conn, rid)
     if r["status"] != "qa_review":
-        raise ProdError("decide a record in review")
+        raise ProdError(say("decide a record in review"))
     if user["email"] in r["involved"]:
-        raise PermissionError("someone who recorded no step or material releases or rejects the lot")
+        raise PermissionError(say("someone who recorded no step or material releases or rejects the lot"))
     if not release and not note.strip():
-        raise ProdError("give the reason for rejecting it")
+        raise ProdError(say("give the reason for rejecting it"))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         r = record(conn, rid, lock=True)
         if r["status"] != "qa_review":
-            raise ProdError("the record changed meanwhile: open it again")
+            raise ProdError(say("the record changed meanwhile: open it again"))
         ss, mm = steps(conn, rid), materials(conn, rid)
         if release:
             missing = PR.to_release(ss, _ncr_status(conn, ss), on_hold(conn, rid))
@@ -590,7 +594,7 @@ def decide(conn, user: dict, rid: int, password: str, release: bool, note: str =
 
 def cancel(conn, email: str, rid: int, reason: str) -> dict:
     if not reason.strip():
-        raise ProdError("give the reason")
+        raise ProdError(say("give the reason"))
     with conn.transaction():
         _producing(conn, rid)
         row = conn.execute("update prod_records set status = 'cancelled', cancel_reason = %s, updated_at = now() "

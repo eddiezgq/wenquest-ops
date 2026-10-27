@@ -13,6 +13,8 @@ from __future__ import annotations
 import math
 import statistics as st
 
+from wqops.i18n import say
+
 NOT_RECORDED = "not recorded"
 
 
@@ -49,7 +51,7 @@ def bins_for(n: int) -> int:
 def histogram(values: list[float], lsl: float | None = None, usl: float | None = None, bins: int | None = None) -> dict:
     vals = [float(v) for v in values if v is not None and math.isfinite(float(v))]
     if len(vals) < 2:
-        raise ToolError("at least 2 values are needed for a histogram")
+        raise ToolError(say("at least 2 values are needed for a histogram"))
     lo, hi = min(vals), max(vals)
     k = bins or bins_for(len(vals))
     if hi == lo:                                 # no spread: one bin, centred on the value

@@ -21,6 +21,7 @@ from wqops.hub.docs import library as LIB
 from wqops.hub.ont import api as OA
 from wqops.hub.ont import project as OP
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
           erp_client=None) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def allowed(u: dict) -> list[str]:
         return [t for t, x in LG.TARGETS.items() if P.allows(u["roles"], x["perm"])]
@@ -42,7 +43,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
         try:
             return int(v or 0)
         except (TypeError, ValueError) as exc:
-            raise HTTPException(400, f"{what} must be a whole number") from exc
+            raise HTTPException(400, say("{what} must be a whole number", what=what)) from exc
 
     def run(fn):
         try:
@@ -50,7 +51,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
         except (LS.LedgerError, LIB.DocError, D.DraftError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -79,11 +80,11 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
         d = await body(request)
         kinds = allowed(u)
         if not kinds:
-            raise HTTPException(403, "your role does not allow importing any ledger")
+            raise HTTPException(403, say("your role does not allow importing any ledger"))
         target = str(d.get("target") or "")
         if target and target not in kinds:
             what = LG.TARGETS.get(target, {}).get("label", target)
-            raise HTTPException(403, f"your role does not allow importing a {what}")
+            raise HTTPException(403, say("your role does not allow importing a {what}", what=what))
 
         def work():
             with DB.connect(db_url) as c:
@@ -129,7 +130,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
             try:
                 erp = erp_client()
             except Exception as exc:
-                raise HTTPException(503, "ERPNext is not set up for WenQuest Ops; ask whoever runs the system") from exc
+                raise HTTPException(
+                    503, say("ERPNext is not set up for WenQuest Ops; ask whoever runs the system")) from exc
             out = run(lambda: EI.run(c, erp, u, lid, str(d.get("password", "")),
                                      company=(m.get("company") or {}).get("name", ""), today=OA.today(m),
                                      submit=d.get("submit") is True, seen=d.get("seen")))

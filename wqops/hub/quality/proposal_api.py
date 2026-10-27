@@ -17,17 +17,19 @@ from wqops.hub.quality import workflow as W
 from wqops.hub.quality import workflow_admin as WA
 from wqops.hub.quality import workflow_ai as WAI
 from wqops.hub.quality import workflow_proposals as WP
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0915, PLR0917
     def need(u: dict, *perms: str) -> None:
         for perm in perms:
             if not P.allows(u["roles"], perm):
-                raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+                raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                             PERMISSIONS=P.PERMISSIONS[perm]))
 
     def kind_of(kind: str) -> str:
         if kind not in W.KINDS:
-            raise HTTPException(404, "no such workflow")
+            raise HTTPException(404, say("no such workflow"))
         return kind
 
     def run(fn):
@@ -36,7 +38,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         except (WA.AdminError, WP.ChangeError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -47,7 +49,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     def ai_ready() -> bool:
@@ -69,11 +71,11 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         need(u, "workflows:configure", "documents:view", "ai:use")
         kind = kind_of(kind)
         if not ai_ready():
-            raise HTTPException(409, "there is no model key; the workflow can still be changed by hand")
+            raise HTTPException(409, say("there is no model key; the workflow can still be changed by hand"))
         d = await body(request)
         raw = d.get("document_ids")
         if not isinstance(raw, list) or any(type(x) is not int or not 0 < x < 2**63 for x in raw):
-            raise HTTPException(400, "document_ids is a list of document numbers")
+            raise HTTPException(400, say("document_ids is a list of document numbers"))
 
         def work():
             with DB.connect(db_url) as c:
@@ -83,7 +85,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
                     p = WAI.propose(c, {"email": u["email"], "roles": u["roles"]}, kind, docs, model,
                                     today=OA.today(m), company=(m or {}).get("company", {}).get("name", "the company"))
                 except L.LlmError as exc:
-                    raise HTTPException(502, f"the model could not propose changes: {exc}") from exc
+                    raise HTTPException(502, say("the model could not propose changes: {exc}", exc=exc)) from exc
                 return WP.view(c, p)
 
         return await asyncio.to_thread(work)

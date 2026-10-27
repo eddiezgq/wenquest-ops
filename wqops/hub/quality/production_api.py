@@ -15,12 +15,13 @@ from wqops.hub.quality import calibration as CAL
 from wqops.hub.quality import iqc as I
 from wqops.hub.quality import production as PRD
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per action
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(fn):
         try:
@@ -28,9 +29,9 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except (PRD.ProdError, Q.QualityError, CAL.CalError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except psycopg.errors.UniqueViolation as exc:
-            raise HTTPException(409, "someone else did the same just now: open it again") from exc
+            raise HTTPException(409, say("someone else did the same just now: open it again")) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -39,7 +40,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         try:
             d = (await request.json()) if raw else {}
         except ValueError as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         return d if isinstance(d, dict) else {}
 
     def today():
@@ -47,7 +48,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     def can(u: dict) -> dict:
@@ -125,7 +126,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             row = run(lambda: PRD.new_version(c, u["email"], tid))
             return tpage(c, u, row["id"])
         else:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return tpage(c, u, tid)
 
     # ------------------------------------------------ production records
@@ -185,7 +186,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
                  "release": ("qms:configure", lambda: PRD.decide(c, u, rid, pw, True, why)),
                  "reject": ("qms:configure", lambda: PRD.decide(c, u, rid, pw, False, why))}
         if action not in steps:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         need(u, steps[action][0])
         run(steps[action][1])
         return page(c, u, rid)

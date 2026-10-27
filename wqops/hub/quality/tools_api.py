@@ -11,12 +11,13 @@ from wqops.hub.quality import measurements as ME
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import tools as TL
 from wqops.hub.quality import tools_rules as TR
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(fn):
         try:
@@ -24,7 +25,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         except (TL.ToolsError, TR.ToolError, ME.MeasurementError, Q.QualityError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -33,12 +34,12 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         try:
             d = (await request.json()) if raw else {}
         except ValueError as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         return d if isinstance(d, dict) else {}
 
     def ident(v: int | None) -> int | None:
         if v is not None and not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     @app.get("/api/quality/tools/options")
@@ -85,6 +86,6 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         b = await body(request)
         fid = b.get("form_id")
         if not isinstance(fid, int) or isinstance(fid, bool):
-            raise HTTPException(400, "choose the check sheet form")
+            raise HTTPException(400, say("choose the check sheet form"))
         return run(lambda: TL.record(c, u, ident(fid), b, str(b.get("password") or ""),
                                      today=OA.today(company()[0])))

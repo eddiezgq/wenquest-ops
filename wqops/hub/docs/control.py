@@ -19,6 +19,7 @@ import datetime as dt
 from psycopg.types.json import Jsonb
 
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 OUTCOMES = {"no_change": "No change needed", "change": "A change is needed (new revision started)",
             "postponed": "Postponed"}
@@ -59,11 +60,11 @@ def type_settings(conn) -> dict[str, dict]:
 
 def set_type(conn, email: str, doc_type: str, review_months, training_days) -> dict:
     if not doc_type or len(doc_type) > 40:
-        raise ControlError("which document type?")
+        raise ControlError(say("which document type?"))
     if review_months is not None and (type(review_months) is not int or not 1 <= review_months <= 120):
-        raise ControlError("review every 1 to 120 months, or not at all")
+        raise ControlError(say("review every 1 to 120 months, or not at all"))
     if type(training_days) is not int or not 1 <= training_days <= 365:
-        raise ControlError("people have 1 to 365 days to read a new revision")
+        raise ControlError(say("people have 1 to 365 days to read a new revision"))
     conn.execute("insert into doc_type_settings (doc_type, review_months, training_days, email) values "
                  "(%s, %s, %s, %s) on conflict (doc_type) do update set review_months = excluded.review_months, "
                  "training_days = excluded.training_days, email = excluded.email, at = now()",
@@ -93,30 +94,30 @@ def record_review(conn, email: str, doc_id: int, outcome: str, note: str, *, tod
     """The reviewer records a review of the revision in effect; someone else approves it."""
     doc = _doc(conn, doc_id)
     if doc["status"] != "effective":
-        raise ControlError("only a document in effect is reviewed")
+        raise ControlError(say("only a document in effect is reviewed"))
     if outcome not in OUTCOMES:
-        raise ControlError("the outcome is no change, a change, or postponed")
+        raise ControlError(say("the outcome is no change, a change, or postponed"))
     if outcome == "change":
         rev = conn.execute("select id from documents where id = %s and supersedes = %s and status in ('draft', "
                            "'in_review', 'approved')", (revision_id, doc_id)).fetchone() if revision_id else None
         if rev is None:
-            raise ControlError("a change review names the new revision of this document that it started")
+            raise ControlError(say("a change review names the new revision of this document that it started"))
     else:
         revision_id = None
     due = None
     if outcome == "postponed":
         if not note.strip():
-            raise ControlError("say why the review is postponed")
+            raise ControlError(say("say why the review is postponed"))
         try:
             due = dt.date.fromisoformat(str(next_due or "")[:10])
         except ValueError as exc:
-            raise ControlError("a postponed review sets the new date it is due") from exc
+            raise ControlError(say("a postponed review sets the new date it is due")) from exc
         if due <= today:
-            raise ControlError("the new date is after today")
+            raise ControlError(say("the new date is after today"))
     with conn.transaction():
         if conn.execute("select 1 from doc_reviews where document_id = %s and status = 'submitted'",
                         (doc_id,)).fetchone():
-            raise ControlError("a review of this document is waiting for approval")
+            raise ControlError(say("a review of this document is waiting for approval"))
         row = conn.execute("insert into doc_reviews (document_id, outcome, note, revision_id, next_due, reviewed_by, "
                            "reviewed_on) values (%s, %s, %s, %s, %s, %s, %s) returning *",
                            (doc_id, outcome, note.strip()[:2000], revision_id, due, email, today)).fetchone()
@@ -130,23 +131,23 @@ def decide_review(conn, user: dict, review_id: int, approve: bool, *, password: 
     if r is None:
         raise KeyError(review_id)
     if r["status"] != "submitted":
-        raise ControlError(f"the review is already {r['status']}")
+        raise ControlError(say("the review is already {status}", status=r['status']))
     if r["reviewed_by"] == user["email"]:
-        raise PermissionError("someone other than the reviewer approves the review")
+        raise PermissionError(say("someone other than the reviewer approves the review"))
     if not approve and not note.strip():
-        raise ControlError("say why it is sent back")
+        raise ControlError(say("say why it is sent back"))
     if approve:
         Q.check_signer(conn, user, password)
     with conn.transaction():
         if approve and conn.execute("select status from documents where id = %s for update",
                                     (r["document_id"],)).fetchone()["status"] != "effective":
-            raise ControlError("the document is no longer in effect: send the review back")
+            raise ControlError(say("the document is no longer in effect: send the review back"))
         row = conn.execute("update doc_reviews set status = %s, approved_by = %s, approved_at = now(), "
                            "decision_note = %s where id = %s and status = 'submitted' returning *",
                            ("approved" if approve else "rejected", user["email"], note.strip()[:2000],
                             review_id)).fetchone()
         if row is None:
-            raise ControlError("the review changed meanwhile: open it again")
+            raise ControlError(say("the review changed meanwhile: open it again"))
         doc = _doc(conn, r["document_id"])
         if approve:
             Q._sign(conn, user, "Document review approved", "document", doc["id"],
@@ -178,16 +179,16 @@ def review_list(conn, today: dt.date) -> list[dict]:
 
 def clean_trainees(conn, raw) -> dict:
     if not isinstance(raw, dict):
-        raise ControlError("say which roles and people must read it")
+        raise ControlError(say("say which roles and people must read it"))
     roles = raw.get("roles") or []
     people = raw.get("people") or []
     if not isinstance(roles, list) or not isinstance(people, list):
-        raise ControlError("roles and people are lists")
+        raise ControlError(say("roles and people are lists"))
     known = {r["email"] for r in conn.execute("select email from users")}
     people = sorted({str(p).strip().lower() for p in people if str(p).strip()})
     bad = [p for p in people if p not in known]
     if bad:
-        raise ControlError(f"not a person in the company: {', '.join(bad)}")
+        raise ControlError(say("not a person in the company: {bad}", bad=', '.join(bad)))
     return {"roles": sorted({str(r).strip() for r in roles if str(r).strip()}), "people": people}
 
 
@@ -197,12 +198,12 @@ def set_training(conn, email: str, doc_id: int, trainees, needs_training: bool, 
     to later revisions; people added to a revision in effect that needs reading are asked to read it at once."""
     doc = _doc(conn, doc_id)
     if doc["status"] not in ("draft", "in_review", "approved", "effective", "confirmed"):
-        raise ControlError("not a document in the library")
+        raise ControlError(say("not a document in the library"))
     t = clean_trainees(conn, trainees)
     if type(needs_training) is not bool:
-        raise ControlError("needs training is yes or no")
+        raise ControlError(say("needs training is yes or no"))
     if doc["status"] in ("approved", "effective") and needs_training != doc["needs_training"]:
-        raise ControlError("this revision is approved: whether it needs reading was set before approval")
+        raise ControlError(say("this revision is approved: whether it needs reading was set before approval"))
     with conn.transaction():
         row = conn.execute("update documents set trainees = %s, needs_training = %s, updated_at = now() where id = %s "
                            "returning *", (Jsonb(t), needs_training, doc_id)).fetchone()
@@ -257,15 +258,15 @@ def acknowledge(conn, user: dict, record_id: int, password: str) -> dict:
     if r is None:
         raise KeyError(record_id)
     if r["email"] != user["email"]:
-        raise PermissionError("only the person confirms their own reading")
+        raise PermissionError(say("only the person confirms their own reading"))
     if r["status"] != "pending":
-        raise ControlError(f"it is already {r['status']}")
+        raise ControlError(say("it is already {status}", status=r['status']))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         row = conn.execute("update doc_training set status = 'acknowledged', done_at = now(), done_by = %s where id = "
                            "%s and status = 'pending' returning *", (user["email"], record_id)).fetchone()
         if row is None:
-            raise ControlError("it changed meanwhile")
+            raise ControlError(say("it changed meanwhile"))
         doc = _doc(conn, r["document_id"])
         Q._sign(conn, user, "Read and understood", "doc_training", record_id,
                 " ".join(x for x in (doc["number"], doc["title"], f"rev {doc['revision']}") if x))
@@ -274,18 +275,18 @@ def acknowledge(conn, user: dict, record_id: int, password: str) -> dict:
 
 def waive(conn, email: str, record_id: int, reason: str) -> dict:
     if not reason.strip():
-        raise ControlError("give the reason")
+        raise ControlError(say("give the reason"))
     r = conn.execute("select * from doc_training where id = %s", (record_id,)).fetchone()
     if r is None:
         raise KeyError(record_id)
     if r["email"] == email:
-        raise PermissionError("someone else waives your reading")
+        raise PermissionError(say("someone else waives your reading"))
     with conn.transaction():
         row = conn.execute("update doc_training set status = 'waived', done_at = now(), done_by = %s, note = %s where "
                            "id = %s and status = 'pending' returning *", (email, reason.strip()[:1000],
                                                                          record_id)).fetchone()
         if row is None:
-            raise ControlError(f"it is already {r['status']}")
+            raise ControlError(say("it is already {status}", status=r['status']))
         _log(conn, r["document_id"], email, "reading waived", f"{r['email']}: {reason.strip()}")
     return row
 

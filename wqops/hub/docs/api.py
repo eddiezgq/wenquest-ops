@@ -26,6 +26,7 @@ from wqops.hub.docs import library as LIB
 from wqops.hub.docs import store as F
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 log = logging.getLogger("wqops.hub.docs")
 MAX_FILES = 2000
@@ -90,7 +91,7 @@ def resume(db_url: str) -> None:
 def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0915, PLR0917
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(fn):
         try:
@@ -98,7 +99,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         except (LIB.DocError, CTL.ControlError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "no such document") from exc
+            raise HTTPException(404, say("no such document")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -155,7 +156,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         form = await request.form(max_files=MAX_FILES + 1, max_fields=MAX_FILES + 10)
         ups = [f for f in form.getlist("files") if isinstance(f, UploadFile)]
         if not ups:
-            raise HTTPException(400, "choose some files")
+            raise HTTPException(400, say("choose some files"))
         imp = LIB.new_import(c, u["email"], str(form.get("label") or ""))
         taken = [0]
         try:
@@ -198,13 +199,13 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         d = await body(request)
         imp = run(lambda: LIB.get_import(c, imp_id))
         if imp["status"] not in ("ready", "done"):
-            raise HTTPException(409, f"this import is {imp['status']}; wait until its text is taken")
+            raise HTTPException(409, say("this import is {status}; wait until its text is taken", status=imp['status']))
         if not c.execute("select 1 from documents where import_id = %s and status = 'to_classify'",
                          (imp_id,)).fetchone():
-            raise HTTPException(409, "nothing in this import is waiting for classification")
+            raise HTTPException(409, say("nothing in this import is waiting for classification"))
         if not c.execute("update doc_imports set status = 'classifying' where id = %s and status in ('ready', 'done') "
                          "returning id", (imp_id,)).fetchone():          # a second click does not start a second run
-            raise HTTPException(409, "this import is already being classified")
+            raise HTTPException(409, say("this import is already being classified"))
         background.add_task(classify_job, imp_id, {"email": u["email"], "roles": u["roles"]},
                             d.get("engine", "ai") != "rules")
         return {"status": "classifying", "engine": "ai" if ai_on() and d.get("engine", "ai") != "rules" else "rules"}
@@ -303,7 +304,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         doc = run(lambda: LIB.get(c, doc_id))
         p = F.path(doc["sha256"])
         if not p.exists():
-            raise HTTPException(410, "the stored file is missing; restore it from a backup")
+            raise HTTPException(410, say("the stored file is missing; restore it from a backup"))
         show = inline and (doc["mime"] in ("application/pdf", "text/plain") or doc["mime"].startswith("image/"))
         name = (CK.standard_name(doc) if standard else None) or doc["original_name"]
         return FileResponse(p, media_type=doc["mime"], filename=name,
@@ -354,7 +355,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         try:
             on = dt.date.fromisoformat(str(d["effective_on"])[:10]) if d.get("effective_on") else None
         except ValueError as exc:
-            raise HTTPException(400, "effective_on is a date like 2026-11-02") from exc
+            raise HTTPException(400, say("effective_on is a date like 2026-11-02")) from exc
         out = doc_view(c, run(lambda: LIB.approve(c, u, doc_id, str(d.get("password", "")), today, on)))
         rechecked(c, u)
         return out
@@ -382,7 +383,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         form = await request.form()
         up = form.get("file")
         if not isinstance(up, UploadFile):
-            raise HTTPException(400, "choose the file of the new revision")
+            raise HTTPException(400, say("choose the file of the new revision"))
         data = await up.read(F.MAX_BYTES + 1)
         return doc_view(c, run(lambda: LIB.new_revision(c, u["email"], doc_id, name=up.filename or "file", data=data,
                                                                  revision=str(form.get("revision") or ""))))
@@ -394,7 +395,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     @app.put("/api/docs/{doc_id}/readers")
@@ -403,7 +404,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         need(u, "documents:edit")
         d = await body(request)
         if not isinstance(d, dict):
-            raise HTTPException(400, "send the readers")
+            raise HTTPException(400, say("send the readers"))
         doc = run(lambda: CTL.set_training(c, u["email"], ident(doc_id), d.get("trainees"),
                                            d.get("needs_training", False), today=today_()))
         return doc_view(c, doc)
@@ -414,7 +415,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         d = await body(request)
         rev = d.get("revision_id")
         if rev is not None and (type(rev) is not int or not 0 < rev < 2**63):
-            raise HTTPException(400, "revision_id is a document number")
+            raise HTTPException(400, say("revision_id is a document number"))
         run(lambda: CTL.record_review(c, u["email"], ident(doc_id), str(d.get("outcome") or ""),
                                       str(d.get("note") or ""), today=today_(), revision_id=rev,
                                       next_due=d.get("next_due")))
@@ -424,7 +425,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     async def decide_review(rid: int, how: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "qms:configure")
         if how not in ("approve", "send-back"):
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         d = await body(request)
         r = run(lambda: CTL.decide_review(c, u, ident(rid), how == "approve", password=str(d.get("password") or ""),
                                           note=str(d.get("note") or "")))
@@ -462,7 +463,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     async def set_type(doc_type: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "qms:configure")
         if doc_type not in K.TYPES:
-            raise HTTPException(404, "no such document type")
+            raise HTTPException(404, say("no such document type"))
         d = await body(request)
         return run(lambda: CTL.set_type(c, u["email"], doc_type, d.get("review_months"),
                                         d.get("training_days", 30)))

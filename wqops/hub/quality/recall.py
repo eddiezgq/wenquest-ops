@@ -22,6 +22,7 @@ from psycopg.types.json import Jsonb
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import trace as TRC
 from wqops.hub.quality import trace_rules as TR
+from wqops.i18n import say
 
 DRAFT_FIELDS = {"title", "reason", "owner", "classification", "regulatory_decision", "strategy", "scope"}
 OPEN_FIELDS = {"owner", "classification", "regulatory_decision", "strategy", "effectiveness", "unconfirmed_note"}
@@ -59,23 +60,23 @@ def _clean(conn, data: dict, allowed: set[str]) -> dict:
     out = {}
     for k, v in data.items():
         if k not in allowed:
-            raise RecallError(f"{k.replace('_', ' ')} cannot be changed now")
+            raise RecallError(say("{k} cannot be changed now", k=k.replace('_', ' ')))
         if k == "classification":
             if v not in TR.CLASSES:
                 raise RecallError("the classification is one of: " + ", ".join(TR.CLASSES))
             out[k] = v
         elif k == "title":
             if not str(v or "").strip():
-                raise RecallError("give the recall a title")
+                raise RecallError(say("give the recall a title"))
             out[k] = str(v).strip()[:300]
         elif k == "owner":
             o = str(v or "").strip().lower() or None
             if o and not conn.execute("select 1 from users where email = %s and active", (o,)).fetchone():
-                raise RecallError(f"{o} is not a person in the company")
+                raise RecallError(say("{o} is not a person in the company", o=o))
             out[k] = o
         elif k == "scope":
             if not isinstance(v, list) or any(type(x) is not int for x in v):
-                raise RecallError("the scope is production records")
+                raise RecallError(say("the scope is production records"))
             ids = sorted(set(v))
             found = {r["id"] for r in conn.execute("select id from prod_records where id = any(%s) and status in "
                                                    "('released', 'qa_review', 'in_production', 'rejected')", (ids,))}
@@ -90,7 +91,7 @@ def _clean(conn, data: dict, allowed: set[str]) -> dict:
 def create(conn, email: str, data: dict) -> dict:
     d = _clean(conn, data, DRAFT_FIELDS)
     if not str(data.get("title") or "").strip():
-        raise RecallError("give the recall a title")
+        raise RecallError(say("give the recall a title"))
     with conn.transaction():
         name = Q._next_name(conn, "recalls", "RCL")
         cols = ["name", "created_by", "owners", *d]
@@ -108,10 +109,10 @@ def update(conn, user: dict, rid: int, data: dict) -> dict:
         r = get(conn, rid, lock=True)
         allowed = {"draft": DRAFT_FIELDS, "open": OPEN_FIELDS}.get(r["status"])
         if allowed is None:
-            raise RecallError(f"the recall is {r['status']}")
+            raise RecallError(say("the recall is {status}", status=r['status']))
         d = _clean(conn, data, allowed)
         if r["status"] == "open" and "owner" in d and not P.allows(user["roles"], "qms:configure"):
-            raise PermissionError("Quality changes the owner of an open recall")
+            raise PermissionError(say("Quality changes the owner of an open recall"))
         d = {k: v for k, v in d.items() if (v.obj if isinstance(v, Jsonb) else v) != r[k]}
         if not d:
             return r
@@ -140,9 +141,9 @@ def open_recall(conn, user: dict, rid: int, *, today: dt.date) -> dict:
     with conn.transaction():
         r = get(conn, rid, lock=True)
         if r["status"] != "draft":
-            raise RecallError("open a draft recall")
+            raise RecallError(say("open a draft recall"))
         if user["email"] != r["owner"] and not P.allows(user["roles"], "qms:configure"):
-            raise PermissionError("the owner or Quality opens the recall")
+            raise PermissionError(say("the owner or Quality opens the recall"))
         gone = [x["name"] for x in _scope(conn, r) if x["status"] == "cancelled"]
         if gone:
             raise RecallError("cancelled production records cannot be recalled: " + ", ".join(gone))
@@ -151,7 +152,7 @@ def open_recall(conn, user: dict, rid: int, *, today: dt.date) -> dict:
         if missing:
             raise RecallError("still needed: " + "; ".join(missing))
         if conn.execute("select 1 from recall_consignees where recall_id = %s", (rid,)).fetchone():
-            raise RecallError("the consignee list was already written: open it again")
+            raise RecallError(say("the consignee list was already written: open it again"))
         conn.execute("select set_config('wqo.recall_opening', %s, true)", (str(rid),))
         for x in rows:
             conn.execute("insert into recall_consignees (recall_id, delivery_note, posting_date, customer, "
@@ -171,7 +172,7 @@ def _date(v, what: str) -> dt.date | None:
     try:
         return dt.date.fromisoformat(str(v)[:10])
     except ValueError as exc:
-        raise RecallError(f"{what} is a date like 2026-10-15") from exc
+        raise RecallError(say("{what} is a date like 2026-10-15", what=what)) from exc
 
 
 def _qty(v, what: str) -> Decimal:
@@ -181,7 +182,7 @@ def _qty(v, what: str) -> Decimal:
 
     x = PR.stored(v)
     if x is None or x < 0:
-        raise RecallError(f"{what} is a number, not negative")
+        raise RecallError(say("{what} is a number, not negative", what=what))
     return x
 
 
@@ -189,20 +190,20 @@ def record_contact(conn, email: str, cid: int, data: dict, *, today: dt.date) ->
     """Notification (date and method together), confirmation, quantities returned or corrected, a note."""
     bad = set(data) - {"notified_on", "method", "confirmed_on", "returned_qty", "corrected_qty", "note"}
     if bad:
-        raise RecallError(f"{sorted(bad)[0].replace('_', ' ')} is not recorded here")
+        raise RecallError(say("{bad} is not recorded here", bad=sorted(bad)[0].replace('_', ' ')))
     with conn.transaction():
         c = conn.execute("select * from recall_consignees where id = %s for update", (cid,)).fetchone()
         if c is None:
             raise KeyError(cid)
         r = get(conn, c["recall_id"], lock=True)
         if r["status"] != "open":
-            raise RecallError(f"the recall is {r['status']}")
+            raise RecallError(say("the recall is {status}", status=r['status']))
         new = dict(c)
         if "notified_on" in data or "method" in data:
             new["notified_on"] = _date(data.get("notified_on", c["notified_on"]), "the notification date")
             new["method"] = str(data.get("method", c["method"]) or "").strip()[:200]
             if (new["notified_on"] is None) != (new["method"] == ""):
-                raise RecallError("give the notification date and how together")
+                raise RecallError(say("give the notification date and how together"))
         if "confirmed_on" in data:
             new["confirmed_on"] = _date(data["confirmed_on"], "the confirmation date")
         for k, what in (("returned_qty", "the quantity returned"), ("corrected_qty", "the quantity corrected")):
@@ -212,11 +213,12 @@ def record_contact(conn, email: str, cid: int, data: dict, *, today: dt.date) ->
             new["note"] = str(data["note"] or "").strip()[:2000]
         opened = r["opened_on"]
         if new["notified_on"] and not opened <= new["notified_on"] <= today:
-            raise RecallError(f"the notification date is between the opening ({opened}) and today")
+            raise RecallError(say("the notification date is between the opening ({opened}) and today", opened=opened))
         if new["confirmed_on"] and not (new["notified_on"] and new["notified_on"] <= new["confirmed_on"] <= today):
-            raise RecallError("the confirmation comes after the notification, and not after today")
+            raise RecallError(say("the confirmation comes after the notification, and not after today"))
         if new["returned_qty"] + new["corrected_qty"] > c["qty"]:
-            raise RecallError(f"returned and corrected together are at most the {c['qty'].normalize():f} delivered")
+            raise RecallError(say("returned and corrected together are at most the {qty} delivered",
+                                  qty=format(c['qty'].normalize(), 'f')))
         if new["notified_on"] and not c["notified_on"]:
             new["notified_by"] = email
         if not new["notified_on"]:
@@ -235,14 +237,14 @@ def record_contact(conn, email: str, cid: int, data: dict, *, today: dt.date) ->
 def close(conn, user: dict, rid: int, password: str, *, today: dt.date) -> dict:
     r = get(conn, rid)
     if r["status"] != "open":
-        raise RecallError("close an open recall")
+        raise RecallError(say("close an open recall"))
     if user["email"] in (r["owner"], r["created_by"], r["opened_by"], *r["owners"]):
-        raise PermissionError("someone who does not own it and did not raise or open it closes the recall")
+        raise PermissionError(say("someone who does not own it and did not raise or open it closes the recall"))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         r = get(conn, rid, lock=True)
         if r["status"] != "open":
-            raise RecallError("the recall changed meanwhile: open it again")
+            raise RecallError(say("the recall changed meanwhile: open it again"))
         missing = TR.to_close(r, consignees(conn, rid))
         if missing:
             raise RecallError("still needed: " + "; ".join(missing))
@@ -255,11 +257,11 @@ def close(conn, user: dict, rid: int, password: str, *, today: dt.date) -> dict:
 
 def cancel(conn, email: str, rid: int, reason: str) -> dict:
     if not reason.strip():
-        raise RecallError("give the reason")
+        raise RecallError(say("give the reason"))
     with conn.transaction():
         r = get(conn, rid, lock=True)
         if r["status"] != "draft":
-            raise RecallError("only a draft recall is cancelled")
+            raise RecallError(say("only a draft recall is cancelled"))
         row = conn.execute("update recalls set status = 'cancelled', cancel_reason = %s, updated_at = now() where "
                            "id = %s returning *", (reason.strip()[:1000], rid)).fetchone()
         log(conn, rid, email, "cancelled", reason.strip())

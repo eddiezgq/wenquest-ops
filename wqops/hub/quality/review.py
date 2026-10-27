@@ -20,6 +20,7 @@ from psycopg.types.json import Jsonb
 from wqops.hub.ont import metrics as M
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import review_rules as RR
+from wqops.i18n import say
 
 SECTIONS = {
     "incoming": "Incoming inspection", "nonconformances": "Nonconformances",
@@ -182,41 +183,41 @@ def _date(v, what: str) -> dt.date | None:
     try:
         return dt.date.fromisoformat(str(v)[:10])
     except ValueError as exc:
-        raise ReviewError(f"{what} is a date like 2026-12-31") from exc
+        raise ReviewError(say("{what} is a date like 2026-12-31", what=what)) from exc
 
 
 def _clean(conn, data: dict) -> dict:
     bad = set(data) - FIELDS
     if bad:
-        raise ReviewError(f"{sorted(bad)[0].replace('_', ' ')} cannot be changed here")
+        raise ReviewError(say("{bad} cannot be changed here", bad=sorted(bad)[0].replace('_', ' ')))
     out = {}
     for k, v in data.items():
         if k in ("period_start", "period_end", "meeting_on"):
             out[k] = _date(v, k.replace("_", " "))
             if out[k] is None and k != "meeting_on":
-                raise ReviewError("give the period")
+                raise ReviewError(say("give the period"))
         elif k == "chair":
             c = str(v or "").strip().lower() or None
             if c and not conn.execute("select 1 from users where email = %s and active", (c,)).fetchone():
-                raise ReviewError(f"{c} is not a person in the company")
+                raise ReviewError(say("{c} is not a person in the company", c=c))
             out[k] = c
         elif k == "notes":
             if not isinstance(v, dict) or any(k2 not in SECTIONS or not isinstance(x, str) for k2, x in v.items()):
-                raise ReviewError("notes are written per input")
+                raise ReviewError(say("notes are written per input"))
             out[k] = Jsonb({k2: x.strip()[:4000] for k2, x in v.items()})
         else:
             out[k] = str(v or "").strip()[:4000]
     if "title" in out and not out["title"]:
-        raise ReviewError("give the review a title")
+        raise ReviewError(say("give the review a title"))
     return out
 
 
 def create(conn, email: str, data: dict) -> dict:
     d = _clean(conn, data)
     if not d.get("title") or not d.get("period_start") or not d.get("period_end"):
-        raise ReviewError("give the title and the period")
+        raise ReviewError(say("give the title and the period"))
     if d["period_start"] > d["period_end"]:
-        raise ReviewError("the period starts before it ends")
+        raise ReviewError(say("the period starts before it ends"))
     with conn.transaction():
         name = Q._next_name(conn, "mgmt_reviews", "MR")
         cols = ["name", "created_by", *d]
@@ -229,7 +230,7 @@ def create(conn, email: str, data: dict) -> dict:
 def _open(conn, rid: int) -> dict:
     r = get(conn, rid, lock=True)
     if r["status"] not in ("draft", "frozen"):
-        raise ReviewError(f"the review is {r['status']}")
+        raise ReviewError(say("the review is {status}", status=r['status']))
     return r
 
 
@@ -246,9 +247,10 @@ def update(conn, email: str, rid: int, data: dict) -> dict:
         if r["status"] == "frozen" and ({"period_start", "period_end"} & set(d)) and (
                 d.get("period_start", r["period_start"]), d.get("period_end", r["period_end"])) != (
                 r["period_start"], r["period_end"]):
-            raise ReviewError("the inputs are collected for this period: cancel and start a new review to change it")
+            raise ReviewError(say("the inputs are collected for this period: cancel and start a new review to change "
+                                  "it"))
         if d.get("period_start", r["period_start"]) > d.get("period_end", r["period_end"]):
-            raise ReviewError("the period starts before it ends")
+            raise ReviewError(say("the period starts before it ends"))
         if "notes" in d:
             d["notes"] = Jsonb({k: v for k, v in {**r["notes"], **d["notes"].obj}.items() if v})
         d = {k: v for k, v in d.items() if (v.obj if isinstance(v, Jsonb) else v) != r[k]}
@@ -282,16 +284,16 @@ def add_action(conn, email: str, rid: int, data: dict, *, today: dt.date) -> dic
     owner = str(data.get("owner") or "").strip().lower()
     due = _date(data.get("due"), "the due date")
     if due is None:
-        raise ReviewError("give the due date")
+        raise ReviewError(say("give the due date"))
     missing = RR.check_action(text, owner, due, today)
     if missing:
         raise ReviewError("still needed: " + "; ".join(missing))
     if not conn.execute("select 1 from users where email = %s and active", (owner,)).fetchone():
-        raise ReviewError(f"{owner} is not a person in the company")
+        raise ReviewError(say("{owner} is not a person in the company", owner=owner))
     capa = data.get("capa_id")
     if capa not in (None, "") and (type(capa) is not int or not conn.execute("select 1 from capas where id = %s",
                                                                             (capa,)).fetchone()):
-        raise ReviewError("no such corrective action")
+        raise ReviewError(say("no such corrective action"))
     with conn.transaction():
         r = _open(conn, rid)
         row = conn.execute("insert into mgmt_review_actions (review_id, text, owner, due, capa_id, created_by) values "
@@ -307,17 +309,17 @@ def action_done(conn, user: dict, aid: int, evidence: str) -> dict:
     from wqops.hub import permissions as P  # noqa: PLC0415
 
     if not evidence.strip():
-        raise ReviewError("say what shows it is done")
+        raise ReviewError(say("say what shows it is done"))
     with conn.transaction():
         a = conn.execute("select * from mgmt_review_actions where id = %s for update", (aid,)).fetchone()
         if a is None:
             raise KeyError(aid)
         if a["status"] == "done":
-            raise ReviewError("the action is already done")
+            raise ReviewError(say("the action is already done"))
         if get(conn, a["review_id"])["status"] == "cancelled":
-            raise ReviewError("the review was cancelled")
+            raise ReviewError(say("the review was cancelled"))
         if user["email"] != a["owner"] and not P.allows(user["roles"], "qms:configure"):
-            raise PermissionError("the action's owner or Quality marks it done")
+            raise PermissionError(say("the action's owner or Quality marks it done"))
         row = conn.execute("update mgmt_review_actions set status = 'done', evidence = %s, done_by = %s, done_at = "
                            "now() where id = %s returning *", (evidence.strip()[:2000], user["email"], aid)).fetchone()
         log(conn, a["review_id"], user["email"], "action done", f"{a['text'][:200]}: {evidence.strip()[:200]}")
@@ -337,7 +339,7 @@ def sign(conn, user: dict, rid: int, password: str, *, today: dt.date) -> dict:
         if missing:
             raise ReviewError("still needed: " + "; ".join(missing))
         if RR.fingerprint(r["inputs"]) != r["fingerprint"]:
-            raise ReviewError("the inputs no longer match their fingerprint: collect them again")
+            raise ReviewError(say("the inputs no longer match their fingerprint: collect them again"))
         Q._sign(conn, user, "Management review approved", "mgmt_review", rid, r["name"])
         row = conn.execute("update mgmt_reviews set status = 'closed', signed_by = %s, signed_at = now(), updated_at = "
                            "now() where id = %s returning *", (user["email"], rid)).fetchone()
@@ -347,7 +349,7 @@ def sign(conn, user: dict, rid: int, password: str, *, today: dt.date) -> dict:
 
 def cancel(conn, email: str, rid: int, reason: str) -> dict:
     if not reason.strip():
-        raise ReviewError("give the reason")
+        raise ReviewError(say("give the reason"))
     with conn.transaction():
         _open(conn, rid)
         row = conn.execute("update mgmt_reviews set status = 'cancelled', cancel_reason = %s, updated_at = now() "

@@ -21,6 +21,7 @@ from psycopg.types.json import Jsonb
 from wqops.hub.quality import causes as C
 from wqops.hub.quality import fmea_rules as FR
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 FILE_FIELDS = {"process", "item_code", "scope", "owner"}
 ROW_TEXT = {"step", "requirement", "failure_mode", "effect", "cause", "prevention", "detection_controls", "action"}
@@ -72,14 +73,14 @@ def add_scale(conn, email: str, data: dict) -> dict:
     kind, rank = data.get("kind"), data.get("rank")
     name = str(data.get("name") or "").strip()
     if kind not in FR.KINDS:
-        raise FmeaError("a scale is severity, occurrence or detection")
+        raise FmeaError(say("a scale is severity, occurrence or detection"))
     if type(rank) is not int or not 1 <= rank <= 10:
-        raise FmeaError("the rank is a whole number from 1 to 10")
+        raise FmeaError(say("the rank is a whole number from 1 to 10"))
     if not name:
-        raise FmeaError("say what the rank means in your company")
+        raise FmeaError(say("say what the rank means in your company"))
     with conn.transaction():
         if conn.execute("select 1 from fmea_scales where kind = %s and rank = %s", (kind, rank)).fetchone():
-            raise FmeaError(f"{kind} {rank} is already on the scale")
+            raise FmeaError(say("{kind} {rank} is already on the scale", kind=kind, rank=rank))
         row = conn.execute("insert into fmea_scales (kind, rank, name, description, created_by) values "
                            "(%s, %s, %s, %s, %s) returning *",
                            (kind, rank, name[:200], str(data.get("description") or "")[:2000], email)).fetchone()
@@ -96,9 +97,9 @@ def update_scale(conn, email: str, sid: int, data: dict) -> dict:
         d = {}
         if "name" in data and str(data["name"] or "").strip() != sc["name"]:
             if not str(data["name"] or "").strip():
-                raise FmeaError("say what the rank means in your company")
+                raise FmeaError(say("say what the rank means in your company"))
             if _used(conn, sc["kind"], sc["rank"]):
-                raise FmeaError("an approved PFMEA uses this rank: its name stays")
+                raise FmeaError(say("an approved PFMEA uses this rank: its name stays"))
             d["name"] = str(data["name"]).strip()[:200]
         if "description" in data:
             d["description"] = str(data["description"] or "")[:2000]
@@ -159,14 +160,14 @@ def rows(conn, fid: int) -> list[dict]:
 def _owner(conn, v) -> str | None:
     o = str(v or "").strip().lower() or None
     if o and not conn.execute("select 1 from users where email = %s and active", (o,)).fetchone():
-        raise FmeaError(f"{o} is not a person in the company")
+        raise FmeaError(say("{o} is not a person in the company", o=o))
     return o
 
 
 def create(conn, email: str, data: dict) -> dict:
     process = str(data.get("process") or "").strip()
     if not process:
-        raise FmeaError("name the process (and the product it makes)")
+        raise FmeaError(say("name the process (and the product it makes)"))
     owner = _owner(conn, data.get("owner"))
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext('wqo-number:fmea_files'))")
@@ -182,7 +183,7 @@ def create(conn, email: str, data: dict) -> dict:
 def _draft(conn, fid: int) -> dict:
     f = get(conn, fid, lock=True)
     if f["status"] != "draft":
-        raise FmeaError(f"the PFMEA is {f['status']}: start a new version to change it")
+        raise FmeaError(say("the PFMEA is {status}: start a new version to change it", status=f['status']))
     return f
 
 
@@ -195,7 +196,7 @@ def _touch(conn, f: dict, email: str) -> None:
 def update(conn, email: str, fid: int, data: dict) -> dict:
     bad = set(data) - FILE_FIELDS
     if bad:
-        raise FmeaError(f"{sorted(bad)[0].replace('_', ' ')} cannot be changed here")
+        raise FmeaError(say("{bad} cannot be changed here", bad=sorted(bad)[0].replace('_', ' ')))
     with conn.transaction():
         f = _draft(conn, fid)
         d = {}
@@ -204,7 +205,7 @@ def update(conn, email: str, fid: int, data: dict) -> dict:
                 d[k] = _owner(conn, v)
             elif k == "process":
                 if not str(v or "").strip():
-                    raise FmeaError("name the process (and the product it makes)")
+                    raise FmeaError(say("name the process (and the product it makes)"))
                 d[k] = str(v).strip()[:300]
             elif k == "item_code":
                 d[k] = str(v or "").strip()[:140] or None
@@ -232,8 +233,8 @@ def _row_values(conn, data: dict, current: dict | None = None) -> dict:  # noqa:
             elif v in (None, ""):
                 out[k] = None
             elif type(v) is not int or v not in have[FR.RANK_KEYS[k]]:
-                raise FmeaError(f"{k.replace('res_', '').replace('_', ' ')} is a rank on the company's "
-                                f"{FR.RANK_KEYS[k]} scale")
+                raise FmeaError(say("{k} is a rank on the company's {RANK_KEYS} scale",
+                                    k=k.replace('res_', '').replace('_', ' '), RANK_KEYS=FR.RANK_KEYS[k]))
             else:
                 out[k] = v
         elif k == "action_owner":
@@ -242,22 +243,22 @@ def _row_values(conn, data: dict, current: dict | None = None) -> dict:  # noqa:
             try:
                 out[k] = dt.date.fromisoformat(str(v)[:10]) if v not in (None, "") else None
             except ValueError as exc:
-                raise FmeaError("the due date is a date (YYYY-MM-DD)") from exc
+                raise FmeaError(say("the due date is a date (YYYY-MM-DD)")) from exc
         elif k == "refs":
             refs = [str(x).strip()[:60] for x in (v if isinstance(v, list) else [v] if v else []) if str(x).strip()]
             missing = [r for r in refs if r not in C.exists(conn, refs)]
             if missing:
-                raise FmeaError(f"no record with the number: {', '.join(missing)}")
+                raise FmeaError(say("no record with the number: {missing}", missing=', '.join(missing)))
             out[k] = refs[:8]
         else:
-            raise FmeaError(f"{k.replace('_', ' ')} is not part of a PFMEA row")
+            raise FmeaError(say("{k} is not part of a PFMEA row", k=k.replace('_', ' ')))
     return out
 
 
 def _check_after(r: dict) -> None:
     given = [r.get(k) is not None for k in ("res_severity", "res_occurrence", "res_detection")]
     if any(given) and not all(given):
-        raise FmeaError("give all three ranks after action, or none")
+        raise FmeaError(say("give all three ranks after action, or none"))
 
 
 def add_row(conn, email: str, fid: int, data: dict) -> dict:
@@ -335,7 +336,7 @@ def propose(conn, email: str, fid: int, run_id: int, drafted: list[dict]) -> lis
 
 def _not_involved(user: dict, f: dict) -> None:
     if user["email"] == f["owner"] or user["email"] in f["editors"] or user["email"] == f["created_by"]:
-        raise PermissionError("someone who does not own and did not edit the PFMEA approves it")
+        raise PermissionError(say("someone who does not own and did not edit the PFMEA approves it"))
 
 
 def approve(conn, user: dict, fid: int, password: str) -> dict:
@@ -343,7 +344,7 @@ def approve(conn, user: dict, fid: int, password: str) -> dict:
     version it revises is superseded."""
     f = get(conn, fid)
     if f["status"] != "draft":
-        raise FmeaError("approve a draft PFMEA")
+        raise FmeaError(say("approve a draft PFMEA"))
     _not_involved(user, f)
     Q.check_signer(conn, user, password)
     with conn.transaction():
@@ -384,9 +385,9 @@ def revise(conn, email: str, fid: int) -> dict:
     with conn.transaction():
         f = get(conn, fid, lock=True)
         if f["status"] != "approved":
-            raise FmeaError("start a new version from the approved one")
+            raise FmeaError(say("start a new version from the approved one"))
         if conn.execute("select 1 from fmea_files where name = %s and status = 'draft'", (f["name"],)).fetchone():
-            raise FmeaError("a new version is already being drafted")
+            raise FmeaError(say("a new version is already being drafted"))
         version = conn.execute("select max(version) + 1 as v from fmea_files where name = %s",
                                (f["name"],)).fetchone()["v"]
         row = conn.execute("insert into fmea_files (name, version, previous_id, process, item_code, scope, owner, "
@@ -402,7 +403,7 @@ def revise(conn, email: str, fid: int) -> dict:
 
 def withdraw(conn, email: str, fid: int, reason: str) -> dict:
     if not reason.strip():
-        raise FmeaError("give the reason")
+        raise FmeaError(say("give the reason"))
     with conn.transaction():
         _draft(conn, fid)
         row = conn.execute("update fmea_files set status = 'withdrawn', withdraw_reason = %s, updated_at = now() "
@@ -418,9 +419,9 @@ def open_capa(conn, email: str, fid: int, seq: int, kind: str = "preventive") ->
     if r is None:
         raise KeyError(seq)
     if f["status"] == "withdrawn":
-        raise FmeaError("the PFMEA is withdrawn")
+        raise FmeaError(say("the PFMEA is withdrawn"))
     if kind not in ("corrective", "preventive"):
-        raise FmeaError("kind is corrective or preventive")
+        raise FmeaError(say("kind is corrective or preventive"))
     with conn.transaction():
         c = Q.create_capa(conn, email, kind=kind, title=f"{f['name']} row {seq}: {r['failure_mode']}"[:200],
                           description=f"Process step: {r['step']}. Failure mode: {r['failure_mode']}. Cause: "

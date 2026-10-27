@@ -15,13 +15,15 @@ from wqops.hub.quality import calibration as CAL
 from wqops.hub.quality import iqc as I
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import sampling as S
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per action
     def need(u: dict, *perms: str) -> None:
         for perm in perms:
             if not P.allows(u["roles"], perm):
-                raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+                raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                             PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(fn):
         try:
@@ -29,7 +31,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except (I.IqcError, Q.QualityError, D.DraftError, S.SamplingError, CAL.CalError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -40,7 +42,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     def can(u: dict) -> dict:
@@ -97,7 +99,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         d = await body(request)
         gid = d.get("gauge_id")
         if gid is not None and (type(gid) is not int or not 0 < gid < 2**63):
-            raise HTTPException(400, "gauge_id is an equipment number")
+            raise HTTPException(400, say("gauge_id is an equipment number"))
         run(lambda: I.set_gauge(c, u["email"], ident(iid), str(d.get("characteristic") or ""), gid,
                                 today=OA.today(company()[0])))
         return page(c, u, iid)
@@ -161,7 +163,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             row = run(lambda: I.new_version(c, u["email"], ident(pid)))
             return plan_page(c, u, row["id"])
         else:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return plan_page(c, u, pid)
 
     # ------------------------------------------------ sampling table, rules, levels, settings
@@ -182,7 +184,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         elif action in ("archive", "restore"):
             run(lambda: I.archive_row(c, u["email"], ident(rid), action == "restore"))
         else:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return I.rows(c)
 
     @app.post("/api/iqc/rules")
@@ -191,7 +193,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         d = await body(request)
         rid = d.get("id")
         if rid is not None and (type(rid) is not int or not 0 < rid < 2**63):
-            raise HTTPException(400, "id is a rule number")
+            raise HTTPException(400, say("id is a rule number"))
         return run(lambda: I.save_rule(c, u["email"], rid, d))
 
     @app.post("/api/iqc/levels")

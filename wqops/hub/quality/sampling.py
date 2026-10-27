@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import math
 
+from wqops.i18n import say
+
 LEVELS = {"normal": "Normal", "tightened": "Tightened", "reduced": "Reduced"}
 KINDS = ("measured", "attribute")
 CONDITIONS = {"window_rejected": "at least K of the last N lots rejected",
@@ -46,9 +48,10 @@ def lookup(rows: list[dict], aql: float, level: str, lot_qty: int) -> dict:
             and r["lot_min"] <= lot_qty <= r["lot_max"]]
     where = f"AQL {aql:g}, {LEVELS.get(level, level).lower()} inspection, lot size {lot_qty}"
     if not hits:
-        raise SamplingError(f"the sampling table has no row for {where}")
+        raise SamplingError(say("the sampling table has no row for {where}", where=where))
     if len(hits) > 1:
-        raise SamplingError(f"the sampling table has overlapping rows for {where}: fix the table first")
+        raise SamplingError(say("the sampling table has overlapping rows for {where}: fix the table first",
+                                where=where))
     return hits[0]
 
 
@@ -113,9 +116,10 @@ def judge(chars: list[dict], readings: list[dict], n: int, ac: int, re: int) -> 
         elif not ok:
             bad_units.add(r["sample"])
     if len(readings) != n * len(chars):
-        raise SamplingError(f"expected {n * len(chars)} readings, found {len(readings)}")
+        raise SamplingError(say("expected {v} readings, found {readings}", v=n * len(chars), readings=len(readings)))
     if missing:
-        raise SamplingError(f"{len(missing)} readings not entered yet, first: {missing[0]}")
+        raise SamplingError(say("{missing} readings not entered yet, first: {missing2}",
+                                missing=len(missing), missing2=missing[0]))
     d = len(bad_units)
     return {"defectives": d, "failed_samples": sorted(bad_units),
             "result": "accept" if d <= ac else "reject" if d >= re else None}

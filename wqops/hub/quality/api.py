@@ -21,6 +21,7 @@ from wqops.hub.quality import incoming as IN
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import workflow as W
 from wqops.hub.quality import workflow_admin as WA
+from wqops.i18n import say
 
 
 def _iso(row: dict) -> dict:
@@ -32,7 +33,7 @@ def _iso(row: dict) -> dict:
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per step
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(c, fn):
         try:
@@ -40,7 +41,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except Q.QualityError as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
         OP.project(c, manifest=company()[0])
@@ -99,7 +100,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         try:
             return ncr_view(c, Q.ncr(c, nid))
         except KeyError as exc:
-            raise HTTPException(404, "no such report") from exc
+            raise HTTPException(404, say("no such report")) from exc
 
     @app.post("/api/quality/ncrs/{nid}/{step}")
     async def ncr_step(nid: int, step: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -122,7 +123,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             "8d-complete": lambda: Q.complete_8d(c, nid, u, pw),
         }
         if step not in steps:
-            raise HTTPException(404, f"no step {step}")
+            raise HTTPException(404, say("no step {step}", step=step))
         run(c, steps[step])
         return ncr_view(c, Q.ncr(c, nid))
 
@@ -171,7 +172,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         try:
             return capa_view(c, Q.capa(c, cid))
         except KeyError as exc:
-            raise HTTPException(404, "no such action") from exc
+            raise HTTPException(404, say("no such action")) from exc
 
     @app.post("/api/quality/capas/{cid}/{step}")
     async def capa_step(cid: int, step: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -196,7 +197,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             "cancel": lambda: Q.cancel_capa(c, cid, u["email"], str(d.get("reason", ""))),
         }
         if step not in steps:
-            raise HTTPException(404, f"no step {step}")
+            raise HTTPException(404, say("no step {step}", step=step))
         run(c, steps[step])
         return capa_view(c, Q.capa(c, cid))
 
@@ -229,13 +230,13 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         try:
             size = float(d.get("sample_size"))
         except (TypeError, ValueError) as exc:
-            raise HTTPException(400, "give the sample size you will inspect") from exc
+            raise HTTPException(400, say("give the sample size you will inspect")) from exc
         if size <= 0:
-            raise HTTPException(400, "the sample size must be above 0")
+            raise HTTPException(400, say("the sample size must be above 0"))
         line = next((x for x in IN.awaiting(c) if x["receipt"] == d.get("receipt") and
                      x["item_code"] == d.get("item_code")), None)
         if line is None:
-            raise HTTPException(409, "that receipt line is not waiting for inspection")
+            raise HTTPException(409, say("that receipt line is not waiting for inspection"))
         payload = {"inspection_type": "Incoming", "reference_type": "Purchase Receipt",
                    "reference_name": line["receipt"], "item_code": line["item_code"], "sample_size": size,
                    "report_date": str(OA.today(company()[0]))}
@@ -267,7 +268,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
                             c=Depends(conn_dep)):
         """An extra signed approval the record's workflow asks for (ADR-0015, 15b)."""
         if kind not in W.KINDS:
-            raise HTTPException(404, "no such record kind")
+            raise HTTPException(404, say("no such record kind"))
         need(u, "quality:view")
         d = await body(request)
         run(c, lambda: Q.approve_extra(c, kind, rid, name, u, str(d.get("password", ""))))
@@ -282,7 +283,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except WA.AdminError as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -319,7 +320,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         """Facts per supplier (ADR-0010): rejection rate, on-time, NCRs, concessions, open corrective actions."""
         need(u, "quality:view")
         if days not in (30, 90, 180, 365):
-            raise HTTPException(400, "days must be 30, 90, 180 or 365")
+            raise HTTPException(400, say("days must be 30, 90, 180 or 365"))
         m = company()[0]
         return IN.supplier_quality(c, OA.today(m), days, m["company"]["timezone"] if m else "UTC")
 

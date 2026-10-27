@@ -20,6 +20,7 @@ import sys
 
 from wqops import company as C
 from wqops.hub import db as DB
+from wqops.i18n import say
 
 MAX_FAILED = 5
 LOCK_MINUTES = 10
@@ -98,10 +99,10 @@ def set_password(conn, email: str, pw: str, *, by: str | None = None) -> None:
     ``by`` is who set it, when not the person."""
     u = get(conn, email)
     if u is None or not u["active"]:
-        raise AccountError(f"no active person with email {email}")
+        raise AccountError(say("no active person with email {email}", email=email))
     problem = password_problem(pw)
     if problem:
-        raise AccountError(f"password needs {problem}")
+        raise AccountError(say("password needs {problem}", problem=problem))
     conn.execute("update users set password_hash=%s, failed_logins=0, locked_until=null, updated_at=now() "
                  "where id=%s", (hash_password(pw), u["id"]))
     conn.execute("delete from sessions where user_id=%s", (u["id"],))
@@ -123,17 +124,18 @@ def authenticate(conn, email: str, pw: str, now: dt.datetime | None = None) -> d
     u = get(conn, email or "")
     if u is None or not u["active"]:
         event(conn, (email or "").lower(), "login_failed", "unknown or inactive")
-        raise AccountError("wrong email or password")
+        raise AccountError(say("wrong email or password"))
     if u["locked_until"] and u["locked_until"] > now:
         event(conn, u["email"], "login_failed", "locked")
-        raise AccountError(f"too many wrong passwords; try again after {LOCK_MINUTES} minutes")
+        raise AccountError(say("too many wrong passwords; try again after {LOCK_MINUTES} minutes",
+                               LOCK_MINUTES=LOCK_MINUTES))
     if not check_password(pw, u["password_hash"]):
         failed = u["failed_logins"] + 1
         locked = now + dt.timedelta(minutes=LOCK_MINUTES) if failed >= MAX_FAILED else None
         conn.execute("update users set failed_logins=%s, locked_until=%s where id=%s",
                      (0 if locked else failed, locked, u["id"]))
         event(conn, u["email"], "locked" if locked else "login_failed", "wrong password")
-        raise AccountError("wrong email or password")
+        raise AccountError(say("wrong email or password"))
     conn.execute("update users set failed_logins=0, locked_until=null where id=%s", (u["id"],))
     return u
 

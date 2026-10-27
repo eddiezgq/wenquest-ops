@@ -7,6 +7,8 @@ import re
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops.i18n import say
+
 ITEM = re.compile(r"^[a-z0-9-]{1,60}/[a-z0-9-]{1,60}$")
 
 
@@ -19,7 +21,7 @@ def progress(conn, email: str) -> dict[str, str]:
 
 def tick(conn, email: str, item: str, done: bool) -> dict[str, str]:
     if not ITEM.match(item):
-        raise ValueError("not a checklist item")
+        raise ValueError(say("not a checklist item"))
     conn.execute("insert into help_progress (email, item, done) values (%s, %s, %s)", (email, item, done))
     return progress(conn, email)
 
@@ -34,9 +36,9 @@ def mount(app: FastAPI, conn_dep, user_dep) -> None:
         try:
             d = await request.json()
         except ValueError as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         if not isinstance(d, dict) or not isinstance(d.get("item"), str) or not isinstance(d.get("done"), bool):
-            raise HTTPException(400, "send the item and whether it is done")
+            raise HTTPException(400, say("send the item and whether it is done"))
         try:
             return {"done": tick(c, u["email"], d["item"], d["done"])}
         except ValueError as exc:

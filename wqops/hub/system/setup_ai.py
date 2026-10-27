@@ -15,6 +15,7 @@ from wqops.hub.ai import tools as T
 from wqops.hub.system import qms as QMS
 from wqops.hub.system import rules as R
 from wqops.hub.system import setup as SU
+from wqops.i18n import say
 
 
 class NoModel(RuntimeError):
@@ -72,9 +73,9 @@ def tool(doc_ids: list[int]) -> dict:
 def propose(conn, user: dict, standard: str, docs: list[dict], model: L.Anthropic | None, *, today: dt.date,
             company: str = "the company") -> dict:
     if model is None or not model.configured():
-        raise NoModel("there is no model key; set the system up by hand")
+        raise NoModel(say("there is no model key; set the system up by hand"))
     if QMS.enabled(conn, standard) is None:
-        raise QMS.QmsError("adopt the standard first")
+        raise QMS.QmsError(say("adopt the standard first"))
     ctx = T.Ctx(conn=conn, user=user, today=today)
     AG.start(ctx, "setup", f"set up {standard} from: {', '.join(d['name'] for d in docs)}"[:1000])
     out = {"engine": "model", "model": model.model, "tool_calls": [], "verified": True, "unverified": [], "usage": {}}
@@ -92,10 +93,10 @@ def propose(conn, user: dict, standard: str, docs: list[dict], model: L.Anthropi
             [{"role": "user", "content": describe(conn, standard) + "\n\nProcedures:\n\n" + text}],
             [tool([d["id"] for d in docs])], 6000, tool_choice={"type": "tool", "name": "propose_setup"})
         if resp.get("stop_reason") == "max_tokens":
-            raise L.LlmError("the model's answer was cut off; choose fewer procedures")
+            raise L.LlmError(say("the model's answer was cut off; choose fewer procedures"))
         use = next((b for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
         if use is None or not isinstance(use.get("input"), dict):
-            raise L.LlmError("the model did not propose anything")
+            raise L.LlmError(say("the model did not propose anything"))
         p = SU.store(conn, user["email"], standard, docs, use["input"], ctx.run_id)
         items = SU.view(conn, p["id"])["items"]
         bad = [f"change {i['seq']}: {'; '.join(i['problems'])}" for i in items if i["problems"]]

@@ -15,6 +15,7 @@ from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
 from wqops.hub.quality import causes as C
 from wqops.hub.quality import causes_rules as CR
+from wqops.i18n import say
 
 MAX_SUGGESTIONS = 12
 
@@ -91,13 +92,13 @@ def _clean(a: dict, raw, level: int | None) -> tuple[list[dict], int]:
 
 def suggest(conn, user: dict, aid: int, model: L.Anthropic | None, *, today: dt.date) -> dict:
     if model is None or not model.configured():
-        raise NoModel("there is no model key; add the causes yourself")
+        raise NoModel(say("there is no model key; add the causes yourself"))
     a = C.get(conn, aid)
     its = C.items(conn, aid)
     if a["status"] != "open":
-        raise CR.CauseError(f"{a['name']} is {a['status']}")
+        raise CR.CauseError(say("{name} is {status}", name=a['name'], status=a['status']))
     if any(i["status"] == "proposed" for i in its):
-        raise CR.CauseError("decide the suggestions already made first")
+        raise CR.CauseError(say("decide the suggestions already made first"))
     level = None
     if a["method"] == "five_why":
         level = CR.frontier(its)
@@ -114,10 +115,10 @@ def suggest(conn, user: dict, aid: int, model: L.Anthropic | None, *, today: dt.
         resp = model.create(SYSTEM, [{"role": "user", "content": f"{_ask(a, its, level)}\n\nRecords:\n{listing}"}],
                             [tool], 3000, tool_choice={"type": "tool", "name": tool["name"]})
         if resp.get("stop_reason") == "max_tokens":
-            raise L.LlmError("the model's answer was cut off")
+            raise L.LlmError(say("the model's answer was cut off"))
         use = next((b for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
         if use is None or not isinstance(use.get("input"), dict):
-            raise L.LlmError("the model did not suggest anything")
+            raise L.LlmError(say("the model did not suggest anything"))
         clean, bad = _clean(a, use["input"].get("causes" if a["method"] == "fishbone" else "answers"), level)
         kept, dropped = CR.verify(clean, shown)
         made = C.propose(conn, aid, ctx.run_id, user["email"], kept) if kept else []

@@ -13,12 +13,13 @@ from wqops.hub.ont import api as OA
 from wqops.hub.quality import recall as RC
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import trace as TRC
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per action
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(fn):
         try:
@@ -26,7 +27,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except (RC.RecallError, Q.QualityError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -35,12 +36,12 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         try:
             d = (await request.json()) if raw else {}
         except ValueError as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         return d if isinstance(d, dict) else {}
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     def can(u: dict) -> dict:
@@ -126,5 +127,5 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             need(u, "qms:configure")
             run(lambda: RC.cancel(c, u["email"], rid, str(d.get("reason") or "")))
         else:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return page(c, u, rid)

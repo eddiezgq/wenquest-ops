@@ -24,6 +24,7 @@ from wqops.hub.docs import control as CTL
 from wqops.hub.docs import extract as X
 from wqops.hub.docs import store as F
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 KEPT = ("draft", "in_review", "approved", "effective", "confirmed")      # in the library
 CHARS_PER_TOKEN = 4
@@ -62,7 +63,7 @@ def clean_path(raw: str) -> tuple[str, str]:
     """(folder path, file name) from a browser's relative path or a zip entry; never leaves the import."""
     parts = [p for p in re.split(r"[\\/]+", raw or "") if p not in ("", ".", "..")]
     if not parts:
-        raise DocError("a file needs a name")
+        raise DocError(say("a file needs a name"))
     return "/".join(parts[:-1])[:500], parts[-1][:255]
 
 
@@ -82,11 +83,12 @@ def add_file(conn, import_id: int, raw_name: str, data: bytes) -> dict:
     """Store one file of an import; identical bytes are stored once and the row points to the first copy."""
     path, name = clean_path(raw_name)
     if not X.accepted(name):
-        raise DocError(f"{name}: this kind of file is not taken (PDF, Word, Excel, CSV, text and images are)")
+        raise DocError(say("{name}: this kind of file is not taken (PDF, Word, Excel, CSV, text and images are)",
+                           name=name))
     if len(data) > F.MAX_BYTES:
-        raise DocError(f"{name}: larger than {F.MAX_BYTES // (1024 * 1024)} MB")
+        raise DocError(say("{name}: larger than {v} MB", name=name, v=F.MAX_BYTES // (1024 * 1024)))
     if not data:
-        raise DocError(f"{name}: the file is empty")
+        raise DocError(say("{name}: the file is empty", name=name))
     sha = F.put(data)
     first = conn.execute("select id from documents where sha256 = %s and status <> 'rejected' order by id limit 1",
                          (sha,)).fetchone()
@@ -186,23 +188,23 @@ def propose(conn, doc_id: int, proposal: dict, engine: str, ai_run: int | None =
          p.get("revision"), eff, p.get("owner"), p.get("language"), p.get("summary"), Jsonb(p.get("refs", [])),
          Jsonb(p.get("evidence", {})), ai_run, doc_id)).fetchone()
     if row is None:
-        raise DocError(f"document {doc_id} is not waiting for classification")
+        raise DocError(say("document {doc_id} is not waiting for classification", doc_id=doc_id))
     log(conn, doc_id, None, "classified", f"{engine}, confidence {p.get('confidence', 'low')}")
     return row
 
 
 def _check_fields(conn, f: dict) -> None:
     if f.get("doc_type") not in K.TYPES:
-        raise DocError("choose a type")
+        raise DocError(say("choose a type"))
     if f.get("process") not in processes(conn):
-        raise DocError("choose a process")
+        raise DocError(say("choose a process"))
     if not str(f.get("title") or "").strip():
-        raise DocError("a document needs a title")
+        raise DocError(say("a document needs a title"))
     if f.get("effective_date"):
         try:
             dt.date.fromisoformat(str(f["effective_date"]))
         except ValueError as exc:
-            raise DocError("effective date must be a date (YYYY-MM-DD)") from exc
+            raise DocError(say("effective date must be a date (YYYY-MM-DD)")) from exc
 
 
 EDITABLE = ("doc_type", "process", "number", "title", "revision", "effective_date", "owner", "language", "summary")
@@ -216,7 +218,8 @@ def confirm(conn, email: str, doc_id: int, changes: dict | None = None) -> dict:
         if doc is None:
             raise KeyError(doc_id)
         if doc["status"] not in ("to_review", "to_classify"):
-            raise DocError(f"document {doc_id} is {doc['status'].replace('_', ' ')}; nothing to confirm")
+            raise DocError(say("document {doc_id} is {status}; nothing to confirm",
+                               doc_id=doc_id, status=doc['status'].replace('_', ' ')))
         changes = {k: (str(v).strip() or None) if v is not None else None for k, v in (changes or {}).items()
                    if k in EDITABLE}
         f = {k: doc[k] for k in EDITABLE} | changes
@@ -256,12 +259,12 @@ def confirm_batch(conn, email: str, ids: list[int]) -> dict:
 def reject(conn, email: str, doc_id: int, reason: str) -> dict:
     """Not a document to keep (a stray file, a draft copy). The file stays in the import record."""
     if not reason.strip():
-        raise DocError("say why this file is not kept")
+        raise DocError(say("say why this file is not kept"))
     row = conn.execute("update documents set status = 'rejected', updated_at = now() where id = %s and status in "
                        "('to_classify', 'to_review') returning *", (doc_id,)).fetchone()
     if row is None:
         get(conn, doc_id)
-        raise DocError(f"document {doc_id} is already in the library; make it obsolete instead")
+        raise DocError(say("document {doc_id} is already in the library; make it obsolete instead", doc_id=doc_id))
     log(conn, doc_id, email, "not kept", reason.strip())
     return row
 
@@ -299,13 +302,15 @@ def _no_clash(conn, doc: dict) -> None:
                         "('in_review', 'approved', 'effective', 'obsolete')",
                         (doc["number"], doc["revision"], doc["id"])).fetchone()
     if same:
-        raise DocError(f"{doc['number']} rev {doc['revision']} already exists (document {same['id']})")
+        raise DocError(say("{number} rev {revision} already exists (document {id})",
+                           number=doc['number'], revision=doc['revision'], id=same['id']))
     other = conn.execute("select id, revision, status from documents where number = %s and status in ('approved', "
                          "'effective') and id <> %s and id is distinct from %s and supersedes is distinct from %s",
                          (doc["number"], doc["id"], doc["supersedes"], doc["id"])).fetchone()
     if other:
-        raise DocError(f"{doc['number']} rev {other['revision']} is {other['status']} (document {other['id']}): upload "
-                       "this as a new revision of it, or make that one obsolete first")
+        raise DocError(say("{number} rev {revision} is {status} (document {id}): upload this as a new revision of "
+                           "it, or make that one obsolete first",
+                           number=doc['number'], revision=other['revision'], status=other['status'], id=other['id']))
 
 
 def involved(conn, doc: dict) -> set[str]:
@@ -320,7 +325,7 @@ def edit(conn, email: str, doc_id: int, changes: dict) -> dict:
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] != "draft":
-            raise DocError("only a draft can be changed; an effective document changes by a new revision")
+            raise DocError(say("only a draft can be changed; an effective document changes by a new revision"))
         changes = {k: (str(v).strip() or None) if v is not None else None for k, v in (changes or {}).items()
                    if k in EDITABLE}
         f = {k: doc[k] for k in EDITABLE} | changes
@@ -328,8 +333,8 @@ def edit(conn, email: str, doc_id: int, changes: dict) -> dict:
             f["effective_date"] = f["effective_date"].isoformat()
         _check_fields(conn, f)
         if f["doc_type"] not in K.CONTROLLED and not (doc.get("ai_drafted") or doc.get("generated_from")):
-            raise DocError("a draft stays a procedure, work instruction or form; to keep it as a record, make it "
-                           "obsolete after approval or ask for it to be imported again")
+            raise DocError(say("a draft stays a procedure, work instruction or form; to keep it as a record, make it "
+                               "obsolete after approval or ask for it to be imported again"))
         before = {k: (str(doc[k]) if doc[k] is not None else None) for k in EDITABLE}
         diff = {k: v for k, v in changes.items() if before[k] != v}
         if not diff:
@@ -345,9 +350,10 @@ def submit(conn, email: str, doc_id: int) -> dict:
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] != "draft":
-            raise DocError(f"only a draft can be sent for approval; this one is {doc['status'].replace('_', ' ')}")
+            raise DocError(say("only a draft can be sent for approval; this one is {status}",
+                               status=doc['status'].replace('_', ' ')))
         if not doc["number"] or not doc["revision"]:
-            raise DocError("give the document a number and a revision before sending it for approval")
+            raise DocError(say("give the document a number and a revision before sending it for approval"))
         _no_clash(conn, doc)
         row = conn.execute("update documents set status = 'in_review', submitted_by = %s, updated_at = now() "
                            "where id = %s returning *", (email, doc_id)).fetchone()
@@ -357,11 +363,11 @@ def submit(conn, email: str, doc_id: int) -> dict:
 
 def send_back(conn, email: str, doc_id: int, reason: str) -> dict:
     if not reason.strip():
-        raise DocError("say what needs to change")
+        raise DocError(say("say what needs to change"))
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] != "in_review":
-            raise DocError("only a document waiting for approval can be sent back")
+            raise DocError(say("only a document waiting for approval can be sent back"))
         row = conn.execute("update documents set status = 'draft', updated_at = now() where id = %s returning *",
                            (doc_id,)).fetchone()
         log(conn, doc_id, email, "sent back", reason.strip())
@@ -375,12 +381,12 @@ def approve(conn, user: dict, doc_id: int, password: str, today: dt.date,  # noq
     revision it replaces becomes obsolete and the people who must read it are asked to."""
     def allowed(doc):
         if doc["status"] != "in_review":
-            raise DocError("only a document waiting for approval can be approved")
+            raise DocError(say("only a document waiting for approval can be approved"))
         if user["email"] in involved(conn, doc):
-            raise PermissionError("approval must come from someone who did not upload, confirm or submit it")
+            raise PermissionError(say("approval must come from someone who did not upload, confirm or submit it"))
 
     if effective_on is not None and effective_on < today:
-        raise DocError("it cannot take effect before the day it is approved")
+        raise DocError(say("it cannot take effect before the day it is approved"))
     first = get(conn, doc_id)
     allowed(first)
     if effective_on is None and first["effective_date"] and first["effective_date"] > today:
@@ -441,11 +447,11 @@ def take_effect_due(conn, today: dt.date) -> list[int]:
 
 def obsolete(conn, email: str, doc_id: int, reason: str) -> dict:
     if not reason.strip():
-        raise DocError("say why the document is obsolete")
+        raise DocError(say("say why the document is obsolete"))
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] not in ("effective", "confirmed", "approved"):
-            raise DocError("only an effective, approved or kept document can be made obsolete")
+            raise DocError(say("only an effective, approved or kept document can be made obsolete"))
         row = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, updated_at = now() "
                            "where id = %s returning *", (reason.strip(), doc_id)).fetchone()
         log(conn, doc_id, email, "obsolete" if doc["status"] != "approved" else "withdrawn before taking effect",
@@ -462,17 +468,17 @@ def new_revision(conn, email: str, doc_id: int, *, name: str, data: bytes, revis
     with conn.transaction():
         old = _lock(conn, doc_id)
         if old["status"] != "effective" or old["doc_type"] not in K.CONTROLLED:
-            raise DocError("a new revision starts from an effective procedure, work instruction or form")
+            raise DocError(say("a new revision starts from an effective procedure, work instruction or form"))
         if not revision or revision == old["revision"]:
-            raise DocError("give the new revision a name different from the current one")
+            raise DocError(say("give the new revision a name different from the current one"))
         if conn.execute("select 1 from documents where supersedes = %s and status in ('draft', 'in_review', "
                         "'approved')",
                         (doc_id,)).fetchone():
-            raise DocError("a new revision of this document is already in progress")
+            raise DocError(say("a new revision of this document is already in progress"))
         imp = new_import(conn, email, f"New revision of {old['number'] or old['title']}")
         doc = add_file(conn, imp["id"], name, data)
         if doc["sha256"] == old["sha256"]:
-            raise DocError("this is the same file as the current revision")
+            raise DocError(say("this is the same file as the current revision"))
         conn.execute("update doc_imports set status = 'done', engine = 'person' where id = %s", (imp["id"],))
         extract_one(conn, doc)
         row = conn.execute(
@@ -592,17 +598,18 @@ def suggestions(conn, doc: dict, state: dict | None = None) -> dict:
 
 def set_rule(conn, email: str, doc_type: str, template: str, digits: int) -> dict:
     if doc_type not in CK.NUMBERED:
-        raise DocError("numbering rules are for procedures, work instructions, forms and specifications")
+        raise DocError(say("numbering rules are for procedures, work instructions, forms and specifications"))
     template = (template or "").strip().upper().replace("{PROCESS}", "{process}").replace("{SEQ}", "{seq}")
     if template.count("{seq}") != 1 or not template.endswith("{seq}") or not re.fullmatch(
             r"[A-Z0-9._/-]*(\{process\}[A-Z0-9._/-]*)?\{seq\}", template):
-        raise DocError("a rule looks like QP-{seq} or F-{process}-{seq}: letters, digits and - before {seq} at the end")
+        raise DocError(say("a rule looks like QP-{seq} or F-{process}-{seq}: letters, digits and - before {seq} at "
+                           "the end"))
     try:
         digits = int(digits)
     except (TypeError, ValueError) as exc:
-        raise DocError("the sequence number has 1 to 6 digits") from exc
+        raise DocError(say("the sequence number has 1 to 6 digits")) from exc
     if not 1 <= digits <= 6:
-        raise DocError("the sequence number has 1 to 6 digits")
+        raise DocError(say("the sequence number has 1 to 6 digits"))
     return conn.execute("insert into doc_number_rules (doc_type, template, digits, updated_by) values (%s, %s, %s, %s) "
                         "on conflict (doc_type) do update set template = excluded.template, digits = excluded.digits, "
                         "updated_by = excluded.updated_by, updated_at = now() returning *",
@@ -617,17 +624,17 @@ def archive(conn, email: str, doc_id: int, reason: str) -> dict:
     """Keep an older revision (or a superseded file) found during import as obsolete: in the library's history, never
     in use. Its file is frozen like any kept document."""
     if not reason.strip():
-        raise DocError("say why it is kept as obsolete (for example: replaced by rev C)")
+        raise DocError(say("say why it is kept as obsolete (for example: replaced by rev C)"))
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] not in ("to_classify", "to_review", "draft"):
-            raise DocError("only a file waiting for review or a draft can be kept as obsolete; make an effective "
-                           "document obsolete instead")
+            raise DocError(say("only a file waiting for review or a draft can be kept as obsolete; make an effective "
+                               "document obsolete instead"))
         if doc["supersedes"]:
-            raise DocError("this is a new revision in progress, not an older one; send it back or leave it")
+            raise DocError(say("this is a new revision in progress, not an older one; send it back or leave it"))
         f = {k: doc[k] for k in EDITABLE}
         if not f["doc_type"] or f["process"] not in processes(conn) or not f["title"]:
-            raise DocError("give it a type, process and title first, so it can be found later")
+            raise DocError(say("give it a type, process and title first, so it can be found later"))
         row = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, fingerprint = sha256, "
                            "confirmed_by = coalesce(confirmed_by, %s), confirmed_at = coalesce(confirmed_at, now()), "
                            "updated_at = now() where id = %s returning *", (reason.strip(), email, doc_id)).fetchone()

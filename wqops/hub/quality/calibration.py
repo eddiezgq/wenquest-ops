@@ -18,6 +18,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.hub.quality import cal_rules as CR
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 FIELDS = {"name", "kind", "range_text", "location", "owner", "interval_months", "acceptance", "traceability"}
 
@@ -46,10 +47,10 @@ def _fields(data: dict) -> dict:
     out = {}
     for k, v in data.items():
         if k not in FIELDS:
-            raise CalError(f"equipment has no field {k!r} to change")
+            raise CalError(say("equipment has no field {k} to change", k=repr(k)))
         if k == "interval_months":
             if type(v) is not int or not 1 <= v <= 120:
-                raise CalError("the calibration interval is 1 to 120 months")
+                raise CalError(say("the calibration interval is 1 to 120 months"))
             out[k] = v
         else:
             out[k] = str(v or "").strip()[:1000] or (None if k == "owner" else "")
@@ -59,16 +60,16 @@ def _fields(data: dict) -> dict:
 def add(conn, email: str, code: str, data: dict) -> dict:
     code = str(code or "").strip()
     if not code:
-        raise CalError("give the equipment its ID")
+        raise CalError(say("give the equipment its ID"))
     f = _fields(data)
     if not f.get("name"):
-        raise CalError("give the equipment a name")
+        raise CalError(say("give the equipment a name"))
     if "interval_months" not in f:
-        raise CalError("how many months between calibrations?")
+        raise CalError(say("how many months between calibrations?"))
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext('wqo-gauges'))")
         if conn.execute("select 1 from gauges where lower(code) = lower(%s)", (code,)).fetchone():
-            raise CalError(f"equipment {code} already exists")
+            raise CalError(say("equipment {code} already exists", code=code))
         cols = ["code", "created_by", *f]
         row = conn.execute(f"insert into gauges ({', '.join(cols)}) values "  # noqa: S608 - fixed column names
                            f"({', '.join(['%s'] * len(cols))}) returning *", [code, email, *f.values()]).fetchone()
@@ -79,7 +80,7 @@ def add(conn, email: str, code: str, data: dict) -> dict:
 def change(conn, email: str, gid: int, data: dict) -> dict:
     g = get(conn, gid)
     if g["status"] == "retired":
-        raise CalError("the equipment is retired")
+        raise CalError(say("the equipment is retired"))
     f = {k: v for k, v in _fields(data).items() if v != g[k]}
     if not f:
         return g
@@ -94,12 +95,12 @@ def change(conn, email: str, gid: int, data: dict) -> dict:
 
 def retire(conn, email: str, gid: int, reason: str) -> dict:
     if not reason.strip():
-        raise CalError("give the reason")
+        raise CalError(say("give the reason"))
     with conn.transaction():
         row = conn.execute("update gauges set status = 'retired', retired_reason = %s, updated_at = now() where id = "
                            "%s and status <> 'retired' returning *", (reason.strip()[:1000], gid)).fetchone()
         if row is None:
-            raise CalError("it is already retired")
+            raise CalError(say("it is already retired"))
         log(conn, gid, email, "retired", reason.strip())
     return row
 
@@ -119,12 +120,12 @@ def _cal_fields(data: dict, today: dt.date) -> dict:
         try:
             out["done_on"] = dt.date.fromisoformat(str(data["done_on"])[:10])
         except ValueError as exc:
-            raise CalError("the calibration date is a date like 2026-10-31") from exc
+            raise CalError(say("the calibration date is a date like 2026-10-31")) from exc
         if out["done_on"] > today:
-            raise CalError("the calibration date cannot be after today")
+            raise CalError(say("the calibration date cannot be after today"))
     if "result" in data:
         if data["result"] not in ("pass", "fail"):
-            raise CalError("the result is pass or fail (out of tolerance)")
+            raise CalError(say("the result is pass or fail (out of tolerance)"))
         out["result"] = data["result"]
     for k in ("done_by", "certificate", "as_found", "as_left"):
         if k in data:
@@ -135,11 +136,11 @@ def _cal_fields(data: dict, today: dt.date) -> dict:
 def record(conn, email: str, gid: int, data: dict, *, today: dt.date) -> dict:
     g = get(conn, gid)
     if g["status"] == "retired":
-        raise CalError("the equipment is retired")
+        raise CalError(say("the equipment is retired"))
     f = _cal_fields(data, today)
     for need, what in (("done_on", "the date"), ("done_by", "who calibrated it"), ("result", "the result")):
         if not f.get(need):
-            raise CalError(f"give {what}")
+            raise CalError(say("give {what}", what=what))
     with conn.transaction():
         row = conn.execute("insert into gauge_calibrations (gauge_id, done_on, done_by, certificate, result, as_found, "
                            "as_left, recorded_by, changed_by) values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
@@ -155,9 +156,9 @@ def change_calibration(conn, user: dict, cid: int, data: dict, *, today: dt.date
 
     c = _cal(conn, cid)
     if c["status"] != "draft":
-        raise CalError("the calibration is approved: it cannot change")
+        raise CalError(say("the calibration is approved: it cannot change"))
     if user["email"] != c["recorded_by"] and not P.allows(user["roles"], "qms:configure"):
-        raise PermissionError("whoever recorded it, or Quality, changes it")
+        raise PermissionError(say("whoever recorded it, or Quality, changes it"))
     f = _cal_fields(data, today)
     if not f:
         return c
@@ -185,9 +186,9 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
     it out of service and lists what it measured since its last good calibration for assessment."""
     c = _cal(conn, cid)
     if c["status"] != "draft":
-        raise CalError("the calibration is already approved")
+        raise CalError(say("the calibration is already approved"))
     if user["email"] in (c["recorded_by"], c["changed_by"]):
-        raise PermissionError("someone other than whoever recorded or last changed it approves it")
+        raise PermissionError(say("someone other than whoever recorded or last changed it approves it"))
     _date_rules(conn, c, get(conn, c["gauge_id"]))
     Q.check_signer(conn, user, password)
     with conn.transaction():
@@ -196,7 +197,7 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
         Q._sign(conn, user, f"Calibration approved ({c['result']})", "calibration", cid, g["code"])
         if conn.execute("update gauge_calibrations set status = 'approved', approved_by = %s, approved_at = now() "
                         "where id = %s and status = 'draft' returning id", (user["email"], cid)).fetchone() is None:
-            raise CalError("the calibration changed meanwhile: open it again")
+            raise CalError(say("the calibration changed meanwhile: open it again"))
         if c["result"] == "pass":
             due = CR.add_months(c["done_on"], g["interval_months"])
             open_ = conn.execute("select 1 from gauge_impacts where gauge_id = %s and status = 'open'",
@@ -225,14 +226,16 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
 
 def _date_rules(conn, c: dict, g: dict) -> None:
     if g["status"] == "retired":
-        raise CalError("the equipment is retired")
+        raise CalError(say("the equipment is retired"))
     if c["result"] == "pass":
         if g["last_pass"] and c["done_on"] < g["last_pass"]:
-            raise CalError(f"a good calibration on {g['last_pass']} is already approved: this one is older")
+            raise CalError(say("a good calibration on {last_pass} is already approved: this one is older",
+                               last_pass=g['last_pass']))
         fail = conn.execute("select max(done_on) as d from gauge_calibrations where gauge_id = %s and status = "
                             "'approved' and result = 'fail'", (g["id"],)).fetchone()["d"]
         if fail and c["done_on"] <= fail:
-            raise CalError(f"it was found out of tolerance on {fail}: a good calibration must be after that")
+            raise CalError(say("it was found out of tolerance on {fail}: a good calibration must be after that",
+                               fail=fail))
 
 
 def assess(conn, user: dict, impact_id: int, password: str, conclusion: str, *, open_ncr: bool = False) -> dict:
@@ -242,15 +245,15 @@ def assess(conn, user: dict, impact_id: int, password: str, conclusion: str, *, 
     if imp is None:
         raise KeyError(impact_id)
     if imp["status"] != "open":
-        raise CalError("it is already assessed")
+        raise CalError(say("it is already assessed"))
     if not conclusion.strip():
-        raise CalError("write the conclusion: were the results it measured still valid?")
+        raise CalError(say("write the conclusion: were the results it measured still valid?"))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         g = conn.execute("select * from gauges where id = %s for update", (imp["gauge_id"],)).fetchone()
         if conn.execute("select status from gauge_impacts where id = %s for update",
                         (impact_id,)).fetchone()["status"] != "open":
-            raise CalError("it is already assessed")
+            raise CalError(say("it is already assessed"))
         ncr = None
         if open_ncr:
             ncr = Q.create_ncr(conn, user["email"], title=f"Out-of-tolerance equipment {g['code']}",

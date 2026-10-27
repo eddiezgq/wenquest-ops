@@ -14,6 +14,7 @@ from wqops.hub.ai import drafting as DR
 from wqops.hub.ai import record_tool as RT
 from wqops.hub.ai import tools as T
 from wqops.hub.ont import api as OA
+from wqops.i18n import say
 
 
 def _run(r: dict) -> dict:
@@ -23,7 +24,7 @@ def _run(r: dict) -> dict:
 def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0915, PLR0917
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def ctx(c, u) -> T.Ctx:
         m = company()[0]
@@ -41,7 +42,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         need(u, "ai:use")
         q = str((await request.json()).get("question", "")).strip()
         if not q:
-            raise HTTPException(400, "ask a question")
+            raise HTTPException(400, say("ask a question"))
 
         def work():
             with DB.connect(db_url) as c:
@@ -54,7 +55,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     def chat_of(c, u, cid: int) -> dict:
         r = c.execute("select * from ai_chats where id = %s", (cid,)).fetchone() if 0 < cid < 2**63 else None
         if r is None or r["email"] != u["email"]:
-            raise HTTPException(404, "no such conversation")
+            raise HTTPException(404, say("no such conversation"))
         return r
 
     def page_of(raw) -> dict | None:
@@ -97,11 +98,11 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         try:
             data = await request.json()
         except ValueError as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         data = data if isinstance(data, dict) else {}
         q = str(data.get("question") or "").strip()
         if not q:
-            raise HTTPException(400, "ask a question")
+            raise HTTPException(400, say("ask a question"))
         page = page_of(data.get("page"))
 
         def work():
@@ -129,7 +130,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     def own(c, u, rid: int) -> dict:
         r = c.execute("select * from ai_runs where id = %s", (rid,)).fetchone()
         if r is None or (r["email"] != u["email"] and not P.allows(u["roles"], "ai:configure")):
-            raise HTTPException(404, "no such run")
+            raise HTTPException(404, say("no such run"))
         return r
 
     @app.get("/api/ai/runs/{rid}")
@@ -142,10 +143,10 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         need(u, "ai:use")
         r = own(c, u, rid)
         if r["email"] != u["email"]:
-            raise HTTPException(403, "only the person who asked can rate an answer")
+            raise HTTPException(403, say("only the person who asked can rate an answer"))
         useful = (await request.json()).get("useful")
         if not isinstance(useful, bool):
-            raise HTTPException(400, "useful must be true or false")
+            raise HTTPException(400, say("useful must be true or false"))
         c.execute("update ai_runs set feedback = %s where id = %s", (1 if useful else -1, rid))
         return {"ok": True}
 
@@ -171,7 +172,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         need(u, "dashboard:view")
         row = c.execute("select * from briefs order by day desc limit 1").fetchone()
         if row is None:
-            raise HTTPException(404, "no brief yet; the first one is made at 7:30 company time")
+            raise HTTPException(404, say("no brief yet; the first one is made at 7:30 company time"))
         m = company()[0]
         return BR.view(row, u["roles"], (m or {}).get("company", {}).get("name", "the company"))
 

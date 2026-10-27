@@ -20,6 +20,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import risk_rules as RR
+from wqops.i18n import say
 
 FILE_FIELDS = {"product", "scope", "owner", "conclusion", "benefit_risk"}
 ITEM_TEXT = {"hazard", "situation", "harm", "controls", "verification", "benefit_risk"}
@@ -65,14 +66,14 @@ def add_level(conn, email: str, data: dict) -> dict:
     kind, rank = data.get("kind"), data.get("rank")
     name = str(data.get("name") or "").strip()
     if kind not in RR.KINDS:
-        raise RiskError("a level is a severity or a probability level")
+        raise RiskError(say("a level is a severity or a probability level"))
     if type(rank) is not int or not 1 <= rank <= 20:
-        raise RiskError("the rank is a whole number from 1 to 20")
+        raise RiskError(say("the rank is a whole number from 1 to 20"))
     if not name:
-        raise RiskError("name the level")
+        raise RiskError(say("name the level"))
     with conn.transaction():
         if conn.execute("select 1 from risk_levels where kind = %s and rank = %s", (kind, rank)).fetchone():
-            raise RiskError(f"there is already a {kind} level {rank}")
+            raise RiskError(say("there is already a {kind} level {rank}", kind=kind, rank=rank))
         row = conn.execute("insert into risk_levels (kind, rank, name, description, created_by) values "
                            "(%s, %s, %s, %s, %s) returning *", (kind, rank, name[:200],
                                                                 str(data.get("description") or "")[:2000],
@@ -90,9 +91,9 @@ def update_level(conn, email: str, lid: int, data: dict) -> dict:
         d = {}
         if "name" in data and str(data["name"] or "").strip() != lv["name"]:
             if not str(data["name"] or "").strip():
-                raise RiskError("name the level")
+                raise RiskError(say("name the level"))
             if _used(conn, lv["kind"], lv["rank"]):
-                raise RiskError("an approved risk file uses this level: its name stays (add a new level instead)")
+                raise RiskError(say("an approved risk file uses this level: its name stays (add a new level instead)"))
             d["name"] = str(data["name"]).strip()[:200]
         if "description" in data:
             d["description"] = str(data["description"] or "")[:2000]
@@ -111,14 +112,14 @@ def update_level(conn, email: str, lid: int, data: dict) -> dict:
 def set_cell(conn, email: str, severity, probability, verdict) -> dict:
     """Set one cell of the matrix, or clear it (None): the change is logged."""
     if type(severity) is not int or type(probability) is not int:
-        raise RiskError("the cell is a severity rank and a probability rank")
+        raise RiskError(say("the cell is a severity rank and a probability rank"))
     if verdict not in (*RR.VERDICTS, None):
         raise RiskError("the verdict is one of: " + ", ".join(RR.VERDICTS))
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext('wqo-risk-matrix'))")
         have = {(r["kind"], r["rank"]) for r in conn.execute("select kind, rank from risk_levels where active")}
         if verdict and (("severity", severity) not in have or ("probability", probability) not in have):
-            raise RiskError("both levels must exist and be in use")
+            raise RiskError(say("both levels must exist and be in use"))
         old = matrix(conn, active_only=False).get((severity, probability))
         if old == verdict:
             return {}
@@ -138,7 +139,7 @@ def load_example(conn, email: str) -> None:
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext('wqo-risk-matrix'))")
         if conn.execute("select 1 from risk_levels limit 1").fetchone():
-            raise RiskError("the company already has risk levels: change them instead")
+            raise RiskError(say("the company already has risk levels: change them instead"))
         for kind, names in RR.EXAMPLE_LEVELS.items():
             for rank, name in enumerate(names, 1):
                 conn.execute("insert into risk_levels (kind, rank, name, description, created_by) values "
@@ -171,14 +172,14 @@ def items(conn, fid: int) -> list[dict]:
 def _owner(conn, v) -> str | None:
     o = str(v or "").strip().lower() or None
     if o and not conn.execute("select 1 from users where email = %s and active", (o,)).fetchone():
-        raise RiskError(f"{o} is not a person in the company")
+        raise RiskError(say("{o} is not a person in the company", o=o))
     return o
 
 
 def create(conn, email: str, data: dict) -> dict:
     product = str(data.get("product") or "").strip()
     if not product:
-        raise RiskError("name the product or product family")
+        raise RiskError(say("name the product or product family"))
     owner = _owner(conn, data.get("owner"))
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext('wqo-number:risk_files'))")
@@ -194,7 +195,7 @@ def create(conn, email: str, data: dict) -> dict:
 def _draft(conn, fid: int) -> dict:
     f = get(conn, fid, lock=True)
     if f["status"] != "draft":
-        raise RiskError(f"the risk file is {f['status']}: start a new version to change it")
+        raise RiskError(say("the risk file is {status}: start a new version to change it", status=f['status']))
     return f
 
 
@@ -207,7 +208,7 @@ def _touch(conn, f: dict, email: str) -> None:
 def update(conn, email: str, fid: int, data: dict) -> dict:
     bad = set(data) - FILE_FIELDS
     if bad:
-        raise RiskError(f"{sorted(bad)[0].replace('_', ' ')} cannot be changed here")
+        raise RiskError(say("{bad} cannot be changed here", bad=sorted(bad)[0].replace('_', ' ')))
     with conn.transaction():
         f = _draft(conn, fid)
         d = {}
@@ -216,7 +217,7 @@ def update(conn, email: str, fid: int, data: dict) -> dict:
                 d[k] = _owner(conn, v)
             elif k == "product":
                 if not str(v or "").strip():
-                    raise RiskError("name the product or product family")
+                    raise RiskError(say("name the product or product family"))
                 d[k] = str(v).strip()[:300]
             else:
                 d[k] = str(v or "").strip()[:4000]
@@ -242,23 +243,23 @@ def _item_values(conn, data: dict, current: dict | None = None) -> dict:
             elif v in (None, ""):
                 out[k] = None
             elif type(v) is not int or (ITEM_RANKS[k], v) not in have:
-                raise RiskError(f"{k.replace('_', ' ').replace('res ', 'residual ')} is the rank of a {ITEM_RANKS[k]} "
-                                "level in use")
+                raise RiskError(say("{k} is the rank of a {ITEM_RANKS} level in use",
+                                    k=k.replace('_', ' ').replace('res ', 'residual '), ITEM_RANKS=ITEM_RANKS[k]))
             else:
                 out[k] = v
         elif k == "capa_id":
             if v not in (None, "") and (type(v) is not int or not conn.execute(
                     "select 1 from capas where id = %s", (v,)).fetchone()):
-                raise RiskError("no such corrective action")
+                raise RiskError(say("no such corrective action"))
             out[k] = v or None
         else:
-            raise RiskError(f"{k.replace('_', ' ')} is not part of a risk item")
+            raise RiskError(say("{k} is not part of a risk item", k=k.replace('_', ' ')))
     return out
 
 
 def _check_pair(it: dict) -> None:
     if (it.get("res_severity") is None) != (it.get("res_probability") is None):
-        raise RiskError("give both the residual severity and the residual probability, or neither")
+        raise RiskError(say("give both the residual severity and the residual probability, or neither"))
 
 
 def add_item(conn, email: str, fid: int, data: dict) -> dict:
@@ -305,7 +306,7 @@ def remove_item(conn, email: str, fid: int, iid: int) -> None:
 
 def _not_involved(user: dict, f: dict) -> None:
     if user["email"] == f["owner"] or user["email"] in f["editors"] or user["email"] == f["created_by"]:
-        raise PermissionError("someone who does not own and did not edit the risk file approves it")
+        raise PermissionError(say("someone who does not own and did not edit the risk file approves it"))
 
 
 def approve(conn, user: dict, fid: int, password: str) -> dict:
@@ -313,7 +314,7 @@ def approve(conn, user: dict, fid: int, password: str) -> dict:
     the version it revises is superseded."""
     f = get(conn, fid)
     if f["status"] != "draft":
-        raise RiskError("approve a draft risk file")
+        raise RiskError(say("approve a draft risk file"))
     _not_involved(user, f)
     Q.check_signer(conn, user, password)
     with conn.transaction():
@@ -348,9 +349,9 @@ def revise(conn, email: str, fid: int) -> dict:
     with conn.transaction():
         f = get(conn, fid, lock=True)
         if f["status"] != "approved":
-            raise RiskError("start a new version from the approved one")
+            raise RiskError(say("start a new version from the approved one"))
         if conn.execute("select 1 from risk_files where name = %s and status = 'draft'", (f["name"],)).fetchone():
-            raise RiskError("a new version is already being drafted")
+            raise RiskError(say("a new version is already being drafted"))
         version = conn.execute("select max(version) + 1 as v from risk_files where name = %s",
                                (f["name"],)).fetchone()["v"]     # a withdrawn draft keeps its number
         row = conn.execute("insert into risk_files (name, version, previous_id, product, scope, owner, conclusion, "
@@ -368,7 +369,7 @@ def revise(conn, email: str, fid: int) -> dict:
 
 def withdraw(conn, email: str, fid: int, reason: str) -> dict:
     if not reason.strip():
-        raise RiskError("give the reason")
+        raise RiskError(say("give the reason"))
     with conn.transaction():
         _draft(conn, fid)
         row = conn.execute("update risk_files set status = 'withdrawn', withdraw_reason = %s, updated_at = now() "

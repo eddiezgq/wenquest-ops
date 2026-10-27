@@ -15,6 +15,7 @@ from wqops.hub import permissions as P
 from wqops.hub.ont import metrics as M
 from wqops.hub.ont import overview as OV
 from wqops.hub.ont import schema as S
+from wqops.i18n import say
 
 MAX_NODES = 150
 MAX_LIST = 200
@@ -59,9 +60,9 @@ def mount(app: FastAPI, conn_dep, user_dep, onto_fn=S.get) -> None:
     def visible(u: dict, type_: str) -> S.Ontology:
         onto = onto_fn()
         if type_ not in onto.types:
-            raise HTTPException(404, f"no object type {type_}")
+            raise HTTPException(404, say("no object type {type}", type=type_))
         if not onto.can_see(u["roles"], type_):
-            raise HTTPException(403, f"your role does not see {onto.types[type_]['label']} objects")
+            raise HTTPException(403, say("your role does not see {label} objects", label=onto.types[type_]['label']))
         return onto
 
     @app.get("/api/ont/schema")
@@ -95,7 +96,7 @@ def mount(app: FastAPI, conn_dep, user_dep, onto_fn=S.get) -> None:
         onto = visible(u, type_)
         r = c.execute("select * from ont_objects where type = %s and key = %s", (type_, key)).fetchone()
         if r is None:
-            raise HTTPException(404, f"no {onto.types[type_]['label']} {key}")
+            raise HTTPException(404, say("no {label} {key}", label=onto.types[type_]['label'], key=key))
         hist = c.execute("select kind, at, changes, event_id from ont_history where type = %s and key = %s "
                          "order by id desc limit 50", (type_, key)).fetchall()
         spec = onto.types[type_]
@@ -151,11 +152,11 @@ def mount_dashboard(app: FastAPI, conn_dep, user_dep, company) -> None:
     def dashboard(days: int = 30, as_of: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
         """The metrics this person may see (ADR-0007 items 3-4), with weekly trends."""
         if days not in (7, 30, 90):
-            raise HTTPException(400, "days must be 7, 30 or 90")
+            raise HTTPException(400, say("days must be 7, 30 or 90"))
         try:
             day = dt.date.fromisoformat(as_of) if as_of else today(company()[0])
         except ValueError as exc:
-            raise HTTPException(400, "as_of must be a date like 2026-10-12") from exc
+            raise HTTPException(400, say("as_of must be a date like 2026-10-12")) from exc
         names = [n for n in M.LABELS if P.allows(u["roles"], M.VIEW[n])]
         return {"as_of": str(day), "days": days, "metrics": [M.compute(c, n, day, days) for n in names],
                 "trends": {n: M.weekly(c, n, day) for n in M.TRENDS if n in names}}
@@ -164,21 +165,22 @@ def mount_dashboard(app: FastAPI, conn_dep, user_dep, company) -> None:
         try:
             return dt.date.fromisoformat(as_of) if as_of else today(company()[0])
         except ValueError as exc:
-            raise HTTPException(400, "as_of must be a date like 2026-10-12") from exc
+            raise HTTPException(400, say("as_of must be a date like 2026-10-12")) from exc
 
     def _tz() -> str:
         return ((company()[0] or {}).get("company") or {}).get("timezone") or "UTC"
 
     def _weeks(weeks: int) -> int:
         if weeks not in (8, 13, 26):
-            raise HTTPException(400, "weeks must be 8, 13 or 26")
+            raise HTTPException(400, say("weeks must be 8, 13 or 26"))
         return weeks
 
     @app.get("/api/overview")
     def overview(weeks: int = 8, as_of: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
         """The company overview (ADR-0018): the panels, the chain and what waits, as this person may see them."""
         if not P.allows(u["roles"], "dashboard:view"):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS['dashboard:view']}")
+            raise HTTPException(403, say("your role does not allow: {dashboard_view}",
+                                         dashboard_view=P.PERMISSIONS['dashboard:view']))
         st = OV.settings(c)
         return OV.build(c, u, _day(as_of), _weeks(weeks), st, tz=_tz()) | {
             "visitor_mode": st["visitor_mode"], "thresholds": OV.R.thresholds(st["thresholds"]),
@@ -188,33 +190,36 @@ def mount_dashboard(app: FastAPI, conn_dep, user_dep, company) -> None:
     def overview_wall(weeks: int = 8, u=Depends(user_dep), c=Depends(conn_dep)):
         """The big screen; in visitor mode without amounts of money or names."""
         if not P.allows(u["roles"], "dashboard:view"):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS['dashboard:view']}")
+            raise HTTPException(403, say("your role does not allow: {dashboard_view}",
+                                         dashboard_view=P.PERMISSIONS['dashboard:view']))
         return OV.wall(c, u, _day(""), _weeks(weeks), OV.settings(c), tz=_tz()) | {
             "company": (company()[0] or {}).get("company", {}).get("name")}
 
     @app.post("/api/overview/settings")
     async def overview_settings(request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         if not P.allows(u["roles"], "settings:edit"):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS['settings:edit']}")
+            raise HTTPException(403, say("your role does not allow: {settings_edit}",
+                                         settings_edit=P.PERMISSIONS['settings:edit']))
         try:
             d = await request.json()
         except ValueError as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         if not isinstance(d, dict):
-            raise HTTPException(400, "send a key and a value")
+            raise HTTPException(400, say("send a key and a value"))
         try:
             return OV.set_setting(c, u["email"], str(d.get("key") or ""), d.get("value"))
         except KeyError as exc:
-            raise HTTPException(404, "no such setting") from exc
+            raise HTTPException(404, say("no such setting")) from exc
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
     @app.get("/api/dashboard/{name}")
     def metric(name: str, days: int = 30, as_of: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
         if name not in M.LABELS:
-            raise HTTPException(404, f"no metric {name}")
+            raise HTTPException(404, say("no metric {name}", name=name))
         if not P.allows(u["roles"], M.VIEW[name]):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[M.VIEW[name]]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                         PERMISSIONS=P.PERMISSIONS[M.VIEW[name]]))
         day = dt.date.fromisoformat(as_of) if as_of else today(company()[0])
         return M.compute(c, name, day, days) | {"as_of": str(day), "days": days}
 
@@ -247,7 +252,7 @@ def mount_anomalies(app: FastAPI, conn_dep, user_dep, company, onto_fn=S.get) ->
 
     def check(u: dict, row: dict, rules: dict) -> None:
         if row["rule"] not in AN.visible_rules(u["roles"], rules):
-            raise HTTPException(403, "your role does not see this anomaly")
+            raise HTTPException(403, say("your role does not see this anomaly"))
 
     @app.get("/api/anomalies/rules")
     def anomaly_rules(u=Depends(user_dep)):
@@ -271,7 +276,7 @@ def mount_anomalies(app: FastAPI, conn_dep, user_dep, company, onto_fn=S.get) ->
         rules = AN.load_rules()
         row = c.execute("select * from anomalies where id = %s", (aid,)).fetchone()
         if row is None:
-            raise HTTPException(404, "no such anomaly")
+            raise HTTPException(404, say("no such anomaly"))
         check(u, row, rules)
         log = c.execute("select at, email, action, note from anomaly_log where anomaly_id = %s order by id",
                         (aid,)).fetchall()
@@ -285,7 +290,7 @@ def mount_anomalies(app: FastAPI, conn_dep, user_dep, company, onto_fn=S.get) ->
         rules = AN.load_rules()
         row = c.execute("select * from anomalies where id = %s", (aid,)).fetchone()
         if row is None:
-            raise HTTPException(404, "no such anomaly")
+            raise HTTPException(404, say("no such anomaly"))
         check(u, row, rules)
         try:
             row = AN.set_status(c, aid, str(data.get("status", "")), u["email"], str(data.get("note", "")))
@@ -297,5 +302,5 @@ def mount_anomalies(app: FastAPI, conn_dep, user_dep, company, onto_fn=S.get) ->
     def explain(type_: str, key: str, u=Depends(user_dep), c=Depends(conn_dep)):
         onto = onto_fn()
         if not onto.can_see(u["roles"], type_):
-            raise HTTPException(403 if type_ in onto.types else 404, f"cannot explain {type_}")
+            raise HTTPException(403 if type_ in onto.types else 404, say("cannot explain {type}", type=type_))
         return visible_chain(onto, u["roles"], CH.explain(c, type_, key, day()))

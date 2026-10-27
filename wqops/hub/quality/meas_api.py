@@ -16,12 +16,13 @@ from wqops.hub.quality import iqc as I
 from wqops.hub.quality import meas_rules as MR
 from wqops.hub.quality import measurements as ME
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route after another
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
 
     def run(fn):
         try:
@@ -29,37 +30,37 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except (ME.MeasurementError, MR.MeasError, I.IqcError, Q.QualityError, CAL.CalError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     async def upload(request: Request) -> tuple[str, bytes, dict]:
         form = await request.form()
         up = form.get("file")
         if not isinstance(up, UploadFile):
-            raise HTTPException(400, "choose the measurement file")
+            raise HTTPException(400, say("choose the measurement file"))
         raw = await up.read(MR.MAX_BYTES + 1)
         if len(raw) > MR.MAX_BYTES:
-            raise HTTPException(413, "the file is larger than 5 MB")
+            raise HTTPException(413, say("the file is larger than 5 MB"))
         opts: dict = {}
         if form.get("mapping"):
             try:
                 m = json.loads(str(form.get("mapping")))
             except ValueError as exc:
-                raise HTTPException(400, "the matching is not JSON") from exc
+                raise HTTPException(400, say("the matching is not JSON")) from exc
             if not isinstance(m, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in m.items()):
-                raise HTTPException(400, "the matching is feature -> characteristic")
+                raise HTTPException(400, say("the matching is feature -> characteristic"))
             opts["mapping"] = m
         for k in ("first_sample", "gauge_id"):
             v = str(form.get(k) or "").strip()
             if v:
                 if not v.isdigit() or not 0 < int(v) < 2**31:
-                    raise HTTPException(400, f"{k.replace('_', ' ')} is a number")
+                    raise HTTPException(400, say("{k} is a number", k=k.replace('_', ' ')))
                 opts[k] = int(v)
         opts["password"] = str(form.get("password") or "")
         opts["seen"] = str(form.get("seen") or "")

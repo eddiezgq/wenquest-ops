@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 from wqops.hub.docs import classify as K
 from wqops.hub.docs import extract as X
+from wqops.i18n import say
 
 MAX_ROWS = 5000
 MAX_COLS = 100
@@ -274,7 +275,7 @@ def sheets_of(name: str, data: bytes) -> dict[str, list[list[str]]]:
             out[ws.title] = [r[:max((i + 1 for i, c in enumerate(r) if c), default=0)] for r in rows]
         wb.close()
         return out
-    raise ValueError("a ledger is an Excel (.xlsx) or CSV file")
+    raise ValueError(say("a ledger is an Excel (.xlsx) or CSV file"))
 
 
 def guess_header(rows: list[list[str]]) -> int:
@@ -293,15 +294,15 @@ def table(name: str, data: bytes, sheet: str = "", header_row: int = 0) -> Table
     books = sheets_of(name, data)
     names = list(books)
     if not names:
-        raise ValueError("the file has no sheets")
+        raise ValueError(say("the file has no sheets"))
     if not sheet:                               # the sheet with the most filled rows
         sheet = max(names, key=lambda s: sum(any(c for c in r) for r in books[s]))
     if sheet not in books:
-        raise ValueError(f"no sheet {sheet!r}; sheets: {', '.join(names)}")
+        raise ValueError(say("no sheet {sheet}; sheets: {names}", sheet=repr(sheet), names=', '.join(names)))
     rows = books[sheet]
     hr = header_row or guess_header(rows)
     if not 1 <= hr <= len(rows):
-        raise ValueError("the header row is outside the sheet")
+        raise ValueError(say("the header row is outside the sheet"))
     seen: dict[str, int] = {}
     headers = []
     width = max((len(r) for r in rows), default=0)

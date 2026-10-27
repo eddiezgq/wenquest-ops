@@ -15,6 +15,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
+from wqops.i18n import say
 
 MAX_ROUNDS = 8
 HISTORY = 6        # earlier questions and answers of the conversation sent with a follow-up (ADR-0021)
@@ -321,7 +322,7 @@ def draft(ctx: T.Ctx, kind: str, key: str) -> dict:
     from wqops.hub.ai import drafting as DR  # noqa: PLC0415
 
     if kind not in DR.KINDS:
-        raise T.ToolError(f"no draft kind {kind}; kinds: {', '.join(DR.KINDS)}")
+        raise T.ToolError(say("no draft kind {kind}; kinds: {KINDS}", kind=kind, KINDS=', '.join(DR.KINDS)))
     start(ctx, "draft", f"Draft {kind.replace('_', ' ')} for {key}")
     out = {"engine": "rules", "tool_calls": [], "unverified": [], "verified": True}
     try:

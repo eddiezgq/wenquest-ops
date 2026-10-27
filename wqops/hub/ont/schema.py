@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 
 from wqops.hub import permissions as P
+from wqops.i18n import say
 
 DIR = Path(__file__).resolve().parents[2] / "ontology"
 MATURITY = {"have": "Synced", "erp": "In ERPNext, not synced yet"}
@@ -65,46 +66,51 @@ class Ontology:
 def load(path: Path = DIR) -> Ontology:  # noqa: PLR0912 - one check per rule, kept in one place
     files = sorted(Path(path).glob("*.yaml"))
     if not files:
-        raise OntologyError(f"no ontology files in {path}")
+        raise OntologyError(say("no ontology files in {path}", path=path))
     onto = Ontology()
     seen: set[str] = set()
     for f in files:
         try:
             doc = yaml.safe_load(f.read_text(encoding="utf-8"))
         except yaml.YAMLError as exc:
-            raise OntologyError(f"{f.name}: not valid YAML: {exc}") from None
+            raise OntologyError(say("{name}: not valid YAML: {exc}", name=f.name, exc=exc)) from None
         if not isinstance(doc, dict):
-            raise OntologyError(f"{f.name}: expected a mapping")
+            raise OntologyError(say("{name}: expected a mapping", name=f.name))
         for k in ("domain", "order", "label", "view", "types"):
             if k not in doc:
-                raise OntologyError(f"{f.name}: missing {k}")
+                raise OntologyError(say("{name}: missing {k}", name=f.name, k=k))
         if doc["domain"] in seen:
-            raise OntologyError(f"{f.name}: domain {doc['domain']} is defined twice")
+            raise OntologyError(say("{name}: domain {domain} is defined twice", name=f.name, domain=doc['domain']))
         if doc["view"] not in P.PERMISSIONS:
-            raise OntologyError(f"{f.name}: view must be a permission ({', '.join(P.PERMISSIONS)})")
+            raise OntologyError(say("{name}: view must be a permission ({PERMISSIONS})",
+                                    name=f.name, PERMISSIONS=', '.join(P.PERMISSIONS)))
         seen.add(doc["domain"])
         d = {"domain": doc["domain"], "order": doc["order"], "label": doc["label"], "view": doc["view"], "types": []}
         for tn, ts in (doc["types"] or {}).items():
             where = f"{f.name}: {tn}"
             if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", tn):
-                raise OntologyError(f"{where}: type names are UpperCamelCase")
+                raise OntologyError(say("{where}: type names are UpperCamelCase", where=where))
             if tn in onto.types:
-                raise OntologyError(f"{where}: type already defined in domain {onto.types[tn]['domain']}")
+                raise OntologyError(say("{where}: type already defined in domain {domain}",
+                                        where=where, domain=onto.types[tn]['domain']))
             for k in ("label", "maturity", "source", "key"):
                 if not ts.get(k):
-                    raise OntologyError(f"{where}: missing {k}")
+                    raise OntologyError(say("{where}: missing {k}", where=where, k=k))
             if ts["maturity"] not in MATURITY:
-                raise OntologyError(f"{where}: maturity must be one of {', '.join(MATURITY)}")
+                raise OntologyError(say("{where}: maturity must be one of {MATURITY}",
+                                        where=where, MATURITY=', '.join(MATURITY)))
             props = ts.get("props") or {}
             for pn, ps in props.items():
                 if not isinstance(ps, dict) or ps.get("t") not in PROP_TYPES or not ps.get("l"):
-                    raise OntologyError(f"{where}.{pn}: a property needs t ({', '.join(sorted(PROP_TYPES))}) and l")
+                    raise OntologyError(say("{where}.{pn}: a property needs t ({PROP_TYPES}) and l",
+                                            where=where, pn=pn, PROP_TYPES=', '.join(sorted(PROP_TYPES))))
                 if ps.get("u") and ps["u"] not in UNITS:
-                    raise OntologyError(f"{where}.{pn}: unit must be one of {', '.join(sorted(UNITS))}")
+                    raise OntologyError(say("{where}.{pn}: unit must be one of {UNITS}",
+                                            where=where, pn=pn, UNITS=', '.join(sorted(UNITS))))
             title = ts.get("title", "{key}")
             for ref in re.findall(r"{(\w+)}", title):
                 if ref != "key" and ref not in props:
-                    raise OntologyError(f"{where}: title uses unknown property {ref}")
+                    raise OntologyError(say("{where}: title uses unknown property {ref}", where=where, ref=ref))
             onto.types[tn] = {**ts, "name": tn, "domain": doc["domain"], "view": doc["view"], "props": props,
                               "links": ts.get("links") or {}, "title": title}
             d["types"].append(tn)
@@ -112,9 +118,9 @@ def load(path: Path = DIR) -> Ontology:  # noqa: PLR0912 - one check per rule, k
     for tn, t in onto.types.items():
         for ln, ls in t["links"].items():
             if not isinstance(ls, dict) or not ls.get("to") or not ls.get("l") or not ls.get("inv"):
-                raise OntologyError(f"{tn}.{ln}: a link needs to, l and inv")
+                raise OntologyError(say("{tn}.{ln}: a link needs to, l and inv", tn=tn, ln=ln))
             if ls["to"] not in onto.types:
-                raise OntologyError(f"{tn}.{ln}: link target {ls['to']} is not an object type")
+                raise OntologyError(say("{tn}.{ln}: link target {to} is not an object type", tn=tn, ln=ln, to=ls['to']))
             onto.links[(tn, ln)] = {**ls, "frm": tn, "name": ln}
             onto.incoming.setdefault(ls["to"], []).append((tn, ln, ls))
     onto.domains.sort(key=lambda d: d["order"])

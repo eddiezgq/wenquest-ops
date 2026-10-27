@@ -14,6 +14,7 @@ from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
 from wqops.hub.docs import classify as K
 from wqops.hub.docs import library as LIB
+from wqops.i18n import say
 
 
 def _field(desc: str, enum: list[str] | None = None) -> dict:
@@ -91,7 +92,7 @@ def classify_one(model: L.Anthropic, sys_prompt: str, tool_def: dict, doc: dict,
                         1200, tool_choice={"type": "tool", "name": tool_def["name"]})
     use = next((b for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
     if use is None:
-        raise L.LlmError("the model did not record a classification")
+        raise L.LlmError(say("the model did not record a classification"))
     return _proposal(use.get("input") or {}), resp.get("usage", {})
 
 

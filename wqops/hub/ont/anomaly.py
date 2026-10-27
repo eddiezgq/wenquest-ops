@@ -16,6 +16,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.hub import permissions as P
 from wqops.hub.ont import metrics as M
+from wqops.i18n import say
 
 RULES_FILE = Path(__file__).resolve().parents[2] / "ontology" / "rules" / "anomalies.yaml"
 SEVERITY = {"info": 0, "warn": 1, "critical": 2}
@@ -39,7 +40,8 @@ def load_rules(path: Path = RULES_FILE) -> dict[str, dict]:
     for rid, r in rules.items():
         missing = [k for k in ("name", "severity", "view", "owner", "hint") if k not in r]
         if missing or r["severity"] not in SEVERITY or r["view"] not in P.PERMISSIONS or rid not in DETECTORS:
-            raise ValueError(f"rule {rid}: check name, severity, view, owner, hint and that its detector exists")
+            raise ValueError(say("rule {rid}: check name, severity, view, owner, hint and that its detector exists",
+                                 rid=rid))
     return rules
 
 
@@ -303,7 +305,8 @@ def set_status(conn, aid: int, status: str, email: str, note: str = "") -> dict:
     if row is None:
         raise KeyError(aid)
     if status not in TRANSITIONS.get(row["status"], set()):
-        raise ValueError(f"cannot change an anomaly from {row['status']} to {status}")
+        raise ValueError(say("cannot change an anomaly from {status} to {status2}",
+                             status=row['status'], status2=status))
     with conn.transaction():
         row = conn.execute(
             "update anomalies set status = %s, ended_at = case when %s = 'closed' then now() end "

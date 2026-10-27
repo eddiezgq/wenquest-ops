@@ -20,6 +20,7 @@ from wqops.hub.quality import workflow as W
 from wqops.hub.quality import workflow_proposals as WP
 from wqops.hub.system import qms as QMS
 from wqops.hub.system import rules as R
+from wqops.i18n import say
 
 # ---------------------------------------------------------------- the questionnaire
 
@@ -36,21 +37,21 @@ class SetupError(ValueError):
 
 def clean_answers(qs: dict, raw: dict) -> dict:
     if not isinstance(raw, dict):
-        raise SetupError("answers are given by question")
+        raise SetupError(say("answers are given by question"))
     out = {}
     for k, v in raw.items():
         q = qs.get(k)
         if q is None:
-            raise SetupError(f"there is no question {k!r}")
+            raise SetupError(say("there is no question {k}", k=repr(k)))
         if v in (None, ""):
             continue
         if q["type"] == "yesno":
             if type(v) is not bool:
-                raise SetupError(f"{q['label']} yes or no")
+                raise SetupError(say("{label} yes or no", label=q['label']))
             out[k] = v
         elif q["type"] == "number":
             if type(v) is not int or not 0 < v < 1_000_000:
-                raise SetupError(f"{q['label']}: a whole number")
+                raise SetupError(say("{label}: a whole number", label=q['label']))
             out[k] = v
         else:
             out[k] = str(v).strip()[:500]
@@ -91,7 +92,7 @@ def apply_answers(conn, user: dict, standard: str, password: str, today: dt.date
     """Declare, with the person's signature, what the answers say; only what differs from now."""
     todo = [p for p in proposed_applicability(conn, standard) if not p["same"]]
     if not todo:
-        raise SetupError("the declarations already match the answers")
+        raise SetupError(say("the declarations already match the answers"))
     for p in todo:
         QMS.declare(conn, user, standard, p["control"], p["applies"], p["reason"], password, today, tz)
     return len(todo)
@@ -107,32 +108,33 @@ MAX_ITEMS = 30
 
 def clean(pack: dict, raw: dict) -> dict:
     if not isinstance(raw, dict) or not isinstance(raw.get("kind"), str) or raw["kind"] not in KINDS:
-        raise SetupError(f"a change is one of: {', '.join(KINDS)}")
+        raise SetupError(say("a change is one of: {KINDS}", KINDS=', '.join(KINDS)))
     k = raw["kind"]
     cs = QMS.controls(pack)
     if k == "setting":
         key = str(raw.get("key") or "")
         spec = (pack.get("settings") or {}).get(key)
         if spec is None:
-            raise SetupError(f"there is no setting {key!r}")
+            raise SetupError(say("there is no setting {key}", key=repr(key)))
         v = raw.get("value")
         if type(spec["value"]) is bool:
             if type(v) is not bool:
-                raise SetupError(f"{spec['label']}: yes or no")
+                raise SetupError(say("{label}: yes or no", label=spec['label']))
         elif type(v) is not int or not spec.get("min", 0) <= v <= spec.get("max", 3650):
-            raise SetupError(f"{spec['label']}: a whole number from {spec.get('min', 0)} to {spec.get('max', 3650)}")
+            raise SetupError(say("{label}: a whole number from {spec} to {spec2}",
+                                 label=spec['label'], spec=spec.get('min', 0), spec2=spec.get('max', 3650)))
         return {"kind": k, "key": key, "value": v}
     control = str(raw.get("control") or "")
     if control not in cs:
-        raise SetupError(f"there is no requirement {control!r}")
+        raise SetupError(say("there is no requirement {control}", control=repr(control)))
     if k == "applies":
         if not cs[control].get("may_exclude"):
-            raise SetupError("this requirement always applies")
+            raise SetupError(say("this requirement always applies"))
         if type(raw.get("applies")) is not bool or not str(raw.get("reason") or "").strip():
-            raise SetupError("say whether it applies and why")
+            raise SetupError(say("say whether it applies and why"))
         return {"kind": k, "control": control, "applies": raw["applies"], "reason": str(raw["reason"]).strip()[:500]}
     if cs[control]["rule"] not in R.LINKED and not cs[control].get("switch"):
-        raise SetupError("this requirement is judged from the records, not from a document")
+        raise SetupError(say("this requirement is judged from the records, not from a document"))
     return {"kind": k, "control": control}
 
 
@@ -175,7 +177,7 @@ def store(conn, email: str, standard: str, docs: list[dict], result: dict,  # no
           ai_run: int | None) -> dict:
     row = QMS.enabled(conn, standard)
     if row is None:
-        raise QMS.QmsError("adopt the standard first")
+        raise QMS.QmsError(say("adopt the standard first"))
     pack = row["content"]
     bodies = {d["id"]: d["text"] for d in docs}
     changes = result.get("changes") if isinstance(result.get("changes"), list) else []
@@ -248,10 +250,11 @@ def decide(conn, user: dict, iid: int, accept: bool, *, password: str = "", note
         if it is None:
             raise KeyError(iid)
         if it["decision"] != "open":
-            raise SetupError(f"this change was already {it['decision']} by {it['decided_by']}")
+            raise SetupError(say("this change was already {decision} by {decided_by}",
+                                 decision=it['decision'], decided_by=it['decided_by']))
         if accept:
             if not acceptable(it):
-                raise SetupError("only a change whose quote was found and that passes the checks can be accepted")
+                raise SetupError(say("only a change whose quote was found and that passes the checks can be accepted"))
             ch, std = it["change"], it["standard"]
             if ch["kind"] == "setting":
                 QMS.set_setting(conn, user["email"], std, ch["key"], ch["value"], today, tz)

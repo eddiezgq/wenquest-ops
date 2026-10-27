@@ -19,6 +19,7 @@ from wqops.hub.docs import classify as C
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import workflow as W
 from wqops.hub.quality import workflow_admin as WA
+from wqops.i18n import say
 
 OPS = {
     "require": "a step needs a field the record already has",
@@ -61,20 +62,20 @@ def _when(v) -> dict:
     if v in (None, {}):
         return {}
     if not isinstance(v, dict):
-        raise ChangeError("the conditions of an approval are given by name")
+        raise ChangeError(say("the conditions of an approval are given by name"))
     out = {_s(k, 40): _names(x) for k, x in v.items()}
     if any(not x for x in out.values()):
-        raise ChangeError("every condition of an approval names at least one value")
+        raise ChangeError(say("every condition of an approval names at least one value"))
     return out
 
 
 def clean(kind: str, raw: dict) -> dict:  # noqa: PLR0911 - one shape per kind of change
     """A change in the shape it is stored and applied in; ChangeError when it cannot be made sense of."""
     if not isinstance(raw, dict) or not isinstance(raw.get("op"), str) or raw["op"] not in OPS:
-        raise ChangeError(f"a change is one of: {', '.join(OPS)}")
+        raise ChangeError(say("a change is one of: {OPS}", OPS=', '.join(OPS)))
     op = raw["op"]
     if op in ("require", "not_by", "roles") and _s(raw.get("step")) not in W.BUILT_IN[kind]:
-        raise ChangeError(f"there is no step {_s(raw.get('step'))!r}")
+        raise ChangeError(say("there is no step {raw}", raw=repr(_s(raw.get('step')))))
     if op == "require":
         return {"op": op, "step": _s(raw["step"]), "field": _s(raw.get("field"))}
     if op == "not_by":
@@ -83,7 +84,8 @@ def clean(kind: str, raw: dict) -> dict:  # noqa: PLR0911 - one shape per kind o
         return {"op": op, "step": _s(raw["step"]), "roles": sorted(set(_names(raw.get("roles"))))}
     if op == "rule":
         if kind != "ncr" or _s(raw.get("rule")) not in RULES:
-            raise ChangeError(f"rules that can be proposed: {', '.join(RULES)} (nonconformance reports)")
+            raise ChangeError(say("rules that can be proposed: {RULES} (nonconformance reports)",
+                                  RULES=', '.join(RULES)))
         return {"op": op, "rule": _s(raw["rule"]), "severity": _s(raw.get("severity"))}
     if op == "field":
         out = {"op": op, "name": _s(raw.get("name"), 40), "label": _s(raw.get("label"), 80),
@@ -101,7 +103,7 @@ def clean(kind: str, raw: dict) -> dict:  # noqa: PLR0911 - one shape per kind o
     if isinstance(digits, str) and digits.strip().isdigit():
         digits = int(digits)
     if type(digits) is not int or not 3 <= digits <= 8:
-        raise ChangeError("numbering needs 3 to 8 digits")
+        raise ChangeError(say("numbering needs 3 to 8 digits"))
     return {"op": op, "prefix": _s(raw.get("prefix"), 20), "digits": digits}
 
 
@@ -256,13 +258,15 @@ def read(conn, kind: str, ids: list[int]) -> list[dict]:
     """The procedures the model will read, with their text cut to what it may read."""
     allowed = {r["id"]: r for r in procedures(conn, kind)}
     if not ids:
-        raise WA.AdminError("choose the procedures to read")
+        raise WA.AdminError(say("choose the procedures to read"))
     if len(ids) > 8:
-        raise WA.AdminError("choose at most 8 procedures at a time")
+        raise WA.AdminError(say("choose at most 8 procedures at a time"))
     out, total = [], 0
     for i in dict.fromkeys(ids):
         if i not in allowed:
-            raise WA.AdminError(f"document {i} is not a procedure, work instruction or form of the library with text")
+            raise WA.AdminError(say("document {i} is not a procedure, work instruction or form of the library with "
+                                    "text",
+                                    i=i))
         body = conn.execute("select body from doc_text where document_id = %s", (i,)).fetchone()["body"]
         room = max(0, min(MAX_READ, MAX_TOTAL - total))
         d = allowed[i]
@@ -376,7 +380,8 @@ def _item(conn, iid: int) -> tuple[dict, dict]:
     if it is None:
         raise KeyError(iid)
     if it["decision"] != "open":
-        raise WA.AdminError(f"this change was already {it['decision']} by {it['decided_by']}")
+        raise WA.AdminError(say("this change was already {decision} by {decided_by}",
+                                decision=it['decision'], decided_by=it['decided_by']))
     return it, get(conn, it["proposal_id"])
 
 
@@ -387,7 +392,7 @@ def accept(conn, iid: int, email: str, note: str = "") -> dict:
         it, p = _item(conn, iid)
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-workflow:{p['kind']}",))
         if not acceptable(it):
-            raise WA.AdminError("only a change whose quote was found and that passes the checks can be accepted")
+            raise WA.AdminError(say("only a change whose quote was found and that passes the checks can be accepted"))
         ch = clean(p["kind"], it["change"])
         draft = conn.execute("select * from workflow_versions where kind = %s and status = 'draft' for update",
                              (p["kind"],)).fetchone() or WA.new_draft(conn, p["kind"], email)
@@ -398,7 +403,7 @@ def accept(conn, iid: int, email: str, note: str = "") -> dict:
             raise WA.AdminError("in the draft as it is now: " + "; ".join(found["problems"]))
         now = conn.execute("select status from documents where id = %s", (it["document_id"],)).fetchone()
         if now is None or now["status"] not in READABLE:
-            raise WA.AdminError("the procedure it quotes is no longer in effect in the document library")
+            raise WA.AdminError(say("the procedure it quotes is no longer in effect in the document library"))
         errors = W.validate(apply(draft["config"], ch), WA.in_use(conn, p["kind"]))
         if errors:
             raise WA.AdminError("fix the draft first: " + "; ".join(errors))

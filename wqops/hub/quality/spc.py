@@ -14,6 +14,8 @@ from __future__ import annotations
 import itertools
 import statistics as st
 
+from wqops.i18n import say
+
 D2 = {2: 1.128, 3: 1.693, 4: 2.059, 5: 2.326, 6: 2.534, 7: 2.704, 8: 2.847, 9: 2.970, 10: 3.078}
 A2 = {2: 1.880, 3: 1.023, 4: 0.729, 5: 0.577, 6: 0.483, 7: 0.419, 8: 0.373, 9: 0.337, 10: 0.308}
 D3 = {2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0.076, 8: 0.136, 9: 0.184, 10: 0.223}
@@ -27,9 +29,9 @@ class SpcError(ValueError):
 def xbar_r(groups: list[list[float]]) -> dict:
     n = len(groups[0]) if groups else 0
     if n not in D2 or any(len(g) != n for g in groups):
-        raise SpcError("X-bar and R needs subgroups of the same size, 2 to 10")
+        raise SpcError(say("X-bar and R needs subgroups of the same size, 2 to 10"))
     if len(groups) < 2:
-        raise SpcError("at least 2 subgroups are needed")
+        raise SpcError(say("at least 2 subgroups are needed"))
     xb = [st.fmean(g) for g in groups]
     rr = [max(g) - min(g) for g in groups]
     xbb, rb = st.fmean(xb), st.fmean(rr)
@@ -40,7 +42,7 @@ def xbar_r(groups: list[list[float]]) -> dict:
 
 def i_mr(values: list[float]) -> dict:
     if len(values) < 3:
-        raise SpcError("at least 3 values are needed")
+        raise SpcError(say("at least 3 values are needed"))
     mr = [abs(b - a) for a, b in itertools.pairwise(values)]
     xb, mrb = st.fmean(values), st.fmean(mr)
     s = mrb / D2[2]

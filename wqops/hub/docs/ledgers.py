@@ -18,6 +18,7 @@ from wqops.hub.docs import library as LIB
 from wqops.hub.docs import store as F
 from wqops.hub.quality import records as Q
 from wqops.hub.system import registers as RG
+from wqops.i18n import say
 
 SHEETS = (".xlsx", ".xlsm", ".csv")
 PREVIEW = 200
@@ -39,21 +40,22 @@ def is_ledger(doc: dict) -> bool:
 
 def table_of(conn, doc: dict, sheet: str = "", header_row: int = 0) -> LG.Table:
     if not is_ledger(doc):
-        raise LedgerError("only Excel (.xlsx) and CSV files can be imported as ledgers")
+        raise LedgerError(say("only Excel (.xlsx) and CSV files can be imported as ledgers"))
     if doc.get("duplicate_of"):
-        raise LedgerError(f"this file is the same as document {doc['duplicate_of']}; read that one")
+        raise LedgerError(say("this file is the same as document {duplicate_of}; read that one",
+                              duplicate_of=doc['duplicate_of']))
     try:
         return LG.table(doc["original_name"], F.get(doc["sha256"]), sheet, header_row)
     except ValueError as exc:
         raise LedgerError(str(exc)) from exc
     except Exception as exc:  # a damaged or mislabelled file: say so instead of failing
-        raise LedgerError(f"the spreadsheet could not be read ({type(exc).__name__}); save it again as .xlsx or "
-                          ".csv") from exc
+        raise LedgerError(say("the spreadsheet could not be read ({name}); save it again as .xlsx or .csv",
+                              name=type(exc).__name__)) from exc
 
 
 def flds(conn, target: str) -> dict[str, LG.Field]:
     if target not in LG.TARGETS:
-        raise LedgerError(f"a ledger is one of: {', '.join(LG.TARGETS)}")
+        raise LedgerError(say("a ledger is one of: {TARGETS}", TARGETS=', '.join(LG.TARGETS)))
     return LG.fields(target, dispositions(conn))
 
 
@@ -123,7 +125,7 @@ def update(conn, email: str, lid: int, *, mapping: dict, values: dict, sheet: st
     """A person's mapping replaces the proposal (only what fits the table is kept)."""
     imp = get(conn, lid)
     if imp["status"] != "proposed":
-        raise LedgerError("this ledger is already imported")
+        raise LedgerError(say("this ledger is already imported"))
     doc = LIB.get(conn, imp["document_id"])
     t = table_of(conn, doc, imp["sheet"] if sheet is None else sheet,
                  imp["header_row"] if header_row is None and sheet is None else header_row or 0)
@@ -289,9 +291,9 @@ def run_import(conn, user: dict, lid: int, password: str) -> dict:
     password; each row's outcome is recorded (append-only)."""
     imp = get(conn, lid)
     if imp["status"] != "proposed":
-        raise LedgerError("this ledger is already imported")
+        raise LedgerError(say("this ledger is already imported"))
     if imp["target"].startswith("erp_"):
-        raise LedgerError("rows for ERPNext are written by the ERPNext import (wqops/hub/erp_import.py)")
+        raise LedgerError(say("rows for ERPNext are written by the ERPNext import (wqops/hub/erp_import.py)"))
     doc = LIB.get(conn, imp["document_id"])
     t = table_of(conn, doc, imp["sheet"], imp["header_row"])
     rows = LG.rows(t, flds(conn, imp["target"]), imp["mapping"], imp["values_map"])
@@ -302,7 +304,7 @@ def run_import(conn, user: dict, lid: int, password: str) -> dict:
         conn.execute("select id from documents where id = %s for update", (doc["id"],))
         if conn.execute("select status from ledger_imports where id = %s for update", (lid,)).fetchone()["status"] \
                 != "proposed":
-            raise LedgerError("this ledger is already imported")
+            raise LedgerError(say("this ledger is already imported"))
         done = _done_rows(conn, doc["id"], imp["target"], t.sheet)
         for r in rows:
             if r["row"] in done:

@@ -12,6 +12,7 @@ from wqops.hub import drafts as D
 from wqops.hub.ai import tools as T
 from wqops.hub.ont import chain as CH
 from wqops.hub.ont import metrics as M
+from wqops.i18n import say
 
 
 def _obj(ctx: T.Ctx, type_: str, key: str) -> dict:
@@ -19,7 +20,7 @@ def _obj(ctx: T.Ctx, type_: str, key: str) -> dict:
     r = ctx.conn.execute("select key, title, props from ont_objects where type = %s and key = %s and not deleted",
                          (type_, key)).fetchone()
     if r is None:
-        raise T.ToolError(f"no {type_} {key}")
+        raise T.ToolError(say("no {type} {key}", type=type_, key=key))
     return r
 
 
@@ -53,7 +54,7 @@ def purchase_order(ctx: T.Ctx, item_code: str) -> dict:
     item = _obj(ctx, "Item", item_code)
     short = {x["item"]: x for x in M.shortages(ctx.conn)["items"]}.get(item_code)
     if short is None:
-        raise T.ToolError(f"{item_code} is not short for open orders; no replenishment needed")
+        raise T.ToolError(say("{item_code} is not short for open orders; no replenishment needed", item_code=item_code))
     last = None
     for o in M._objs(ctx.conn, "PurchaseOrder"):
         p = o["props"]
@@ -62,12 +63,13 @@ def purchase_order(ctx: T.Ctx, item_code: str) -> dict:
                                          (last[0]["props"].get("transaction_date") or "", last[0]["key"])):
             last = (o, line)
     if last is None:
-        raise T.ToolError(f"no earlier purchase order for {item_code}, so the supplier is unknown; "
-                          "please draft this one by hand in ERPNext")
+        raise T.ToolError(say("no earlier purchase order for {item_code}, so the supplier is unknown; please draft "
+                              "this one by hand in ERPNext",
+                              item_code=item_code))
     po, line = last
     supplier = _link(ctx, "PurchaseOrder", po["key"], "supplier")
     if not supplier:
-        raise T.ToolError(f"{po['key']} has no supplier; please draft this one by hand")
+        raise T.ToolError(say("{key} has no supplier; please draft this one by hand", key=po['key']))
     dues = sorted(d["due"] for d in M.open_demand(ctx.conn)[item_code] if d.get("due"))
     need_by = max(ctx.today, dt.date.fromisoformat(dues[0])) if dues else ctx.today + dt.timedelta(days=7)
     qty = math.ceil(short["short"])
@@ -91,11 +93,11 @@ def delay_message(ctx: T.Ctx, sales_order: str) -> dict:
     so = _obj(ctx, "SalesOrder", sales_order)
     p = so["props"]
     if not M._submitted(p) or p.get("status") not in M.OPEN_SO:
-        raise T.ToolError(f"{sales_order} is not an open order ({p.get('status', 'no status')}); "
-                          "no delay message needed")
+        raise T.ToolError(say("{sales_order} is not an open order ({p}); no delay message needed",
+                              sales_order=sales_order, p=p.get('status', 'no status')))
     customer = _link(ctx, "SalesOrder", sales_order, "customer")
     if not customer:
-        raise T.ToolError(f"{sales_order} has no customer")
+        raise T.ToolError(say("{sales_order} has no customer", sales_order=sales_order))
     due = p.get("delivery_date")
     waiting = []
     for s in CH.explain(ctx.conn, "SalesOrder", sales_order, ctx.today)["causes"]:
@@ -104,7 +106,8 @@ def delay_message(ctx: T.Ctx, sales_order: str) -> dict:
             left = (line.get("qty") or 0) - (line.get("delivered_qty") or 0)
             waiting.append(f"{s['to'][1]} ({left:g} to ship)")
     if not waiting and not (due and dt.date.fromisoformat(due) < ctx.today):
-        raise T.ToolError(f"{sales_order} is neither late nor waiting for stock; no delay message needed")
+        raise T.ToolError(say("{sales_order} is neither late nor waiting for stock; no delay message needed",
+                              sales_order=sales_order))
     company = (ctx.manifest or {}).get("company", {}).get("name", "our company")
     name = p.get("customer_name") or customer
     status = f"was due on {due}" if due and dt.date.fromisoformat(due) < ctx.today else f"is due on {due}"
@@ -124,11 +127,13 @@ def nonconformance(ctx: T.Ctx, inspection: str) -> dict:
     qi = _obj(ctx, "QualityInspection", inspection)
     p = qi["props"]
     if p.get("status") != "Rejected":
-        raise T.ToolError(f"{inspection} was not rejected ({p.get('status', 'no result')}); no NCR needed")
+        raise T.ToolError(say("{inspection} was not rejected ({p}); no NCR needed",
+                              inspection=inspection, p=p.get('status', 'no result')))
     existing = ctx.conn.execute("select name from ncr_records where inspection = %s and status <> 'cancelled'",
                                 (inspection,)).fetchone()
     if existing:
-        raise T.ToolError(f"{inspection} already has {existing['name']} (opened automatically or by a person)")
+        raise T.ToolError(say("{inspection} already has {name} (opened automatically or by a person)",
+                              inspection=inspection, name=existing['name']))
     item = p.get("item_code")
     receipt = p.get("reference_name") if p.get("reference_type") == "Purchase Receipt" else None
     supplier = _link(ctx, "PurchaseReceipt", receipt, "supplier") if receipt else None

@@ -17,6 +17,7 @@ from wqops.hub.ai import tools as T
 from wqops.hub.docs import library as LIB
 from wqops.hub.system import qms as QMS
 from wqops.hub.system import rules as R
+from wqops.i18n import say
 
 TYPES = ("procedure", "work_instruction", "form", "other")
 MAX_CHARS = 20000
@@ -112,9 +113,9 @@ def _clean(inp: dict) -> dict:
         if _t(s.get("heading"), 120) and paras:
             sections.append({"heading": _t(s["heading"], 120), "paragraphs": paras[:40]})
     if not title or not sections:
-        raise L.LlmError("the model's draft has no title or no text")
+        raise L.LlmError(say("the model's draft has no title or no text"))
     if sum(len(p) for s in sections for p in s["paragraphs"]) > MAX_CHARS:
-        raise L.LlmError("the model's draft is too long")
+        raise L.LlmError(say("the model's draft is too long"))
     return {"title": title, "doc_type": inp.get("doc_type") if inp.get("doc_type") in TYPES else "other",
             "sections": sections[:20], "to_fill": [_t(x, 300) for x in _items(inp.get("to_fill")) if _t(x, 300)][:30]}
 
@@ -123,10 +124,10 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
           company: str = "the company") -> dict:
     """Write the draft and put it in the library for review. Returns the new document."""
     if model is None or not model.configured():
-        raise NoModel("there is no model key; write the document yourself and link it")
+        raise NoModel(say("there is no model key; write the document yourself and link it"))
     c = draftable(conn, standard).get(control)
     if c is None:
-        raise QMS.QmsError("this control point is not shown by a document, or it already has one in effect")
+        raise QMS.QmsError(say("this control point is not shown by a document, or it already has one in effect"))
     have = conn.execute("select number, title, doc_type from documents where status in ('effective', 'confirmed', "
                         "'draft') and title is not null order by number nulls last limit 80").fetchall()
     known = "\n".join(f"- {d['number'] or ''} {d['title']} ({d['doc_type']})".strip() for d in have) or "none yet"
@@ -147,15 +148,15 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
                                          f"The company's documents:\n{known}"}],
             [tool()], 4000, tool_choice={"type": "tool", "name": "write_document"})
         if resp.get("stop_reason") == "max_tokens":
-            raise L.LlmError("the model's draft was cut off")
+            raise L.LlmError(say("the model's draft was cut off"))
         use = next((b for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
         if use is None or not isinstance(use.get("input"), dict):
-            raise L.LlmError("the model did not write a draft")
+            raise L.LlmError(say("the model did not write a draft"))
         d = _clean(use["input"])
         try:
             data = _docx(company, d["title"], d["sections"], d["to_fill"])
         except ValueError as exc:
-            raise L.LlmError(f"the model's draft could not be written as a file: {exc}") from exc
+            raise L.LlmError(say("the model's draft could not be written as a file: {exc}", exc=exc)) from exc
         name = re.sub(r"[^\w .-]+", " ", f"DRAFT {d['title']}").strip()[:100] + ".docx"
         with conn.transaction():
             imp = LIB.new_import(conn, user["email"], f"AI draft for {std} {', '.join(c['clauses'])}")

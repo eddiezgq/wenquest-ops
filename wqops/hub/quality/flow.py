@@ -18,6 +18,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.hub.quality import flow_rules as FL
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 FIELDS = {"title", "item_code", "scope", "owner"}
 
@@ -110,14 +111,14 @@ def resolve(conn, all_steps: list[dict], *, today: dt.date) -> dict[str, dict]: 
 def _owner(conn, v) -> str | None:
     o = str(v or "").strip().lower() or None
     if o and not conn.execute("select 1 from users where email = %s and active", (o,)).fetchone():
-        raise FlowError(f"{o} is not a person in the company")
+        raise FlowError(say("{o} is not a person in the company", o=o))
     return o
 
 
 def create(conn, email: str, data: dict) -> dict:
     title = str(data.get("title") or "").strip()
     if not title:
-        raise FlowError("name the process")
+        raise FlowError(say("name the process"))
     owner = _owner(conn, data.get("owner"))
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext('wqo-number:flow_charts'))")
@@ -133,7 +134,7 @@ def create(conn, email: str, data: dict) -> dict:
 def _draft(conn, cid: int) -> dict:
     c = get(conn, cid, lock=True)
     if c["status"] != "draft":
-        raise FlowError(f"the flow chart is {c['status']}: start a new version to change it")
+        raise FlowError(say("the flow chart is {status}: start a new version to change it", status=c['status']))
     return c
 
 
@@ -146,7 +147,7 @@ def _touch(conn, c: dict, email: str) -> None:
 def update(conn, email: str, cid: int, data: dict) -> dict:
     bad = set(data) - FIELDS
     if bad:
-        raise FlowError(f"{sorted(bad)[0].replace('_', ' ')} cannot be changed here")
+        raise FlowError(say("{bad} cannot be changed here", bad=sorted(bad)[0].replace('_', ' ')))
     with conn.transaction():
         c = _draft(conn, cid)
         d = {}
@@ -155,7 +156,7 @@ def update(conn, email: str, cid: int, data: dict) -> dict:
                 d[k] = _owner(conn, v)
             elif k == "title":
                 if not str(v or "").strip():
-                    raise FlowError("name the process")
+                    raise FlowError(say("name the process"))
                 d[k] = str(v).strip()[:300]
             elif k == "item_code":
                 d[k] = str(v or "").strip()[:140] or None
@@ -177,11 +178,11 @@ def _values(data: dict, seqs: set[int], own: int | None, current: dict | None = 
         for k, v in data.items():
             if k == "kind":
                 if v not in FL.KINDS:
-                    raise FlowError(f"a step is one of: {', '.join(FL.KINDS)}")
+                    raise FlowError(say("a step is one of: {KINDS}", KINDS=', '.join(FL.KINDS)))
                 out[k] = v
             elif k == "name":
                 if not str(v or "").strip():
-                    raise FlowError("name the step")
+                    raise FlowError(say("name the step"))
                 out[k] = str(v).strip()[:200]
             elif k in ("code", "description"):
                 out[k] = str(v or "").strip()[:20 if k == "code" else 2000]
@@ -190,7 +191,7 @@ def _values(data: dict, seqs: set[int], own: int | None, current: dict | None = 
             elif k == "links":
                 out[k] = FL.links(v)
             else:
-                raise FlowError(f"{k} is not part of a step")
+                raise FlowError(say("{k} is not part of a step", k=k))
     except FL.FlowRuleError as exc:
         raise FlowError(str(exc)) from exc
     if current is None and "kind" not in out:
@@ -205,7 +206,7 @@ def add_step(conn, email: str, cid: int, data: dict) -> dict:
         seq = max((s["seq"] for s in have), default=0) + 1
         d = _values(data, {s["seq"] for s in have}, seq)
         if "name" not in d:
-            raise FlowError("name the step")
+            raise FlowError(say("name the step"))
         row = conn.execute("insert into flow_steps (chart_id, seq, code, kind, name, description, branches, links) "
                            "values (%s, %s, %s, %s, %s, %s, %s, %s) returning *",
                            (cid, seq, d.get("code", ""), d["kind"], d["name"], d.get("description", ""),
@@ -255,7 +256,7 @@ def remove_step(conn, email: str, cid: int, sid: int) -> None:
 def move_step(conn, email: str, cid: int, sid: int, direction: str) -> None:
     """Swap a step with the one before or after it; branches follow the steps they pointed to."""
     if direction not in ("up", "down"):
-        raise FlowError("move a step up or down")
+        raise FlowError(say("move a step up or down"))
     with conn.transaction():
         c = _draft(conn, cid)
         have = steps(conn, cid)
@@ -280,13 +281,13 @@ def move_step(conn, email: str, cid: int, sid: int, direction: str) -> None:
 
 def _not_involved(user: dict, c: dict) -> None:
     if user["email"] == c["owner"] or user["email"] in c["editors"] or user["email"] == c["created_by"]:
-        raise PermissionError("someone who does not own and did not edit the flow chart approves it")
+        raise PermissionError(say("someone who does not own and did not edit the flow chart approves it"))
 
 
 def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dict:
     c = get(conn, cid)
     if c["status"] != "draft":
-        raise FlowError("approve a draft flow chart")
+        raise FlowError(say("approve a draft flow chart"))
     _not_involved(user, c)
     Q.check_signer(conn, user, password)
     with conn.transaction():
@@ -314,9 +315,9 @@ def revise(conn, email: str, cid: int) -> dict:
     with conn.transaction():
         c = get(conn, cid, lock=True)
         if c["status"] != "approved":
-            raise FlowError("start a new version from the approved one")
+            raise FlowError(say("start a new version from the approved one"))
         if conn.execute("select 1 from flow_charts where name = %s and status = 'draft'", (c["name"],)).fetchone():
-            raise FlowError("a new version is already being drafted")
+            raise FlowError(say("a new version is already being drafted"))
         version = conn.execute("select max(version) + 1 as v from flow_charts where name = %s",
                                (c["name"],)).fetchone()["v"]
         row = conn.execute("insert into flow_charts (name, version, previous_id, title, item_code, scope, owner, "
@@ -334,7 +335,7 @@ def revise(conn, email: str, cid: int) -> dict:
 
 def withdraw(conn, email: str, cid: int, reason: str) -> dict:
     if not reason.strip():
-        raise FlowError("give the reason")
+        raise FlowError(say("give the reason"))
     with conn.transaction():
         _draft(conn, cid)
         row = conn.execute("update flow_charts set status = 'withdrawn', withdraw_reason = %s, updated_at = now() "

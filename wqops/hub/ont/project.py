@@ -20,6 +20,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.hub import db as DB
 from wqops.hub.ont import schema as S
+from wqops.i18n import say
 
 BATCH = 500
 
@@ -436,10 +437,11 @@ def upsert(conn, onto: S.Ontology, o: Obj, *, kind: str, at: str, event_id: int 
     spec = onto.type(o.type)
     for k in o.props:
         if k not in spec["props"]:
-            raise S.OntologyError(f"{o.type}.{k} is not in the ontology")
+            raise S.OntologyError(say("{type}.{k} is not in the ontology", type=o.type, k=k))
     for ln, dst, _ in o.links:
         if onto.link(o.type, ln)["to"] != dst:
-            raise S.OntologyError(f"{o.type}.{ln} points to {onto.link(o.type, ln)['to']}, not {dst}")
+            raise S.OntologyError(say("{type}.{ln} points to {to}, not {dst}",
+                                      type=o.type, ln=ln, to=onto.link(o.type, ln)['to'], dst=dst))
     old = conn.execute(
         "select props, deleted from ont_objects where type = %s and key = %s", (o.type, o.key)
     ).fetchone()

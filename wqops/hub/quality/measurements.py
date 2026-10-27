@@ -23,6 +23,7 @@ from wqops.hub.quality import iqc as I
 from wqops.hub.quality import meas_rules as MR
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import spc
+from wqops.i18n import say
 
 
 class MeasurementError(ValueError):
@@ -35,8 +36,8 @@ def _open(conn, ins_id: int, lock: bool = False) -> tuple[dict, list[dict]]:
     if ins is None:
         raise KeyError(ins_id)
     if ins["status"] != "in_progress":
-        raise MeasurementError(f"{ins['name']} is {ins['status'].replace('_', ' ')}: readings can no longer be "
-                               "imported")
+        raise MeasurementError(say("{name} is {status}: readings can no longer be imported",
+                                   name=ins['name'], status=ins['status'].replace('_', ' ')))
     return ins, I.plan(conn, ins["plan_id"])["characteristics"]
 
 
@@ -111,11 +112,13 @@ def import_file(conn, user: dict, ins_id: int, file_name: str, raw: bytes, passw
         ins, _ = _open(conn, ins_id, lock=True)
         p = preview(conn, ins_id, file_name, raw, mapping=mapping, first_sample=first_sample, gauge_id=gauge_id)
         if p["print"] != seen:
-            raise MeasurementError("the file, the matching or the readings changed since the preview: preview again")
+            raise MeasurementError(say("the file, the matching or the readings changed since the preview: preview "
+                                       "again"))
         if p["already"]:
-            raise MeasurementError(f"this file was imported into {ins['name']} before, by {p['already']['by']}")
+            raise MeasurementError(say("this file was imported into {name} before, by {by}",
+                                       name=ins['name'], by=p['already']['by']))
         if not p["readings"]:
-            raise MeasurementError("no reading in the file goes to a measured characteristic of the plan")
+            raise MeasurementError(say("no reading in the file goes to a measured characteristic of the plan"))
         if p["blocks"]:
             raise MeasurementError("; ".join(p["blocks"]))
         g = None
@@ -123,7 +126,8 @@ def import_file(conn, user: dict, ins_id: int, file_name: str, raw: bytes, passw
             g = CAL.get(conn, gauge_id)
             ok, why = CALR.usable(g, today)
             if not ok:
-                raise MeasurementError(f"{g['code']}: {why}; measure with equipment in calibration")
+                raise MeasurementError(say("{code}: {why}; measure with equipment in calibration",
+                                           code=g['code'], why=why))
         left = p["problems"] + p["notes"]
         row = conn.execute(
             "insert into measurement_imports (inspection_id, file_name, sha256, format, content, mapping, samples, "
@@ -212,7 +216,7 @@ def subgroups(conn, source: str, item_code: str, parameter: str, limit: int = 10
                    "min": float(r["low"]) if r["low"] is not None else None,
                    "max": float(r["high"]) if r["high"] is not None else None} for r in rows]
     else:
-        raise MeasurementError("the source is incoming or production")
+        raise MeasurementError(say("the source is incoming or production"))
     for g in groups:
         g["min"] = float(g["min"]) if g["min"] is not None else None
         g["max"] = float(g["max"]) if g["max"] is not None else None

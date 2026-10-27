@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from wqops.i18n import say
+
 KINDS = ("severity", "occurrence", "detection")
 PRIORITIES = ("high", "medium", "low")
 RANK_KEYS = {"severity": "severity", "occurrence": "occurrence", "detection": "detection",
@@ -33,33 +35,34 @@ def check_rule(cfg: dict) -> dict:
     if m == "rpn":
         t = cfg.get("rpn_action")
         if type(t) is not int or not 1 <= t <= 1000:
-            raise FmeaRuleError("the RPN threshold is a whole number from 1 to 1000")
+            raise FmeaRuleError(say("the RPN threshold is a whole number from 1 to 1000"))
         s = cfg.get("severity_action")
         if s not in (None, "") and (type(s) is not int or not 1 <= s <= 10):
-            raise FmeaRuleError("the severity threshold is a rank from 1 to 10, or empty")
+            raise FmeaRuleError(say("the severity threshold is a rank from 1 to 10, or empty"))
         return {"method": "rpn", "rpn_action": t, "severity_action": s or None, "rules": [], "needs_action": []}
     if m == "lookup":
         rules = cfg.get("rules")
         if not isinstance(rules, list) or not rules:
-            raise FmeaRuleError("a lookup rule needs at least one row of ranges")
+            raise FmeaRuleError(say("a lookup rule needs at least one row of ranges"))
         out = []
         for k, r in enumerate(rules, 1):
             if not isinstance(r, dict) or r.get("priority") not in PRIORITIES:
-                raise FmeaRuleError(f"row {k}: the priority is high, medium or low")
+                raise FmeaRuleError(say("row {k}: the priority is high, medium or low", k=k))
             row = {"priority": r["priority"]}
             for key in ("s", "o", "d"):
                 lo_hi = r.get(key)
                 if (not isinstance(lo_hi, list) or len(lo_hi) != 2 or any(type(x) is not int for x in lo_hi)
                         or not 1 <= lo_hi[0] <= lo_hi[1] <= 10):
-                    raise FmeaRuleError(f"row {k}: {key.upper()} is a range of ranks, low to high, within 1 to 10")
+                    raise FmeaRuleError(say("row {k}: {key} is a range of ranks, low to high, within 1 to 10",
+                                            k=k, key=key.upper()))
                 row[key] = list(lo_hi)
             out.append(row)
         need = cfg.get("needs_action") or ["high"]
         if not isinstance(need, list) or any(p not in PRIORITIES for p in need):
-            raise FmeaRuleError("the priorities that need action are among high, medium and low")
+            raise FmeaRuleError(say("the priorities that need action are among high, medium and low"))
         return {"method": "lookup", "rpn_action": None, "severity_action": None, "rules": out,
                 "needs_action": [p for p in PRIORITIES if p in need]}
-    raise FmeaRuleError("the rule is an RPN threshold (rpn) or a lookup table (lookup)")
+    raise FmeaRuleError(say("the rule is an RPN threshold (rpn) or a lookup table (lookup)"))
 
 
 def judge(cfg: dict | None, s: int | None, o: int | None, d: int | None) -> dict:

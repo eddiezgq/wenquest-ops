@@ -11,6 +11,8 @@ import datetime as dt
 import math
 from collections.abc import Iterable
 
+from wqops.i18n import say
+
 PANELS = ("sales", "delivery", "inventory", "purchasing", "production", "quality", "finance")
 LABELS = {"sales": "Sales", "delivery": "Delivery", "inventory": "Inventory", "purchasing": "Purchasing",
           "production": "Production", "quality": "Quality", "finance": "Finance"}
@@ -44,17 +46,17 @@ def thresholds(saved: dict | None) -> dict[str, dict]:
 def check_thresholds(data) -> dict:
     """A company's thresholds as sent: numbers, in the right order for the direction."""
     if not isinstance(data, dict):
-        raise ValueError("thresholds are given per panel")
+        raise ValueError(say("thresholds are given per panel"))
     out = {}
     for k, v in data.items():
         if k not in THRESHOLDS:
-            raise ValueError(f"no panel {k}")
+            raise ValueError(say("no panel {k}", k=k))
         if not isinstance(v, dict) or any(type(v.get(x)) not in (int, float) or not math.isfinite(v[x])
                                           for x in ("green", "amber")):
-            raise ValueError(f"{k}: green and amber are numbers")
+            raise ValueError(say("{k}: green and amber are numbers", k=k))
         better = THRESHOLDS[k][2]
         if (better == "higher" and v["green"] < v["amber"]) or (better == "lower" and v["green"] > v["amber"]):
-            raise ValueError(f"{k}: green must be the better of the two")
+            raise ValueError(say("{k}: green must be the better of the two", k=k))
         out[k] = {"green": v["green"], "amber": v["amber"]}
     return out
 

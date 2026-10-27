@@ -13,6 +13,7 @@ from contextvars import ContextVar
 from wqops.hub import permissions as P
 from wqops.hub.ont import metrics as M
 from wqops.hub.ont import overview_rules as R
+from wqops.i18n import say
 
 TZ: ContextVar[str] = ContextVar("overview_tz", default="UTC")   # the company's time zone for this request
 ATTENTION_DAYS = 2      # a lot or a receipt waiting longer than this is "stuck" on the chain
@@ -435,7 +436,7 @@ def set_setting(conn, email: str, key: str, value) -> dict:
                  if (v["green"], v["amber"]) != tuple(R.THRESHOLDS[k][3:5])}
     elif key == "visitor_mode":
         if type(value) is not bool:
-            raise ValueError("visitor mode is on or of")
+            raise ValueError(say("visitor mode is on or of"))
     else:
         raise KeyError(key)
     conn.execute("insert into overview_settings (key, value, email) values (%s, %s, %s)", (key, Jsonb(value), email))

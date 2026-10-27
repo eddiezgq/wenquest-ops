@@ -10,6 +10,8 @@ import hashlib
 import json
 import re
 
+from wqops.i18n import say
+
 KINDS = {"operation": "Operation", "inspection": "Inspection", "move": "Move", "store": "Storage", "delay": "Wait"}
 BRANCH_KINDS = ("rework", "scrap", "other")
 LINK_KINDS = {"documents": "Document", "fmea": "PFMEA row", "plan": "Incoming inspection plan",
@@ -25,7 +27,7 @@ class FlowRuleError(ValueError):
 def _key(v, what: str, n: int = 60) -> str:
     s = CONTROL.sub("", str(v if v is not None else "")).strip()[:n]
     if not s:
-        raise FlowRuleError(f"{what} is empty")
+        raise FlowRuleError(say("{what} is empty", what=what))
     return s
 
 
@@ -35,21 +37,21 @@ def branches(v, seqs: set[int], own: int | None) -> list[dict]:
     if v in (None, ""):
         return []
     if not isinstance(v, list):
-        raise FlowRuleError("branches are a list")
+        raise FlowRuleError(say("branches are a list"))
     out = []
     for b in v[:MAX_LIST]:
         if not isinstance(b, dict):
-            raise FlowRuleError("a branch has a step to go to and a label")
+            raise FlowRuleError(say("a branch has a step to go to and a label"))
         to = b.get("to")
         kind = b.get("kind") or "other"
         if kind not in BRANCH_KINDS:
-            raise FlowRuleError("a branch is rework, scrap or other")
+            raise FlowRuleError(say("a branch is rework, scrap or other"))
         if to is None and kind != "rework":
             pass                                   # leaves the flow: scrapped, returned to the supplier
         elif type(to) is not int or to not in seqs:
-            raise FlowRuleError("a branch goes to a step of this chart (a rework branch always does)")
+            raise FlowRuleError(say("a branch goes to a step of this chart (a rework branch always does)"))
         elif to == own:
-            raise FlowRuleError("a branch goes to another step")
+            raise FlowRuleError(say("a branch goes to another step"))
         out.append({"to": to, "label": CONTROL.sub(" ", str(b.get("label") or "")).strip()[:80], "kind": kind})
     return out
 
@@ -59,15 +61,15 @@ def links(v) -> dict:  # noqa: PLR0912 - one block per kind of link
     if v in (None, ""):
         return {}
     if not isinstance(v, dict):
-        raise FlowRuleError("links are an object")
+        raise FlowRuleError(say("links are an object"))
     bad = set(v) - set(LINK_KINDS)
     if bad:
-        raise FlowRuleError(f"{sorted(bad)[0]} is not something a step links to")
+        raise FlowRuleError(say("{bad} is not something a step links to", bad=sorted(bad)[0]))
     out: dict = {}
     for k in ("documents", "gauges"):
         items = v.get(k) or []
         if not isinstance(items, list):
-            raise FlowRuleError(f"{k} is a list")
+            raise FlowRuleError(say("{k} is a list", k=k))
         keys = []
         for x in items[:MAX_LIST]:
             s = _key(x, f"a {LINK_KINDS[k].lower()} number")
@@ -77,11 +79,11 @@ def links(v) -> dict:  # noqa: PLR0912 - one block per kind of link
             out[k] = keys
     fm = v.get("fmea") or []
     if not isinstance(fm, list):
-        raise FlowRuleError("fmea is a list of PFMEA rows")
+        raise FlowRuleError(say("fmea is a list of PFMEA rows"))
     rows = []
     for x in fm[:MAX_LIST]:
         if not isinstance(x, dict) or type(x.get("seq")) is not int:
-            raise FlowRuleError("a PFMEA row is its PFMEA number and its row number")
+            raise FlowRuleError(say("a PFMEA row is its PFMEA number and its row number"))
         r = {"name": _key(x.get("name"), "the PFMEA number"), "seq": x["seq"]}
         if r not in rows:
             rows.append(r)

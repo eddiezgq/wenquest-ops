@@ -14,6 +14,7 @@ import sys
 
 from wqops import company as C
 from wqops.erp import ErpClient, ErpError
+from wqops.i18n import say
 
 ADDRESS_TYPES = {"office": "Office", "warehouse": "Warehouse", "plant": "Plant", "store": "Shop"}
 
@@ -53,7 +54,8 @@ def apply(m: dict, erp: ErpClient) -> list[str]:
     company = m["company"]["name"]
     abbr = m["company"]["abbr"]
     if erp.get("Company", company) is None:
-        raise ErpError(f"company {company!r} does not exist in ERPNext; run the setup wizard first")
+        raise ErpError(say("company {company} does not exist in ERPNext; run the setup wizard first",
+                           company=repr(company)))
     done = []
     for w in m["warehouses"]:
         name = warehouse_name(m, w)

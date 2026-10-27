@@ -16,6 +16,7 @@ from wqops.hub.ont import api as OA
 from wqops.hub.ont import chain as CH
 from wqops.hub.ont import metrics as M
 from wqops.hub.ont import schema as S
+from wqops.i18n import say
 
 
 class ToolError(ValueError):
@@ -46,9 +47,9 @@ class Ctx:
 
     def need_type(self, t: str) -> None:
         if t not in self.onto.types:
-            raise ToolError(f"no object type {t}; types: {', '.join(self.onto.types)}")
+            raise ToolError(say("no object type {t}; types: {types}", t=t, types=', '.join(self.onto.types)))
         if not self.onto.can_see(self.roles, t):
-            raise ToolError(f"this person's role cannot see {self.onto.types[t]['label']} objects")
+            raise ToolError(say("this person's role cannot see {label} objects", label=self.onto.types[t]['label']))
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ def get_object(ctx: Ctx, type: str, key: str) -> dict:
     ctx.need_type(type)
     r = ctx.conn.execute("select * from ont_objects where type = %s and key = %s", (type, key)).fetchone()
     if r is None:
-        raise ToolError(f"no {type} {key}")
+        raise ToolError(say("no {type} {key}", type=type, key=key))
     rel = OA.relations(ctx.conn, ctx.onto, ctx.roles, type, key)
     about = ctx.conn.execute(
         "select * from anomalies where status in ('open', 'ack', 'doing') and rule = any(%s) and "
@@ -121,11 +122,11 @@ def explain(ctx: Ctx, type: str, key: str) -> dict:
 
 def get_metric(ctx: Ctx, name: str, days: int = 30) -> dict:
     if name not in M.LABELS:
-        raise ToolError(f"no metric {name}; metrics: {', '.join(M.LABELS)}")
+        raise ToolError(say("no metric {name}; metrics: {LABELS}", name=name, LABELS=', '.join(M.LABELS)))
     if not P.allows(ctx.roles, M.VIEW[name]):
-        raise ToolError(f"this person's role cannot see {M.LABELS[name]}")
+        raise ToolError(say("this person's role cannot see {LABELS}", LABELS=M.LABELS[name]))
     if days not in (7, 30, 90):
-        raise ToolError("days must be 7, 30 or 90")
+        raise ToolError(say("days must be 7, 30 or 90"))
     r = M.compute(ctx.conn, name, ctx.today, days)
     for o in r.get("late", []) + r.get("orders", []):
         ctx.ref("SalesOrder", o["key"])
@@ -162,7 +163,7 @@ def list_anomalies(ctx: Ctx, status: str = "active") -> dict:
 def get_anomaly(ctx: Ctx, id: int) -> dict:
     a = ctx.conn.execute("select * from anomalies where id = %s", (int(id),)).fetchone()
     if a is None or a["rule"] not in AN.visible_rules(ctx.roles, ctx.rules):
-        raise ToolError(f"no anomaly {id} that this person may see")
+        raise ToolError(say("no anomaly {id} that this person may see", id=id))
     pub = AN.public(a, ctx.rules)
     return pub | {
         "about": ctx.ref(a["subject_type"], a["subject_key"]),
@@ -229,8 +230,8 @@ def registry(extra: list[Tool] | None = None) -> dict[str, Tool]:
 
 def call(ctx: Ctx, tools: dict[str, Tool], name: str, args: dict) -> dict:
     if name not in tools:
-        raise ToolError(f"no tool {name}")
+        raise ToolError(say("no tool {name}", name=name))
     try:
         return tools[name].fn(ctx, **(args or {}))
     except TypeError as exc:
-        raise ToolError(f"wrong arguments for {name}: {exc}") from exc
+        raise ToolError(say("wrong arguments for {name}: {exc}", name=name, exc=exc)) from exc

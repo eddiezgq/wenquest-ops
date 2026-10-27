@@ -17,6 +17,7 @@ from wqops.hub.quality import records as Q
 from wqops.hub.quality import sampling as S
 from wqops.hub.quality import tools_rules as TR
 from wqops.hub.quality import workflow as W
+from wqops.i18n import say
 
 REFS = 50                                        # records listed per bar; the count is always complete
 SOURCES = {
@@ -55,7 +56,7 @@ def _day(v, what: str) -> dt.date | None:
     try:
         return dt.date.fromisoformat(str(v))
     except ValueError as exc:
-        raise ToolsError(f"{what}: a date like 2026-10-31") from exc
+        raise ToolsError(say("{what}: a date like 2026-10-31", what=what)) from exc
 
 
 def _key(v) -> str:
@@ -66,13 +67,14 @@ def _key(v) -> str:
 def pareto_for(conn, source: str, by: str, *, since=None, until=None,  # noqa: PLR0912, PLR0915
                form_id: int | None = None) -> dict:
     if source not in SOURCES:
-        raise ToolsError(f"count one of: {', '.join(SOURCES)}")
+        raise ToolsError(say("count one of: {SOURCES}", SOURCES=', '.join(SOURCES)))
     dims = dict(SOURCES[source]["by"]) | (_custom_choices(conn) if source == "ncr" else {})
     if by not in dims:
-        raise ToolsError(f"group {SOURCES[source]['label'].lower()} by one of: {', '.join(dims.values())}")
+        raise ToolsError(say("group {label} by one of: {dims}",
+                             label=SOURCES[source]['label'].lower(), dims=', '.join(dims.values())))
     d0, d1 = _day(since, "from"), _day(until, "to")
     if d0 and d1 and d1 < d0:
-        raise ToolsError("the period ends before it starts")
+        raise ToolsError(say("the period ends before it starts"))
     lo = d0 or dt.date(1900, 1, 1)
     hi = (d1 or dt.date(9999, 12, 30)) + dt.timedelta(days=1)
     counts: dict[str, float] = {}
@@ -116,7 +118,7 @@ def pareto_for(conn, source: str, by: str, *, since=None, until=None,  # noqa: P
                                  "title": r["description"][:80]})
     else:
         if not form_id:
-            raise ToolsError("choose the check sheet form")
+            raise ToolsError(say("choose the check sheet form"))
         form(conn, form_id)
         for r in conn.execute("select * from check_sheets where form_id = %s and on_date >= %s and on_date < %s "
                               "order by id", (form_id, lo, hi)):
@@ -163,7 +165,7 @@ def scatter_for(conn, source: str, item_code: str, x: str, y: str, *, limit: int
     """Two characteristics of the same item measured on the same piece: a sample of an incoming inspection, or one
     production record."""
     if x == y:
-        raise ToolsError("choose two different characteristics")
+        raise ToolsError(say("choose two different characteristics"))
     if source == "incoming":
         rows = conn.execute(
             "select i.id, i.name, a.sample, a.value as x, b.value as y from iqc_inspections i "
@@ -184,7 +186,7 @@ def scatter_for(conn, source: str, item_code: str, x: str, y: str, *, limit: int
         pts = [{"x": float(r["x"]), "y": float(r["y"]), "label": r["name"],
                 "ref": {"kind": "prod_record", "id": r["id"], "name": r["name"]}} for r in rows]
     else:
-        raise ToolsError("the source is incoming or production")
+        raise ToolsError(say("the source is incoming or production"))
     return {"source": source, "item_code": item_code, "x": x, "y": y, "points": pts,
             "fit": TR.correlation([(p["x"], p["y"]) for p in pts])}
 
@@ -212,9 +214,9 @@ def form(conn, form_id: int) -> dict:
 def new_form(conn, email: str, name: str, categories) -> dict:
     name = re.sub(r"\s+", " ", str(name or "")).strip()[:200]
     if not name:
-        raise ToolsError("give the form a name")
+        raise ToolsError(say("give the form a name"))
     if not isinstance(categories, list):
-        raise ToolsError("list the categories to count")
+        raise ToolsError(say("list the categories to count"))
     cats, seen = [], set()
     for raw in categories:
         c = re.sub(r"\s+", " ", str(raw or "")).strip()[:120]
@@ -222,13 +224,14 @@ def new_form(conn, email: str, name: str, categories) -> dict:
             seen.add(c.lower())
             cats.append(c)
     if not cats:
-        raise ToolsError("list at least one category to count")
+        raise ToolsError(say("list at least one category to count"))
     if len(cats) > 40:
-        raise ToolsError("a check sheet has at most 40 categories")
+        raise ToolsError(say("a check sheet has at most 40 categories"))
     if any(c.lower() == TR.NOT_RECORDED for c in cats):
-        raise ToolsError(f"“{TR.NOT_RECORDED}” is kept for missing values; name the category")
+        raise ToolsError(say("“{NOT_RECORDED}” is kept for missing values; name the category",
+                             NOT_RECORDED=TR.NOT_RECORDED))
     if conn.execute("select 1 from check_sheet_forms where lower(name) = lower(%s)", (name,)).fetchone():
-        raise ToolsError(f"there is already a form called {name}")
+        raise ToolsError(say("there is already a form called {name}", name=name))
     with conn.transaction():
         row = conn.execute("insert into check_sheet_forms (name, categories, created_by) values (%s, %s, %s) "
                            "returning *", (name, cats, email)).fetchone()
@@ -256,24 +259,24 @@ def record(conn, user: dict, form_id: int, data: dict, password: str, *, today: 
     nothing was seen); categories the form does not have are refused."""
     f = form(conn, form_id)
     if not f["active"]:
-        raise ToolsError(f"{f['name']} is retired: use the form now in use")
+        raise ToolsError(say("{name} is retired: use the form now in use", name=f['name']))
     raw = data.get("counts")
     if not isinstance(raw, dict):
-        raise ToolsError("give a count for each category")
+        raise ToolsError(say("give a count for each category"))
     extra = [k for k in raw if k not in f["categories"]]
     if extra:
-        raise ToolsError(f"{f['name']} does not count {', '.join(map(str, extra[:5]))}")
+        raise ToolsError(say("{name} does not count {str}", name=f['name'], str=', '.join(map(str, extra[:5]))))
     counts = {}
     for c in f["categories"]:
         v = raw.get(c, 0)
         if isinstance(v, bool) or not isinstance(v, (int, str)) or not str(v).strip().isdigit():
-            raise ToolsError(f"{c}: a whole number, 0 or more")
+            raise ToolsError(say("{c}: a whole number, 0 or more", c=c))
         counts[c] = int(str(v).strip())
         if counts[c] > 1_000_000:
-            raise ToolsError(f"{c}: at most 1,000,000")
+            raise ToolsError(say("{c}: at most 1,000,000", c=c))
     on = _day(data.get("on_date"), "the day counted") or today
     if on > today:
-        raise ToolsError("the day counted cannot be in the future")
+        raise ToolsError(say("the day counted cannot be in the future"))
     item = str(data.get("item_code") or "").strip()[:140] or None
     place = re.sub(r"\s+", " ", str(data.get("place") or "")).strip()[:200]
     Q.check_signer(conn, user, password)

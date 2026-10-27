@@ -19,6 +19,7 @@ import yaml
 from psycopg.types.json import Json
 
 from wqops.hub import permissions as P
+from wqops.i18n import say
 
 DIR = Path(__file__).resolve().parent / "workflows"
 KINDS = {"ncr": "ncr_records", "capa": "capas"}
@@ -263,11 +264,11 @@ def clean_custom(cfg: dict, values: dict, people: set[str]) -> dict:
     """A company's own field values, checked against their definitions; an empty value removes the field."""
     fields = cfg.get("fields") or {}
     if not isinstance(values, dict):
-        raise StepError("fields are given by name")
+        raise StepError(say("fields are given by name"))
     out = {}
     for name, given in values.items():
         if name not in fields:
-            raise StepError(f"there is no field {name!r} in this workflow")
+            raise StepError(say("there is no field {name} in this workflow", name=repr(name)))
         f, v = fields[name], ("" if given is None else str(given).strip())
         if v == "":
             out[name] = None
@@ -275,18 +276,18 @@ def clean_custom(cfg: dict, values: dict, people: set[str]) -> dict:
             try:
                 out[name] = float(v)
             except ValueError as exc:
-                raise StepError(f"{f['label']}: a number") from exc
+                raise StepError(say("{label}: a number", label=f['label'])) from exc
             if out[name] != out[name] or out[name] in (float("inf"), float("-inf")):
-                raise StepError(f"{f['label']}: a number")
+                raise StepError(say("{label}: a number", label=f['label']))
         elif f["type"] == "date":
             try:
                 out[name] = dt.date.fromisoformat(v).isoformat()
             except ValueError as exc:
-                raise StepError(f"{f['label']}: a date like 2026-10-31") from exc
+                raise StepError(say("{label}: a date like 2026-10-31", label=f['label'])) from exc
         elif f["type"] == "choice" and v not in f["choices"]:
-            raise StepError(f"{f['label']}: one of {', '.join(f['choices'])}")
+            raise StepError(say("{label}: one of {choices}", label=f['label'], choices=', '.join(f['choices'])))
         elif f["type"] == "person" and v.lower() not in people:
-            raise StepError(f"{f['label']}: someone who can sign in")
+            raise StepError(say("{label}: someone who can sign in", label=f['label']))
         else:
             out[name] = v.lower() if f["type"] == "person" else v[:2000]
     return out
@@ -360,7 +361,7 @@ def ensure(conn, kind: str) -> dict:
     cfg = default(kind)
     bad = validate(cfg)
     if bad:
-        raise WorkflowError(f"the default {kind} workflow is wrong: {'; '.join(bad)}")
+        raise WorkflowError(say("the default {kind} workflow is wrong: {bad}", kind=kind, bad='; '.join(bad)))
     made = conn.execute("insert into workflow_versions (kind, version, config, status, fingerprint, created_by, "
                         "enabled_by, enabled_at, note) values (%s, 1, %s, 'enabled', %s, 'WenQuest Ops', "
                         "'WenQuest Ops', now(), 'default workflow') on conflict (kind, version) do nothing "
@@ -401,16 +402,19 @@ def check(cfg: dict, record: dict, step: str, user: dict | None, facts: dict | N
     transaction (records.check_signer)."""
     st = cfg["steps"].get(step)
     if st is None:
-        raise StepError(f"this workflow has no step {step}")
+        raise StepError(say("this workflow has no step {step}", step=step))
     if record["status"] not in st["from"]:
-        raise StepError(f"{record[name_field]} is {_label(cfg, record['status'])}; this step needs it to be "
-                        f"{' or '.join(_label(cfg, s) for s in st['from'])}")
+        raise StepError(say("{record} is {cfg}; this step needs it to be {v}",
+                            record=record[name_field], cfg=_label(cfg, record['status']),
+                            v=' or '.join(_label(cfg, s) for s in st['from'])))
     if user is not None:
         roles = user.get("roles") or []
         if roles and st.get("permission") and not P.allows(roles, st["permission"]):
-            raise NotAllowed(f"your role does not allow: {P.PERMISSIONS[st['permission']]}")
+            raise NotAllowed(say("your role does not allow: {PERMISSIONS}",
+                                 PERMISSIONS=P.PERMISSIONS[st['permission']]))
         if st.get("roles") and roles and not set(roles) & set(st["roles"]):
-            raise NotAllowed(f"{st.get('label', step)}: only {', '.join(st['roles'])} may do this")
+            raise NotAllowed(say("{st}: only {roles} may do this",
+                                 st=st.get('label', step), roles=', '.join(st['roles'])))
         for f in st.get("not_by") or []:
             if record.get(f) and record.get(f) == user.get("email"):
                 raise StepError(f"someone other than {WHO.get(f, f)} must "
@@ -419,11 +423,12 @@ def check(cfg: dict, record: dict, step: str, user: dict | None, facts: dict | N
     custom = {**(record.get("custom") or {}), **((facts or {}).get("custom") or {})}
     for name, f in (cfg.get("fields") or {}).items():
         if step in _list(f.get("required_at")) and custom.get(name) in (None, ""):
-            raise StepError(f"still needed: {f['label']}")
+            raise StepError(say("still needed: {label}", label=f['label']))
     done = set((facts or {}).get("approvals_done") or ())
     for a in cfg.get("approvals") or []:
         if a["before"] == step and applies(a, values) and a["name"] not in done:
-            raise StepError(f"{a['label']} is needed first (signed by {' or '.join(a['roles'])})")
+            raise StepError(say("{label} is needed first (signed by {roles})",
+                                label=a['label'], roles=' or '.join(a['roles'])))
     gaps = [f for f in st.get("required") or [] if values.get(f) in (None, "", [], False, 0)]
     for f in gaps:
         if f in (explain or {}):

@@ -16,6 +16,7 @@ from wqops.hub.ai import tools as T
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import workflow as W
 from wqops.hub.quality import workflow_proposals as WP
+from wqops.i18n import say
 
 
 class NoModel(RuntimeError):
@@ -120,7 +121,7 @@ def propose(conn, user: dict, kind: str, docs: list[dict], model: L.Anthropic | 
     """Ask the model and keep what it proposes, checked by code. NoModel without a model key; a failed call is kept
     as a run with its error and raised as LlmError."""
     if model is None or not model.configured():
-        raise NoModel("there is no model key; the workflow can still be changed by hand")
+        raise NoModel(say("there is no model key; the workflow can still be changed by hand"))
     base = W.ensure(conn, kind)
     cfg = base["config"]
     ctx = T.Ctx(conn=conn, user=user, today=today)
@@ -138,13 +139,13 @@ def propose(conn, user: dict, kind: str, docs: list[dict], model: L.Anthropic | 
             [tool(kind, [d["id"] for d in docs])], 8000,
             tool_choice={"type": "tool", "name": "propose_workflow_changes"})
         if resp.get("stop_reason") == "max_tokens":
-            raise L.LlmError("the model's answer was cut off; choose fewer procedures")
+            raise L.LlmError(say("the model's answer was cut off; choose fewer procedures"))
         use = next((b for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
         if use is None:
-            raise L.LlmError("the model did not propose changes")
+            raise L.LlmError(say("the model did not propose changes"))
         result = use.get("input") if isinstance(use.get("input"), dict) else {}
         if not isinstance(result.get("changes"), list):
-            raise L.LlmError("the model's proposal has no list of changes")
+            raise L.LlmError(say("the model's proposal has no list of changes"))
         p = WP.store(conn, kind, user["email"], docs, result, ctx.run_id, base["id"])
         got = WP.items(conn, p["id"])
         bad = [f"change {i['seq']}: {'; '.join(i['problems'])}" for i in got if i["problems"]]

@@ -12,6 +12,8 @@ from __future__ import annotations
 import datetime as dt
 import re
 
+from wqops.i18n import say
+
 GS = "\x1d"
 SYMBOLOGY = re.compile(r"^\][A-Za-z][0-9A-Za-z]")       # ]d2, ]Q3, ]C1: what the scanner may put first
 # GS1 application identifiers read here: fixed length of their data, or None when it runs to a GS or the end
@@ -42,9 +44,9 @@ def gtin14(v: str) -> str:
     """A GTIN-8, 12, 13 or 14 as 14 digits, if its check digit is right."""
     v = re.sub(r"\s", "", str(v or ""))
     if not re.fullmatch(r"\d{8}|\d{12,14}", v):
-        raise UdiError("a GTIN has 8, 12, 13 or 14 digits")
+        raise UdiError(say("a GTIN has 8, 12, 13 or 14 digits"))
     if gs1_check(v[:-1]) != int(v[-1]):
-        raise UdiError(f"the check digit of {v} is wrong: it should be {gs1_check(v[:-1])}")
+        raise UdiError(say("the check digit of {v} is wrong: it should be {v2}", v=v, v2=gs1_check(v[:-1])))
     return v.zfill(14)
 
 
@@ -53,16 +55,16 @@ def hibc_check(data: str) -> str:
     try:
         return HIBC_SET[sum(HIBC_SET.index(c) for c in data) % 43]
     except ValueError as exc:
-        raise UdiError("a HIBC code has only digits, capital letters and - . space $ / + %") from exc
+        raise UdiError(say("a HIBC code has only digits, capital letters and - . space $ / + %")) from exc
 
 
 def yymmdd(s: str, today: dt.date | None = None) -> dt.date:
     """A GS1 date: YYMMDD, day 00 meaning the last day of the month, the century by GS1's 50-year window."""
     if not re.fullmatch(r"\d{6}", s):
-        raise UdiError(f"{s!r} is not a date YYMMDD")
+        raise UdiError(say("{s} is not a date YYMMDD", s=repr(s)))
     yy, mm, dd = int(s[:2]), int(s[2:4]), int(s[4:])
     if not 1 <= mm <= 12:
-        raise UdiError(f"{s!r} is not a real date")
+        raise UdiError(say("{s} is not a real date", s=repr(s)))
     now = (today or dt.date.today()).year  # noqa: DTZ011 - only the century window
     year = now // 100 * 100 + yy
     if year - now > 50:
@@ -75,7 +77,7 @@ def yymmdd(s: str, today: dt.date | None = None) -> dt.date:
     try:
         return dt.date(year, mm, dd)
     except ValueError as exc:
-        raise UdiError(f"{s!r} is not a real date") from exc
+        raise UdiError(say("{s} is not a real date", s=repr(s))) from exc
 
 
 # ---------------------------------------------------------------- reading
@@ -88,7 +90,7 @@ def _gs1_elements(data: str) -> list[tuple[str, str]]:
             continue
         ai = next((a for a in sorted(AIS, key=len, reverse=True) if data.startswith(a, i)), None)
         if ai is None:
-            raise UdiError(f"unknown GS1 application identifier at {data[i:i + 4]!r}")
+            raise UdiError(say("unknown GS1 application identifier at {data}", data=repr(data[i:i + 4])))
         i += len(ai)
         n = AIS[ai]
         if n is None:
@@ -97,7 +99,7 @@ def _gs1_elements(data: str) -> list[tuple[str, str]]:
         else:
             end = i + n
             if end > len(data):
-                raise UdiError(f"({ai}) needs {n} characters")
+                raise UdiError(say("({ai}) needs {n} characters", ai=ai, n=n))
         out.append((ai, data[i:end]))
         i = end
     return out
@@ -107,7 +109,7 @@ def _from_brackets(s: str) -> str:
     """"(01)0001...(10)ABC" -> the element string with a GS after each variable-length field."""
     parts = re.findall(r"\((\d{2,4})\)([^(]*)", s)
     if not parts or "".join(f"({a}){v}" for a, v in parts) != s:
-        raise UdiError("not a GS1 code in brackets")
+        raise UdiError(say("not a GS1 code in brackets"))
     return "".join(a + v + (GS if AIS.get(a, 0) is None and k < len(parts) - 1 else "")
                    for k, (a, v) in enumerate(parts))
 
@@ -125,7 +127,7 @@ def _unquote(v: str) -> str:
     try:
         return out.decode()
     except UnicodeDecodeError as exc:
-        raise UdiError("the web address has a broken %-code") from exc
+        raise UdiError(say("the web address has a broken %-code")) from exc
 
 
 def _from_link(s: str) -> str:
@@ -136,7 +138,7 @@ def _from_link(s: str) -> str:
     seg = [x for x in path.split("/")[1:] if x]
     start = next((k for k in range(len(seg) - 1) if seg[k] == "01" and re.fullmatch(r"\d{8,14}", seg[k + 1])), None)
     if start is None:
-        raise UdiError("not a GS1 Digital Link address")
+        raise UdiError(say("not a GS1 Digital Link address"))
     out = []
     for k in range(start, len(seg) - 1, 2):
         if seg[k] in AIS:
@@ -160,7 +162,7 @@ def parse_gs1(data: str, today: dt.date | None = None) -> dict:
         else:
             out[name] = v
     if "di" not in out:
-        raise UdiError("the GS1 code has no device identifier (01)")
+        raise UdiError(say("the GS1 code has no device identifier (01)"))
     return out
 
 
@@ -168,13 +170,13 @@ def _hibc_secondary(s: str, today: dt.date | None) -> dict:
     """The HIBC secondary data, starting with "$": "$" lot, "$+" serial, or "$$" / "$$+" with an expiry date in
     one of the date formats (flag 2 to 7; none means MMYY) before the lot or serial."""
     if not s.startswith("$"):
-        raise UdiError("the HIBC secondary data starts with $")
+        raise UdiError(say("the HIBC secondary data starts with $"))
     if s.startswith("$$"):
         rest = s[2:]
         kind = "serial" if rest.startswith("+") else "lot"
         rest = rest[1:] if kind == "serial" else rest
         if rest[:1] in ("8", "9"):
-            raise UdiError("HIBC codes with a quantity ($$8, $$9) are not read yet")
+            raise UdiError(say("HIBC codes with a quantity ($$8, $$9) are not read yet"))
         flag = rest[0] if rest and rest[0] in "234567" else ""
         rest = rest[len(flag):]
         n = {"": 4, "2": 6, "3": 6, "4": 8, "5": 5, "6": 7, "7": 0}[flag]
@@ -182,14 +184,14 @@ def _hibc_secondary(s: str, today: dt.date | None) -> dict:
         out: dict = {}
         if flag in {"", "2"}:
             if not re.fullmatch(r"\d{4}" if flag == "" else r"\d{6}", raw):
-                raise UdiError("the HIBC expiry date cannot be read")
+                raise UdiError(say("the HIBC expiry date cannot be read"))
             out["expiry_date"] = yymmdd(raw[2:4] + raw[:2] + "00" if flag == "" else raw[4:] + raw[:4],
                                         today).isoformat()
         elif flag in "34":
             out["expiry_date"] = yymmdd(raw[:6], today).isoformat()
         elif flag in "56":
             if not re.fullmatch(r"\d+", raw) or len(raw) != n:
-                raise UdiError("the HIBC expiry date cannot be read")
+                raise UdiError(say("the HIBC expiry date cannot be read"))
             year = yymmdd(raw[:2] + "0101", today).year
             out["expiry_date"] = (dt.date(year, 1, 1) + dt.timedelta(days=int(raw[2:5]) - 1)).isoformat()
         out[kind] = rest
@@ -201,20 +203,20 @@ def _hibc_secondary(s: str, today: dt.date | None) -> dict:
 
 def parse_hibc(data: str, today: dt.date | None = None) -> dict:
     if not data.startswith("+") or len(data) < 3:
-        raise UdiError("not a HIBC code")
+        raise UdiError(say("not a HIBC code"))
     body, check = data[:-1], data[-1]
     if hibc_check(body) != check:
-        raise UdiError(f"the HIBC check character is wrong: it should be {hibc_check(body)}")
+        raise UdiError(say("the HIBC check character is wrong: it should be {body}", body=hibc_check(body)))
     out: dict = {"agency": "hibcc"}
     if body.startswith("+$"):                            # secondary code on its own: its last character links it
         if len(body) < 4:                                # to the primary code (that code's check character)
-            raise UdiError("the HIBC secondary code is too short")
+            raise UdiError(say("the HIBC secondary code is too short"))
         out.update(_hibc_secondary(body[1:-1], today), link=body[-1])
         return out
     primary, _, secondary = body[1:].partition("/")
     m = re.fullmatch(r"([A-Z][A-Z0-9]{3})([A-Z0-9]{1,18})(\d)", primary)
     if not m:
-        raise UdiError("the HIBC primary data is not LIC (4), product number (1-18) and unit of measure (1)")
+        raise UdiError(say("the HIBC primary data is not LIC (4), product number (1-18) and unit of measure (1)"))
     out.update(lic=m.group(1), pcn=m.group(2), unit=m.group(3), di=f"+{primary}")
     if secondary:
         out.update(_hibc_secondary(secondary, today))
@@ -226,9 +228,9 @@ def parse(code: str, today: dt.date | None = None) -> dict:
     # only line ends come off the end: a HIBC check character can be a space
     s = str(code or "").lstrip().rstrip("\r\n").replace("\\x1d", GS).replace("<GS>", GS)
     if not s:
-        raise UdiError("nothing was scanned")
+        raise UdiError(say("nothing was scanned"))
     if len(s) > 500:
-        raise UdiError("this is too long for a device label")
+        raise UdiError(say("this is too long for a device label"))
     s = SYMBOLOGY.sub("", s)
     if s[:8].lower().startswith(("http://", "https://")):
         return {**parse_gs1(_from_link(s), today), "form": "GS1 Digital Link"}
@@ -244,7 +246,7 @@ def parse(code: str, today: dt.date | None = None) -> dict:
         return {"agency": "gs1", "elements": {"01": s}, "di": gtin14(s), "form": "GTIN"}
     if re.match(r"\d{2}", s):
         return {**parse_gs1(s, today), "form": "GS1"}
-    raise UdiError("not a GS1, HIBC or ISBT 128 code")
+    raise UdiError(say("not a GS1, HIBC or ISBT 128 code"))
 
 
 # ---------------------------------------------------------------- building
@@ -261,7 +263,9 @@ def gs1_data(di: str, *, lot: str = "", serial: str = "", production: dt.date | 
         v = str(raw or "").strip()
         if v:
             if not CSET82.fullmatch(v):
-                raise UdiError(f"({ai}) holds up to 20 letters, digits and GS1's punctuation (not # $ @ ( ) [ ] {{ }})")
+                raise UdiError(say("({ai}) holds up to 20 letters, digits and GS1's punctuation (not # $ @ ( ) [ ] { "
+                                   "})",
+                                   ai=ai))
             parts.append((ai, v))
     data = "".join(a + v + (GS if AIS[a] is None and k < len(parts) - 1 else "") for k, (a, v) in enumerate(parts))
     return data, "".join(f"({a}){v}" for a, v in parts)
@@ -270,21 +274,21 @@ def gs1_data(di: str, *, lot: str = "", serial: str = "", production: dt.date | 
 def hibc_di(lic: str, pcn: str, unit: str) -> str:
     lic, pcn, unit = str(lic or "").upper(), str(pcn or "").upper(), str(unit or "")
     if not re.fullmatch(r"[A-Z][A-Z0-9]{3}", lic):
-        raise UdiError("the labeler identification code (LIC) is a letter and 3 letters or digits")
+        raise UdiError(say("the labeler identification code (LIC) is a letter and 3 letters or digits"))
     if not re.fullmatch(r"[A-Z0-9]{1,18}", pcn):
-        raise UdiError("the product number is 1 to 18 letters or digits")
+        raise UdiError(say("the product number is 1 to 18 letters or digits"))
     if not re.fullmatch(r"\d", unit):
-        raise UdiError("the unit of measure is one digit (0 for the unit of use)")
+        raise UdiError(say("the unit of measure is one digit (0 for the unit of use)"))
     return f"+{lic}{pcn}{unit}"
 
 
 def hibc_data(di: str, *, lot: str = "", serial: str = "", expiry: dt.date | None = None) -> str:
     """The HIBC primary and secondary data in one code, with its check character."""
     if serial and lot:
-        raise UdiError("a HIBC code carries a lot or a serial number, not both")
+        raise UdiError(say("a HIBC code carries a lot or a serial number, not both"))
     v = str(serial or lot or "").upper().strip()
     if v and not re.fullmatch(r"[A-Z0-9\-. ]{1,18}", v):
-        raise UdiError("the lot or serial number is up to 18 letters, digits, - . or spaces")
+        raise UdiError(say("the lot or serial number is up to 18 letters, digits, - . or spaces"))
     body = di
     if v or expiry:
         sec = ("$$+" if serial else "$$") + ("3" + expiry.strftime("%y%m%d") if expiry else "7") + v \
@@ -301,9 +305,9 @@ def _zpl_text(s: str) -> str:
 def zpl(data: str, lines: list[str], *, gs1: bool, copies: int = 1) -> str:
     """A Zebra label: the code as a Data Matrix (GS1 with FNC1) and the printed lines beside it."""
     if not 1 <= copies <= 500:
-        raise UdiError("print 1 to 500 copies")
+        raise UdiError(say("print 1 to 500 copies"))
     if re.search(r"[_^~]", data):
-        raise UdiError("_ ^ and ~ cannot be printed in a Zebra code; leave them out of the lot or serial")
+        raise UdiError(say("_ ^ and ~ cannot be printed in a Zebra code; leave them out of the lot or serial"))
     fd = ("_1" + data.replace(GS, "_1")) if gs1 else data     # _ is the escape: _1 is FNC1 (GS1)
     text = "".join(f"^FO230,{30 + 34 * i}^A0N,26,26^FH^FD{_zpl_text(s)}^FS" for i, s in enumerate(lines[:6]))
     return f"^XA^CI28^PQ{copies}^FO20,20^BXN,6,200,,,,_^FD{fd}^FS{text}^XZ\n"
