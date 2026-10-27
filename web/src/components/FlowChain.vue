@@ -4,6 +4,7 @@
 // recalls) returns over the top. Motion is left out when the person asks for reduced motion.
 import { computed, onMounted, ref } from 'vue'
 import { fmt, fmtShort } from '../format'
+import { t } from '../i18n'
 
 const props = defineProps({ steps: { type: Array, required: true }, returns: { type: Array, default: () => [] },
   big: { type: Boolean, default: false } })
@@ -13,6 +14,13 @@ const n = computed(() => Math.max(props.steps.length, 1))
 const x = (i) => ((i + 0.5) / n.value) * 100
 const dots = computed(() => Array.from({ length: Math.max(3, n.value + 1) }, (_, i) => i))
 const one = (note) => note.replace(/^items /, 'item ').replace(/(\d+) days/, '$1 days')
+// the note under a step, in the person's language ("waiting over 2 days" has its own pattern so the number can move)
+function note(s) {
+  const text = s.stuck === 1 ? one(s.stuck_note) : s.stuck_note
+  const m = /^(waiting|open|started) over (\d+) days( ago)?$/.exec(text)
+  if (m) return t(`${m[1]} over {n} days${m[3] || ''}`, { n: m[2] })
+  return t(text)
+}
 const shown = (s) => s.count === null || s.count === undefined ? '—' : s.unit === 'currency' ? fmtShort(s.count) : fmt(s.count)
 </script>
 
@@ -20,7 +28,7 @@ const shown = (s) => s.count === null || s.count === undefined ? '—' : s.unit 
   <div class="chain-scroll"><div class="chain relative" :class="big ? 'chain-big' : ''">
     <div v-if="returns.length" class="returns mb-1 flex justify-end gap-4 pe-2 text-sm">
       <RouterLink v-for="r in returns" :key="r.key" :to="r.link" class="ret" :class="r.count ? 'ret-on' : ''">
-        <span class="lucide-undo-2 size-3.5" />{{ r.label }} <b>{{ r.count }}</b></RouterLink>
+        <span class="lucide-undo-2 size-3.5" />{{ t(r.label) }} <b>{{ r.count }}</b></RouterLink>
     </div>
     <div class="relative">
       <div class="track pointer-events-none absolute inset-x-0" aria-hidden="true">
@@ -31,14 +39,14 @@ const shown = (s) => s.count === null || s.count === undefined ? '—' : s.unit 
       </div>
       <ol class="relative grid" :style="{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }">
         <li v-for="(s, i) in steps" :key="s.key" class="step flex flex-col items-center text-center">
-          <RouterLink :to="s.link || '/'" class="group flex flex-col items-center" :title="s.stuck ? `${s.stuck} ${s.stuck_note}` : ''">
+          <RouterLink :to="s.link || '/'" class="group flex flex-col items-center" :title="s.stuck ? `${s.stuck} ${note(s)}` : ''">
             <span class="count">{{ shown(s) }}</span>
             <span class="node" :class="s.stuck ? 'node-stuck' : ''"><i v-if="s.stuck && !still" class="pulse" /></span>
-            <span class="label">{{ s.label }}</span>
-            <span v-if="s.stuck" class="stuck">{{ s.stuck }} {{ s.stuck === 1 ? one(s.stuck_note) : s.stuck_note }}</span>
+            <span class="label">{{ t(s.label) }}</span>
+            <span v-if="s.stuck" class="stuck">{{ s.stuck }} {{ note(s) }}</span>
             <span v-else class="stuck-none">&nbsp;</span>
           </RouterLink>
-          <span class="sr-only">{{ i < steps.length - 1 ? 'then' : '' }}</span>
+          <span class="sr-only">{{ i < steps.length - 1 ? t('then') : '' }}</span>
         </li>
       </ol>
     </div>

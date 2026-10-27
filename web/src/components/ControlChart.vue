@@ -2,6 +2,7 @@
 // One control chart: the plotted points (subgroup means or individuals), the center line and control limits,
 // spec limits if given, and points that break a rule marked and labelled (ADR-0009 item 6).
 import { computed, ref } from 'vue'
+import { t } from '../i18n'
 
 const props = defineProps({ data: Object })
 const W = 720, H = 260, PAD = { l: 52, r: 70, t: 14, b: 30 }
@@ -30,7 +31,7 @@ const f = (v) => (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3))
 
 <template>
   <figure class="cc">
-    <svg :viewBox="`0 0 ${W} ${H}`" role="img" :aria-label="`Control chart, ${ch.points.length} points`">
+    <svg :viewBox="`0 0 ${W} ${H}`" role="img" :aria-label="t('Control chart, {n} points', { n: ch.points.length })">
       <g v-for="l in lines" :key="l.label">
         <line :x1="PAD.l" :x2="W - PAD.r" :y1="scale.y(l.y)" :y2="scale.y(l.y)" :class="l.cls" />
         <text :x="W - PAD.r + 6" :y="scale.y(l.y) + 4" class="ax">{{ l.label }} {{ f(l.y) }}</text>
@@ -39,15 +40,15 @@ const f = (v) => (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3))
       <g v-for="(p, i) in ch.points" :key="i" @mouseenter="hover = i" @mouseleave="hover = null">
         <circle :cx="scale.x(i)" :cy="scale.y(p)" r="12" class="hit" />
         <circle :cx="scale.x(i)" :cy="scale.y(p)" :r="flagged.has(i) ? 6 : 4" :class="flagged.has(i) ? 'bad' : 'pt'" />
-        <text v-if="flagged.has(i)" :x="scale.x(i)" :y="scale.y(p) - 10" class="flag">rule {{ flagged.get(i).rule }}</text>
+        <text v-if="flagged.has(i)" :x="scale.x(i)" :y="scale.y(p) - 10" class="flag">{{ t('rule {n}', { n: flagged.get(i).rule }) }}</text>
       </g>
       <text :x="PAD.l" :y="H - 8" class="ax">{{ data.labels[0] }}</text>
       <text :x="W - PAD.r" :y="H - 8" class="ax" text-anchor="end">{{ data.labels.at(-1) }}</text>
     </svg>
     <div v-if="hover !== null" class="tip">{{ data.labels[hover] }}: {{ f(ch.points[hover]) }}
       <span v-if="flagged.has(hover)"> — {{ flagged.get(hover).text }}</span></div>
-    <figcaption class="mt-2 text-sm text-ink-gray-5">{{ ch.kind === 'xbar_r' ? `X-bar chart, subgroups of ${ch.n}` : 'Individuals chart (inspection means)' }}.
-      Hover a point for its inspection.</figcaption>
+    <figcaption class="mt-2 text-sm text-ink-gray-5">{{ ch.kind === 'xbar_r' ? t('X-bar chart, subgroups of {n}.', { n: ch.n }) : t('Individuals chart (inspection means).') }}
+      {{ t('Hover a point for its inspection.') }}</figcaption>
   </figure>
 </template>
 

@@ -5,6 +5,7 @@ import { computed, inject, ref, watch } from 'vue'
 import { Badge, Button } from 'frappe-ui'
 import { api } from '../api'
 import { ago } from '../format'
+import { t } from '../i18n'
 
 const props = defineProps({ d: { type: Object, required: true }, canEdit: Boolean })
 const emit = defineEmits(['changed'])
@@ -30,70 +31,70 @@ async function call(path, method, body, message) {
   error.value = ''; done.value = ''
   try { emit('changed', await api(path, { method, body })); done.value = message; pw.value = '' } catch (e) { error.value = e.message }
 }
-const saveReaders = () => call(`/api/docs/${props.d.id}/readers`, 'PUT', { trainees: { roles: roles.value, people: people.value }, needs_training: needs.value }, 'Saved.')
-const review = () => call(`/api/docs/${props.d.id}/reviews`, 'POST', { ...rv.value, revision_id: rv.value.revision_id ? Number(rv.value.revision_id) : null }, 'Review recorded: someone else approves it.')
-const decide = (how) => call(`/api/doc-reviews/${waiting.value.id}/${how}`, 'POST', { password: pw.value, note: note.value }, how === 'approve' ? 'Review approved.' : 'Review sent back.')
-async function doWaive(t) {
+const saveReaders = () => call(`/api/docs/${props.d.id}/readers`, 'PUT', { trainees: { roles: roles.value, people: people.value }, needs_training: needs.value }, t('Saved.'))
+const review = () => call(`/api/docs/${props.d.id}/reviews`, 'POST', { ...rv.value, revision_id: rv.value.revision_id ? Number(rv.value.revision_id) : null }, t('Review recorded: someone else approves it.'))
+const decide = (how) => call(`/api/doc-reviews/${waiting.value.id}/${how}`, 'POST', { password: pw.value, note: note.value }, how === 'approve' ? t('Review approved.') : t('Review sent back.'))
+async function doWaive(tr) {
   error.value = ''
-  try { await api(`/api/doc-training/${t.id}/waive`, { method: 'POST', body: { reason: waive.value[t.id] || '' } }); emit('changed', await api(`/api/docs/${props.d.id}`)); done.value = 'Waived.' } catch (e) { error.value = e.message }
+  try { await api(`/api/doc-training/${tr.id}/waive`, { method: 'POST', body: { reason: waive.value[tr.id] || '' } }); emit('changed', await api(`/api/docs/${props.d.id}`)); done.value = t('Waived.') } catch (e) { error.value = e.message }
 }
 </script>
 
 <template>
   <section class="doc-control wq-panel mt-5 p-5">
-    <h2 class="wq-h2">Reading and review</h2>
+    <h2 class="wq-h2">{{ t('Reading and review') }}</h2>
     <p v-if="error" class="wq-error mb-3">{{ error }}</p>
     <p v-if="done" class="mb-3 text-sm text-ink-green-7">{{ done }}</p>
 
-    <h3 data-help="doc-readers" class="mb-1 text-sm font-semibold text-ink-gray-8">Who must read it</h3>
+    <h3 data-help="doc-readers" class="mb-1 text-sm font-semibold text-ink-gray-8">{{ t('Who must read it') }}</h3>
     <template v-if="canEdit">
       <div class="mb-2 flex flex-wrap gap-3 text-sm">
-        <label v-for="r in d.roles" :key="r" class="inline-flex items-center gap-1.5"><input v-model="roles" type="checkbox" class="form-checkbox" :value="r">{{ r.replace('_', ' ') }}</label>
+        <label v-for="r in d.roles" :key="r" class="inline-flex items-center gap-1.5"><input v-model="roles" type="checkbox" class="form-checkbox" :value="r">{{ t(r.replace('_', ' ')) }}</label>
       </div>
-      <label class="wq-field mb-2">People (besides the roles)<select v-model="people" multiple class="wq-select h-24">
+      <label class="wq-field mb-2">{{ t('People (besides the roles)') }}<select v-model="people" multiple class="wq-select h-24">
         <option v-for="p in d.people" :key="p" :value="p">{{ p }}</option></select></label>
       <label class="mb-2 flex items-center gap-2 text-sm"><input v-model="needs" type="checkbox" class="form-checkbox" :disabled="d.status === 'effective'">
-        This revision needs reading{{ d.status === 'effective' ? ' (set before it takes effect)' : ': each of them confirms when it takes effect' }}</label>
-      <Button size="sm" label="Save" @click="saveReaders" />
+        {{ d.status === 'effective' ? t('This revision needs reading (set before it takes effect)') : t('This revision needs reading: each of them confirms when it takes effect') }}</label>
+      <Button size="sm" :label="t('Save')" @click="saveReaders" />
     </template>
-    <p v-else class="text-sm text-ink-gray-7">{{ [...d.trainees.roles, ...d.trainees.people].join(', ') || 'Nobody named.' }}</p>
-    <p class="mt-1 text-sm text-ink-gray-5">Now that is {{ d.readers_now.length }} people.</p>
+    <p v-else class="text-sm text-ink-gray-7">{{ [...d.trainees.roles, ...d.trainees.people].join(', ') || t('Nobody named.') }}</p>
+    <p class="mt-1 text-sm text-ink-gray-5">{{ t('Now that is {n} people.', { n: d.readers_now.length }) }}</p>
 
     <template v-if="d.training.length">
-      <h3 data-help="doc-reading" class="mb-1 mt-4 text-sm font-semibold text-ink-gray-8">Reading of this revision</h3>
-      <table class="wq-table text-sm"><thead><tr><th>Person</th><th>Due</th><th>Status</th><th /></tr></thead>
-        <tbody><tr v-for="t in d.training" :key="t.id"><td>{{ t.email }}</td><td :class="t.overdue ? 'text-ink-red-7' : ''">{{ t.due }}</td>
-          <td><Badge :theme="t.overdue ? 'red' : TR[t.status]" :label="t.overdue ? 'overdue' : t.status" /> <span class="text-ink-gray-5">{{ t.done_at ? ago(t.done_at) : '' }} {{ t.note }}</span></td>
-          <td><div v-if="canConfigure && t.status === 'pending' && t.email !== me" class="flex items-center gap-1">
-            <input v-model="waive[t.id]" class="wq-input w-48" placeholder="Why it is waived"><Button size="sm" label="Waive" :disabled="!(waive[t.id] || '').trim()" @click="doWaive(t)" /></div>
-            <RouterLink v-else-if="t.status === 'pending' && t.email === me" to="/documents/control" class="wq-link">confirm</RouterLink></td></tr></tbody></table>
+      <h3 data-help="doc-reading" class="mb-1 mt-4 text-sm font-semibold text-ink-gray-8">{{ t('Reading of this revision') }}</h3>
+      <table class="wq-table text-sm"><thead><tr><th>{{ t('Person') }}</th><th>{{ t('Due') }}</th><th>{{ t('Status') }}</th><th /></tr></thead>
+        <tbody><tr v-for="tr in d.training" :key="tr.id"><td>{{ tr.email }}</td><td :class="tr.overdue ? 'text-ink-red-7' : ''">{{ tr.due }}</td>
+          <td><Badge :theme="tr.overdue ? 'red' : TR[tr.status]" :label="tr.overdue ? t('overdue') : t(tr.status)" /> <span class="text-ink-gray-5">{{ tr.done_at ? ago(tr.done_at) : '' }} {{ tr.note }}</span></td>
+          <td><div v-if="canConfigure && tr.status === 'pending' && tr.email !== me" class="flex items-center gap-1">
+            <input v-model="waive[tr.id]" class="wq-input w-48" :placeholder="t('Why it is waived')"><Button size="sm" :label="t('Waive')" :disabled="!(waive[tr.id] || '').trim()" @click="doWaive(tr)" /></div>
+            <RouterLink v-else-if="tr.status === 'pending' && tr.email === me" to="/documents/control" class="wq-link">{{ t('confirm') }}</RouterLink></td></tr></tbody></table>
     </template>
 
     <template v-if="d.status === 'effective'">
-      <h3 data-help="doc-periodic-review" class="mb-1 mt-5 text-sm font-semibold text-ink-gray-8">Periodic review</h3>
-      <p class="text-sm" :class="overdue ? 'text-ink-red-7' : 'text-ink-gray-7'">{{ d.next_review ? `Next review due ${d.next_review}${overdue ? ' (overdue)' : ''}.` : 'Its type is not reviewed periodically.' }}</p>
+      <h3 data-help="doc-periodic-review" class="mb-1 mt-5 text-sm font-semibold text-ink-gray-8">{{ t('Periodic review') }}</h3>
+      <p class="text-sm" :class="overdue ? 'text-ink-red-7' : 'text-ink-gray-7'">{{ d.next_review ? (overdue ? t('Next review due {date} (overdue).', { date: d.next_review }) : t('Next review due {date}.', { date: d.next_review })) : t('Its type is not reviewed periodically.') }}</p>
       <div v-if="waiting" class="mt-2 rounded-3 border border-outline-gray-2 p-3 text-sm">
-        <p><b>{{ d.review_outcomes[waiting.outcome] }}</b> · reviewed by {{ waiting.reviewed_by }} on {{ waiting.reviewed_on }}<template v-if="waiting.next_due"> · new date {{ waiting.next_due }}</template></p>
+        <p><b>{{ t(d.review_outcomes[waiting.outcome]) }}</b> · {{ t('reviewed by {who} on {date}', { who: waiting.reviewed_by, date: waiting.reviewed_on }) }}<template v-if="waiting.next_due"> · {{ t('new date {date}', { date: waiting.next_due }) }}</template></p>
         <p v-if="waiting.note" class="text-ink-gray-7">{{ waiting.note }}</p>
         <div v-if="canConfigure && waiting.reviewed_by !== me" class="mt-2 flex flex-wrap items-end gap-2">
-          <input v-model="note" class="wq-input w-64" placeholder="Note (needed to send back)">
-          <input v-model="pw" type="password" class="wq-input w-44" placeholder="Your password" autocomplete="current-password">
-          <Button size="sm" variant="solid" label="Approve the review (sign)" :disabled="!pw" @click="decide('approve')" />
-          <Button size="sm" label="Send back" :disabled="!note.trim()" @click="decide('send-back')" />
+          <input v-model="note" class="wq-input w-64" :placeholder="t('Note (needed to send back)')">
+          <input v-model="pw" type="password" class="wq-input w-44" :placeholder="t('Your password')" autocomplete="current-password">
+          <Button size="sm" variant="solid" :label="t('Approve the review (sign)')" :disabled="!pw" @click="decide('approve')" />
+          <Button size="sm" :label="t('Send back')" :disabled="!note.trim()" @click="decide('send-back')" />
         </div>
-        <p v-else class="mt-1 text-ink-gray-5">Waiting for someone other than the reviewer to approve it.</p>
+        <p v-else class="mt-1 text-ink-gray-5">{{ t('Waiting for someone other than the reviewer to approve it.') }}</p>
       </div>
       <form v-else-if="canEdit" class="mt-2 flex flex-wrap items-end gap-2" @submit.prevent="review">
-        <label class="wq-field">Outcome<select v-model="rv.outcome" class="wq-select">
-          <option v-for="(l, k) in d.review_outcomes" :key="k" :value="k">{{ l }}</option></select></label>
-        <label v-if="rv.outcome === 'change'" class="wq-field">New revision<select v-model="rv.revision_id" class="wq-select"><option value="" />
-          <option v-for="r in drafts" :key="r.id" :value="r.id">rev {{ r.revision }} ({{ r.status }})</option></select></label>
-        <label v-if="rv.outcome === 'postponed'" class="wq-field">New date<input v-model="rv.next_due" type="date" class="wq-input"></label>
-        <label class="wq-field grow">Note<input v-model="rv.note" class="wq-input"></label>
-        <Button type="submit" label="Record the review" />
+        <label class="wq-field">{{ t('Outcome') }}<select v-model="rv.outcome" class="wq-select">
+          <option v-for="(l, k) in d.review_outcomes" :key="k" :value="k">{{ t(l) }}</option></select></label>
+        <label v-if="rv.outcome === 'change'" class="wq-field">{{ t('New revision') }}<select v-model="rv.revision_id" class="wq-select"><option value="" />
+          <option v-for="r in drafts" :key="r.id" :value="r.id">{{ t('rev {n}', { n: r.revision }) }} ({{ t(r.status) }})</option></select></label>
+        <label v-if="rv.outcome === 'postponed'" class="wq-field">{{ t('New date') }}<input v-model="rv.next_due" type="date" class="wq-input"></label>
+        <label class="wq-field grow">{{ t('Note') }}<input v-model="rv.note" class="wq-input"></label>
+        <Button type="submit" :label="t('Record the review')" />
       </form>
       <ul v-if="d.reviews.length" class="mt-3 text-sm text-ink-gray-6"><li v-for="r in d.reviews" :key="r.id">
-        {{ r.reviewed_on }} · {{ d.review_outcomes[r.outcome] }} by {{ r.reviewed_by }} · {{ r.status }}<template v-if="r.approved_by"> by {{ r.approved_by }}</template>{{ r.note ? ` · ${r.note}` : '' }}</li></ul>
+        {{ r.reviewed_on }} · {{ t('{outcome} by {who}', { outcome: t(d.review_outcomes[r.outcome]), who: r.reviewed_by }) }} · {{ t(r.status) }}<template v-if="r.approved_by"> {{ t('by {who}', { who: r.approved_by }) }}</template>{{ r.note ? ` · ${r.note}` : '' }}</li></ul>
     </template>
   </section>
 </template>

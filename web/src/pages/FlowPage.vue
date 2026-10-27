@@ -8,6 +8,7 @@ import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
 import { api } from '../api'
+import { t } from '../i18n'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,7 +48,7 @@ const lanes = computed(() => {
   for (const s of r.value?.steps || []) {
     for (const b of s.branches) {
       const y0 = ys.value[s.seq]
-      if (b.to == null) { out.push({ out: true, y0, label: b.label || 'leaves the flow', kind: b.kind }); continue }
+      if (b.to == null) { out.push({ out: true, y0, label: b.label || t('leaves the flow'), kind: b.kind }); continue }
       const y1 = ys.value[b.to]
       if (y1 == null) continue
       const lane = 44 + 26 * k++
@@ -61,8 +62,9 @@ const linkKeys = (s) => {
   return [...(l.documents || []).map((d) => `documents:${d}`), ...(l.fmea || []).map((m) => `fmea:${m.name}#${m.seq}`),
     ...['plan', 'template'].filter((k) => l[k]).map((k) => `${k}:${l[k]}`), ...(l.gauges || []).map((g) => `gauges:${g}`)]
 }
-const short = (k) => { const [kind, key] = k.split(/:(.*)/s); return kind === 'fmea' ? key.replace('#', ' row ') : key }
-const linkState = (k) => r.value?.links_now[k] || { ok: false, why: 'not checked' }
+const short = (k) => { const [kind, key] = k.split(/:(.*)/s); return kind === 'fmea' ? key.replace('#', ` ${t('row')} `) : key }
+const linkState = (k) => r.value?.links_now[k] || { ok: false, why: t('not checked') }
+const rowText = (v) => v.replace('#', ` ${t('row')} `)
 const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
 
 // ---------- editing a step
@@ -82,46 +84,46 @@ function payload() {
 }
 async function save() {
   const ok = sel.value
-    ? await call(`/api/flow/charts/${r.value.id}/steps/${sel.value}`, 'PUT', payload(), 'Step saved.')
-    : await call(`/api/flow/charts/${r.value.id}/steps`, 'POST', payload(), 'Step added.')
+    ? await call(`/api/flow/charts/${r.value.id}/steps/${sel.value}`, 'PUT', payload(), t('Step saved.'))
+    : await call(`/api/flow/charts/${r.value.id}/steps`, 'POST', payload(), t('Step added.'))
   if (ok && !sel.value) fresh()
 }
 const add = (k) => { const v = pick.value[k]; if (v && !step.value.links[k].includes(v)) step.value.links[k].push(v); pick.value[k] = '' }
 const drop = (k, v) => { step.value.links[k] = step.value.links[k].filter((x_) => x_ !== v) }
 const move = (dir) => call(`/api/flow/charts/${r.value.id}/steps/${sel.value}/move`, 'POST', { direction: dir }, '')
-async function remove() { if (await call(`/api/flow/charts/${r.value.id}/steps/${sel.value}`, 'DELETE', null, 'Step removed.')) fresh() }
+async function remove() { if (await call(`/api/flow/charts/${r.value.id}/steps/${sel.value}`, 'DELETE', null, t('Step removed.'))) fresh() }
 async function revise() {
-  const v = await call(`/api/flow/charts/${r.value.id}/revise`, 'POST', {}, 'A new version is started.')
+  const v = await call(`/api/flow/charts/${r.value.id}/revise`, 'POST', {}, t('A new version is started.'))
   if (v) router.push(`/quality/flow/${v.id}`)
 }
 </script>
 
 <template>
-  <PageTop :crumbs="[{ label: 'Process flow', to: '/quality/flow' }]">
-    <template #title>{{ r ? `${r.name} v${r.version} · ${r.title}` : 'Flow chart' }}</template>
-    <Badge v-if="r" :theme="ST[r.status]" size="lg" :label="r.status" />
+  <PageTop :crumbs="[{ label: t('Process flow'), to: '/quality/flow' }]">
+    <template #title>{{ r ? `${r.name} v${r.version} · ${r.title}` : t('Flow chart') }}</template>
+    <Badge v-if="r" :theme="ST[r.status]" size="lg" :label="t(r.status)" />
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
   <template v-if="r">
-    <p v-if="r.intact === false" class="wq-error mb-4">This flow chart no longer matches what was approved.</p>
+    <p v-if="r.intact === false" class="wq-error mb-4">{{ t('This flow chart no longer matches what was approved.') }}</p>
     <section v-if="r.changed_since.length" data-help="flow-changed" class="mb-5 rounded-3 border border-outline-amber-2 bg-surface-amber-1 p-4 text-sm">
-      <p class="mb-1 font-medium text-ink-amber-8">Since this chart was approved, what some of its links point to has changed. If the process changed too, start a new version.</p>
-      <ul class="list-disc ps-5"><li v-for="c in r.changed_since" :key="c.link">{{ short(c.link) }}: was {{ c.was }}; now {{ c.now }}</li></ul>
+      <p class="mb-1 font-medium text-ink-amber-8">{{ t('Since this chart was approved, what some of its links point to has changed. If the process changed too, start a new version.') }}</p>
+      <ul class="list-disc ps-5"><li v-for="c in r.changed_since" :key="c.link">{{ t('{link}: was {was}; now {now}', { link: short(c.link), was: c.was, now: c.now }) }}</li></ul>
     </section>
 
     <section class="wq-panel mb-5 grid gap-3 p-5 md:grid-cols-4">
-      <label class="wq-field md:col-span-2">Process<input v-model="f.title" class="wq-input" :disabled="!draft"></label>
-      <label class="wq-field">Item code<input v-model="f.item_code" class="wq-input" :disabled="!draft"></label>
-      <label class="wq-field">Owner<select v-model="f.owner" class="wq-select" :disabled="!draft"><option value="" /><option v-for="p in r.people" :key="p">{{ p }}</option></select></label>
-      <label class="wq-field md:col-span-4">Scope<input v-model="f.scope" class="wq-input" :disabled="!draft"></label>
-      <div v-if="draft" class="md:col-span-4"><Button label="Save" :disabled="!Object.keys(changed()).length" @click="call(`/api/flow/charts/${r.id}`, 'PUT', changed(), 'Saved.')" /></div>
+      <label class="wq-field md:col-span-2">{{ t('Process') }}<input v-model="f.title" class="wq-input" :disabled="!draft"></label>
+      <label class="wq-field">{{ t('Item code') }}<input v-model="f.item_code" class="wq-input" :disabled="!draft"></label>
+      <label class="wq-field">{{ t('Owner') }}<select v-model="f.owner" class="wq-select" :disabled="!draft"><option value="" /><option v-for="p in r.people" :key="p">{{ p }}</option></select></label>
+      <label class="wq-field md:col-span-4">{{ t('Scope') }}<input v-model="f.scope" class="wq-input" :disabled="!draft"></label>
+      <div v-if="draft" class="md:col-span-4"><Button :label="t('Save')" :disabled="!Object.keys(changed()).length" @click="call(`/api/flow/charts/${r.id}`, 'PUT', changed(), t('Saved.'))" /></div>
     </section>
 
     <div class="mb-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
       <section data-help="flow-diagram" class="wq-panel overflow-x-auto p-3">
-        <p v-if="!r.steps.length" class="wq-muted p-3">No steps yet.</p>
-        <svg v-else :viewBox="`0 0 ${W} ${H}`" class="flow" role="img" :aria-label="`Process flow ${r.name}`">
+        <p v-if="!r.steps.length" class="wq-muted p-3">{{ t('No steps yet.') }}</p>
+        <svg v-else :viewBox="`0 0 ${W} ${H}`" class="flow" role="img" :aria-label="t('Process flow {name}', { name: r.name })">
           <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ahead" /></marker></defs>
           <line v-for="(s, i) in r.steps.slice(0, -1)" :key="'m' + s.id" :x1="SX" :x2="SX" :y1="ys[s.seq] + 20" :y2="ys[r.steps[i + 1].seq] - 21" class="main" marker-end="url(#ah)" />
           <g v-for="(b, i) in lanes" :key="'b' + i" :class="['br', b.kind]">
@@ -136,41 +138,41 @@ async function revise() {
             <path v-else-if="s.kind === 'store'" d="M-19,-16 H19 L0,17 Z" class="shape" />
             <path v-else d="M-16,-16 H2 A16,16 0 0 1 2,16 H-16 Z" class="shape" />
             <text x="34" y="-2" class="sname"><tspan class="scode">{{ s.code }}</tspan> {{ s.name }}</text>
-            <text x="34" y="17" class="slinks">{{ r.kinds[s.kind] }}<tspan v-for="k in linkKeys(s)" :key="k" :class="linkState(k).ok ? (linkState(k).warn ? 'warn' : '') : 'bad'"> · {{ short(k) }}{{ linkState(k).ok ? (linkState(k).warn ? ` (${linkState(k).warn})` : '') : ' (!)' }}</tspan></text>
+            <text x="34" y="17" class="slinks">{{ t(r.kinds[s.kind]) }}<tspan v-for="k in linkKeys(s)" :key="k" :class="linkState(k).ok ? (linkState(k).warn ? 'warn' : '') : 'bad'"> · {{ short(k) }}{{ linkState(k).ok ? (linkState(k).warn ? ` (${linkState(k).warn})` : '') : ' (!)' }}</tspan></text>
           </g>
         </svg>
-        <p class="px-3 pb-1 text-xs text-ink-gray-5">○ operation · □ inspection · ➜ move · ▽ storage · D wait. Click a step to see it{{ draft ? ' and change it' : '' }}.</p>
+        <p class="px-3 pb-1 text-xs text-ink-gray-5">{{ draft ? t('○ operation · □ inspection · ➜ move · ▽ storage · D wait. Click a step to see it and change it.') : t('○ operation · □ inspection · ➜ move · ▽ storage · D wait. Click a step to see it.') }}</p>
       </section>
 
       <section data-help="flow-step" class="editor wq-panel h-fit min-w-0 p-5">
         <template v-if="draft">
-          <div class="mb-3 flex items-center gap-2"><h3 class="font-semibold text-ink-gray-9">{{ sel ? `Step ${current?.code || current?.seq}` : 'Add a step' }}</h3>
+          <div class="mb-3 flex items-center gap-2"><h3 class="font-semibold text-ink-gray-9">{{ sel ? t('Step {n}', { n: current?.code || current?.seq }) : t('Add a step') }}</h3>
             <template v-if="sel"><Button size="sm" variant="ghost" icon="lucide-arrow-up" @click="move('up')" /><Button size="sm" variant="ghost" icon="lucide-arrow-down" @click="move('down')" />
-              <Button size="sm" variant="ghost" label="New step" class="ml-auto" @click="fresh" /></template></div>
+              <Button size="sm" variant="ghost" :label="t('New step')" class="ml-auto" @click="fresh" /></template></div>
           <form class="grid gap-3" @submit.prevent="save">
-            <div class="grid grid-cols-[5rem_1fr] gap-2"><label class="wq-field">No.<input v-model="step.code" class="wq-input" placeholder="10"></label>
-              <label class="wq-field">Kind<select v-model="step.kind" class="wq-select"><option v-for="(l, k) in r.kinds" :key="k" :value="k">{{ l }}</option></select></label></div>
-            <label class="wq-field">Name<input v-model="step.name" class="wq-input"></label>
-            <label class="wq-field">Description<textarea v-model="step.description" rows="2" class="wq-input" /></label>
-            <fieldset class="grid gap-2"><legend class="mb-1 text-sm text-ink-gray-7">Branches</legend>
+            <div class="grid grid-cols-[5rem_1fr] gap-2"><label class="wq-field">{{ t('No.') }}<input v-model="step.code" class="wq-input" placeholder="10"></label>
+              <label class="wq-field">{{ t('Kind') }}<select v-model="step.kind" class="wq-select"><option v-for="(l, k) in r.kinds" :key="k" :value="k">{{ t(l) }}</option></select></label></div>
+            <label class="wq-field">{{ t('Name') }}<input v-model="step.name" class="wq-input"></label>
+            <label class="wq-field">{{ t('Description') }}<textarea v-model="step.description" rows="2" class="wq-input" /></label>
+            <fieldset class="grid gap-2"><legend class="mb-1 text-sm text-ink-gray-7">{{ t('Branches') }}</legend>
               <div v-for="(b, i) in step.branches" :key="i" class="grid grid-cols-[1fr_6rem_auto] gap-1">
-                <select v-model="b.to" class="wq-select"><option value="">leaves the flow</option><option v-for="s in r.steps.filter((y) => y.id !== sel)" :key="s.seq" :value="s.seq">to {{ s.code || s.seq }} {{ s.name }}</option></select>
-                <select v-model="b.kind" class="wq-select"><option>rework</option><option>scrap</option><option>other</option></select>
+                <select v-model="b.to" class="wq-select"><option value="">{{ t('leaves the flow') }}</option><option v-for="s in r.steps.filter((y) => y.id !== sel)" :key="s.seq" :value="s.seq">{{ t('to {step}', { step: `${s.code || s.seq} ${s.name}` }) }}</option></select>
+                <select v-model="b.kind" class="wq-select"><option value="rework">{{ t('rework') }}</option><option value="scrap">{{ t('scrap') }}</option><option value="other">{{ t('other') }}</option></select>
                 <Button size="sm" variant="ghost" icon="lucide-x" @click="step.branches.splice(i, 1)" />
-                <input v-model="b.label" class="wq-input col-span-3" placeholder="when, e.g. Light kit: count again"></div>
-              <div><Button size="sm" label="Add a branch" @click="step.branches.push({ to: '', kind: 'rework', label: '' })" /></div></fieldset>
-            <fieldset v-if="opts" class="grid gap-2"><legend class="mb-1 text-sm text-ink-gray-7">Links</legend>
+                <input v-model="b.label" class="wq-input col-span-3" :placeholder="t('when, e.g. Light kit: count again')"></div>
+              <div><Button size="sm" :label="t('Add a branch')" @click="step.branches.push({ to: '', kind: 'rework', label: '' })" /></div></fieldset>
+            <fieldset v-if="opts" class="grid gap-2"><legend class="mb-1 text-sm text-ink-gray-7">{{ t('Links') }}</legend>
               <div v-for="[k, label, list, val, text] in [['documents', 'Documents in effect', opts.documents, (d) => d.number, (d) => `${d.number} ${d.title || ''}`],
-                                                       ['fmea', 'PFMEA rows', opts.fmea, (m) => `${m.name}#${m.seq}`, (m) => `${m.name} row ${m.seq}: ${m.failure_mode}`],
+                                                       ['fmea', 'PFMEA rows', opts.fmea, (m) => `${m.name}#${m.seq}`, (m) => t('{name} row {seq}: {mode}', { name: m.name, seq: m.seq, mode: m.failure_mode })],
                                                        ['gauges', 'Measuring equipment', opts.gauges, (g) => g.code, (g) => `${g.code} ${g.name}`]]" :key="k">
-                <label class="wq-field">{{ label }}<select v-model="pick[k]" class="wq-select" @change="add(k)"><option value="">Add…</option><option v-for="o in list" :key="val(o)" :value="val(o)">{{ text(o) }}</option></select></label>
-                <p class="mt-1 flex flex-wrap gap-1"><button v-for="v in step.links[k]" :key="v" type="button" class="chip" @click="drop(k, v)">{{ v.replace('#', ' row ') }} ×</button></p>
+                <label class="wq-field">{{ t(label) }}<select v-model="pick[k]" class="wq-select" @change="add(k)"><option value="">{{ t('Add…') }}</option><option v-for="o in list" :key="val(o)" :value="val(o)">{{ text(o) }}</option></select></label>
+                <p class="mt-1 flex flex-wrap gap-1"><button v-for="v in step.links[k]" :key="v" type="button" class="chip" @click="drop(k, v)">{{ rowText(v) }} ×</button></p>
               </div>
-              <label class="wq-field">Incoming inspection plan<select v-model="step.links.plan" class="wq-select"><option value="" /><option v-for="p in opts.plans" :key="p">{{ p }}</option></select></label>
-              <label class="wq-field">Production template<select v-model="step.links.template" class="wq-select"><option value="" /><option v-for="t in opts.templates" :key="t.code" :value="t.code">{{ t.code }} {{ t.title }}</option></select></label>
+              <label class="wq-field">{{ t('Incoming inspection plan') }}<select v-model="step.links.plan" class="wq-select"><option value="" /><option v-for="p in opts.plans" :key="p">{{ p }}</option></select></label>
+              <label class="wq-field">{{ t('Production template') }}<select v-model="step.links.template" class="wq-select"><option value="" /><option v-for="tp in opts.templates" :key="tp.code" :value="tp.code">{{ tp.code }} {{ tp.title }}</option></select></label>
             </fieldset>
-            <div class="flex gap-2"><Button type="submit" variant="solid" :label="sel ? 'Save the step' : 'Add the step'" :disabled="busy || !step.name.trim()" />
-              <Button v-if="sel" variant="ghost" theme="red" label="Remove" @click="remove" /></div>
+            <div class="flex gap-2"><Button type="submit" variant="solid" :label="sel ? t('Save the step') : t('Add the step')" :disabled="busy || !step.name.trim()" />
+              <Button v-if="sel" variant="ghost" theme="red" :label="t('Remove')" @click="remove" /></div>
           </form>
         </template>
         <template v-else-if="current">
@@ -180,37 +182,37 @@ async function revise() {
           <ul class="flex flex-col gap-1.5 text-sm">
             <li v-for="k in linkKeys(current)" :key="k"><RouterLink v-if="linkState(k).url" :to="linkState(k).url" class="wq-link">{{ linkState(k).label }}</RouterLink><span v-else>{{ short(k) }}</span>
               <span v-if="!linkState(k).ok" class="text-ink-red-7"> {{ linkState(k).why }}</span><span v-else-if="linkState(k).warn" class="text-ink-amber-7"> {{ linkState(k).warn }}</span></li>
-            <li v-if="!linkKeys(current).length" class="wq-muted">No links.</li>
+            <li v-if="!linkKeys(current).length" class="wq-muted">{{ t('No links.') }}</li>
           </ul>
-          <ul v-if="current.branches.length" class="mt-3 text-sm"><li v-for="(b, i) in current.branches" :key="i">{{ b.kind }}: {{ b.label }} → {{ b.to == null ? 'leaves the flow' : r.steps.find((y) => y.seq === b.to)?.name }}</li></ul>
+          <ul v-if="current.branches.length" class="mt-3 text-sm"><li v-for="(b, i) in current.branches" :key="i">{{ t(b.kind) }}: {{ b.label }} → {{ b.to == null ? t('leaves the flow') : r.steps.find((y) => y.seq === b.to)?.name }}</li></ul>
         </template>
-        <p v-else class="wq-muted">Click a step in the drawing.</p>
+        <p v-else class="wq-muted">{{ t('Click a step in the drawing.') }}</p>
       </section>
     </div>
 
-    <section v-if="r.not_analysed.length" class="mb-5 text-sm text-ink-gray-6"><b class="text-ink-gray-8">No PFMEA row linked yet:</b> {{ r.not_analysed.join(', ') }}.</section>
+    <section v-if="r.not_analysed.length" class="mb-5 text-sm text-ink-gray-6"><b class="text-ink-gray-8">{{ t('No PFMEA row linked yet:') }}</b> {{ r.not_analysed.join(', ') }}.</section>
 
     <section v-if="r.status === 'draft' || (r.status === 'approved' && r.can_edit)" data-help="flow-approve" class="wq-panel mb-5 max-w-3xl p-5">
       <template v-if="r.status === 'draft'">
-        <h3 class="mb-2 text-base font-semibold text-ink-gray-9">Approve</h3>
-        <ul v-if="r.to_approve.length" class="mb-3 list-disc ps-5 text-sm text-ink-gray-6"><li v-for="t in r.to_approve" :key="t">{{ t }}</li></ul>
+        <h3 class="mb-2 text-base font-semibold text-ink-gray-9">{{ t('Approve') }}</h3>
+        <ul v-if="r.to_approve.length" class="mb-3 list-disc ps-5 text-sm text-ink-gray-6"><li v-for="a in r.to_approve" :key="a">{{ a }}</li></ul>
         <div v-if="r.can_configure" class="flex flex-wrap items-end gap-2">
-          <input v-model="x.password" type="password" class="wq-input w-44" placeholder="Your password" autocomplete="current-password">
-          <Button variant="solid" label="Approve (sign)" :disabled="!x.password || !!r.to_approve.length || !!Object.keys(changed()).length" @click="call(`/api/flow/charts/${r.id}/approve`, 'POST', { password: x.password }, 'Approved: the flow chart is fixed now.').then(() => { x.password = '' })" />
+          <input v-model="x.password" type="password" class="wq-input w-44" :placeholder="t('Your password')" autocomplete="current-password">
+          <Button variant="solid" :label="t('Approve (sign)')" :disabled="!x.password || !!r.to_approve.length || !!Object.keys(changed()).length" @click="call(`/api/flow/charts/${r.id}/approve`, 'POST', { password: x.password }, t('Approved: the flow chart is fixed now.')).then(() => { x.password = '' })" />
         </div>
-        <p class="mt-2 text-sm text-ink-gray-5">Approved by someone who does not own and did not edit it. What each link points to is checked again and kept.</p>
-        <details v-if="r.can_edit" class="mt-3"><summary class="cursor-pointer text-sm text-ink-gray-7">Withdraw the draft</summary>
-          <div class="mt-2 flex gap-2"><input v-model="x.reason" class="wq-input w-80" placeholder="Why"><Button label="Withdraw" :disabled="!x.reason.trim()" @click="call(`/api/flow/charts/${r.id}/withdraw`, 'POST', { reason: x.reason }, 'Withdrawn.')" /></div></details>
+        <p class="mt-2 text-sm text-ink-gray-5">{{ t('Approved by someone who does not own and did not edit it. What each link points to is checked again and kept.') }}</p>
+        <details v-if="r.can_edit" class="mt-3"><summary class="cursor-pointer text-sm text-ink-gray-7">{{ t('Withdraw the draft') }}</summary>
+          <div class="mt-2 flex gap-2"><input v-model="x.reason" class="wq-input w-80" :placeholder="t('Why')"><Button :label="t('Withdraw')" :disabled="!x.reason.trim()" @click="call(`/api/flow/charts/${r.id}/withdraw`, 'POST', { reason: x.reason }, t('Withdrawn.'))" /></div></details>
       </template>
-      <template v-else><h3 class="mb-2 text-base font-semibold text-ink-gray-9">Change it</h3><p class="mb-3 text-sm text-ink-gray-6">An approved flow chart is fixed. A new version starts as a copy; approving it supersedes this one.</p><Button label="Start a new version" @click="revise" /></template>
+      <template v-else><h3 class="mb-2 text-base font-semibold text-ink-gray-9">{{ t('Change it') }}</h3><p class="mb-3 text-sm text-ink-gray-6">{{ t('An approved flow chart is fixed. A new version starts as a copy; approving it supersedes this one.') }}</p><Button :label="t('Start a new version')" @click="revise" /></template>
     </section>
 
-    <p v-if="r.fingerprint" class="mb-4 text-xs text-ink-gray-5">Fingerprint {{ r.fingerprint }}</p>
-    <h2 class="wq-h2 mt-6">Versions</h2>
-    <ul class="mb-4 text-sm"><li v-for="ver in r.versions" :key="ver.id"><RouterLink :to="`/quality/flow/${ver.id}`" class="hover:underline">v{{ ver.version }}</RouterLink> · {{ ver.status }}<span v-if="ver.approved_by"> · {{ ver.approved_by }} {{ ver.approved_at?.slice(0, 10) }}</span></li></ul>
-    <h2 class="wq-h2 mt-6">Signatures</h2>
+    <p v-if="r.fingerprint" class="mb-4 text-xs text-ink-gray-5">{{ t('Fingerprint {fp}', { fp: r.fingerprint }) }}</p>
+    <h2 class="wq-h2 mt-6">{{ t('Versions') }}</h2>
+    <ul class="mb-4 text-sm"><li v-for="ver in r.versions" :key="ver.id"><RouterLink :to="`/quality/flow/${ver.id}`" class="hover:underline">v{{ ver.version }}</RouterLink> · {{ t(ver.status) }}<span v-if="ver.approved_by"> · {{ ver.approved_by }} {{ ver.approved_at?.slice(0, 10) }}</span></li></ul>
+    <h2 class="wq-h2 mt-6">{{ t('Signatures') }}</h2>
     <Trail :items="r.signatures" kind="signatures" />
-    <h2 class="wq-h2 mt-6">History</h2>
+    <h2 class="wq-h2 mt-6">{{ t('History') }}</h2>
     <Trail :items="r.history" />
   </template>
 </template>

@@ -9,6 +9,7 @@ import PageTop from '../ui/PageTop.vue'
 import { api, objectPath } from '../api'
 import { ago } from '../format'
 import { setStandard, standard } from '../standard'
+import { t } from '../i18n'
 
 const ws = inject('workspace')
 const route = useRoute()
@@ -73,14 +74,14 @@ async function post(path, body, message) {
   try { v.value = await api(`/api/qms/${standard.value}${path}`, { method: 'POST', body }); stds.value = await api('/api/qms'); done.value = message; open.value = null; form.value = { reason: '', password: '', doc: '' } }
   catch (e) { error.value = e.message } finally { busy.value = false; password.value = '' }
 }
-const adopt = () => post('/enable', { edition: edition.value, password: password.value }, 'Adopted and checked against your records.')
-const evaluate = () => post('/evaluate', {}, 'Checked again against your records.')
+const adopt = () => post('/enable', { edition: edition.value, password: password.value }, t('Adopted and checked against your records.'))
+const evaluate = () => post('/evaluate', {}, t('Checked again against your records.'))
 const declare = (c, applies) => post(`/controls/${c.id}/applies`, { applies, reason: form.value.reason, password: form.value.password },
-  applies ? 'Recorded: it applies.' : 'Recorded: it does not apply.')
-const saveSetting = (key, value) => post('/settings', { key, value }, 'Setting saved and checked again.')
+  applies ? t('Recorded: it applies.') : t('Recorded: it does not apply.'))
+const saveSetting = (key, value) => post('/settings', { key, value }, t('Setting saved and checked again.'))
 const ruleOf = (c) => c.result?.rule || c.rule
 const ruleOn = (c) => !c.switch || v.value.settings[c.switch]
-const link = (c, id, linked) => post(`/controls/${c.id}/evidence`, { document_id: Number(id), linked }, linked ? 'Document linked.' : 'Link removed.')
+const link = (c, id, linked) => post(`/controls/${c.id}/evidence`, { document_id: Number(id), linked }, linked ? t('Document linked.') : t('Link removed.'))
 
 const docName = (d) => [d.number, d.title].filter(Boolean).join(' ') || d.original_name
 const shown = (c) => filter.value === 'all' || c.result?.status === filter.value
@@ -106,13 +107,13 @@ function to(p, c) {
 
 <template>
   <PageTop>
-    <template #title>Quality system</template>
-    <Button data-help="qms-setup" icon-left="lucide-settings-2" label="Set up" route="/system/setup" />
-    <Button v-if="v?.enabled" data-help="qms-gaps" icon-left="lucide-list-todo" label="Gap report" route="/system/gaps" />
-    <Button v-if="v?.enabled" data-help="qms-audit" icon-left="lucide-clipboard-check" label="Audit checklist" route="/system/audit" />
-    <Button v-if="v?.enabled && latest && v.can_check" data-help="qms-check-now" icon-left="lucide-refresh-cw" label="Check now" :loading="busy" @click="evaluate" />
+    <template #title>{{ t('Quality system') }}</template>
+    <Button data-help="qms-setup" icon-left="lucide-settings-2" :label="t('Set up')" route="/system/setup" />
+    <Button v-if="v?.enabled" data-help="qms-gaps" icon-left="lucide-list-todo" :label="t('Gap report')" route="/system/gaps" />
+    <Button v-if="v?.enabled" data-help="qms-audit" icon-left="lucide-clipboard-check" :label="t('Audit checklist')" route="/system/audit" />
+    <Button v-if="v?.enabled && latest && v.can_check" data-help="qms-check-now" icon-left="lucide-refresh-cw" :label="t('Check now')" :loading="busy" @click="evaluate" />
   </PageTop>
-  <div v-if="stds.length > 1" data-help="qms-standards" class="standards mb-4 flex flex-wrap items-center gap-2" role="tablist" aria-label="Standard">
+  <div v-if="stds.length > 1" data-help="qms-standards" class="standards mb-4 flex flex-wrap items-center gap-2" role="tablist" :aria-label="t('Standard')">
     <Button v-for="s in stds" :key="s.standard" :variant="s.standard === standard ? 'solid' : 'subtle'" role="tab"
             :aria-selected="s.standard === standard" @click="choose(s.standard)">
       {{ s.name }}<span v-if="s.adopted" class="ms-1 opacity-70">· {{ s.edition }}</span></Button>
@@ -123,19 +124,16 @@ function to(p, c) {
   <template v-if="v && !v.enabled">
     <section data-help="qms-adopt" class="wq-panel max-w-3xl p-5">
       <h2 class="wq-h2">{{ v.label }}</h2>
-      <p class="mb-3 text-base text-ink-gray-7">WenQuest Ops turns the standard into control points and checks each one against your records: nonconformances,
-        corrective actions, inspections and the document library. Each answer is met, not met or unknown, with the records behind it.
-        Where there is nothing to look at yet, the answer is unknown, never met. The requirement summaries are our own words, not the
-        standard's text, and this is not a certification.</p>
+      <p class="mb-3 text-base text-ink-gray-7">{{ t('WenQuest Ops turns the standard into control points and checks each one against your records: nonconformances, corrective actions, inspections and the document library. Each answer is met, not met or unknown, with the records behind it. Where there is nothing to look at yet, the answer is unknown, never met. The requirement summaries are our own words, not the standard\'s text, and this is not a certification.') }}</p>
       <template v-if="can">
         <div class="flex flex-wrap items-end gap-3">
-          <label class="wq-field">Edition<select v-model="edition" class="wq-select">
+          <label class="wq-field">{{ t('Edition') }}<select v-model="edition" class="wq-select">
             <option v-for="(e, k) in v.editions" :key="k" :value="k" :disabled="!e.ready">{{ e.label }}{{ e.ready ? '' : ` (${e.note})` }}</option></select></label>
-          <label class="wq-field">Your password to sign<input v-model="password" type="password" class="wq-input w-56" autocomplete="current-password"></label>
-          <Button variant="solid" label="Adopt the standard (sign)" :loading="busy" :disabled="!password" @click="adopt" />
+          <label class="wq-field">{{ t('Your password to sign') }}<input v-model="password" type="password" class="wq-input w-56" autocomplete="current-password"></label>
+          <Button variant="solid" :label="t('Adopt the standard (sign)')" :loading="busy" :disabled="!password" @click="adopt" />
         </div>
       </template>
-      <p v-else class="wq-muted">The owner or Quality adopts the standard.</p>
+      <p v-else class="wq-muted">{{ t('The owner or Quality adopts the standard.') }}</p>
     </section>
   </template>
 
@@ -143,34 +141,33 @@ function to(p, c) {
     <section class="wq-panel mb-5 p-5">
       <div class="mb-2 flex flex-wrap items-center gap-2">
         <h2 class="text-base font-semibold text-ink-gray-9">{{ v.edition_label }}</h2>
-        <span class="text-sm text-ink-gray-5">pack version {{ v.enabled.version }} · adopted by {{ v.enabled.enabled_by }} {{ ago(v.enabled.enabled_at) }}
-          · fingerprint {{ v.enabled.fingerprint.slice(0, 12) }}…</span>
-        <Badge v-if="v.newer_pack" theme="amber" label="a newer pack is available" />
+        <span class="text-sm text-ink-gray-5">{{ t('pack version {version} · adopted by {by} {when} · fingerprint {fp}…', { version: v.enabled.version, by: v.enabled.enabled_by, when: ago(v.enabled.enabled_at), fp: v.enabled.fingerprint.slice(0, 12) }) }}</span>
+        <Badge v-if="v.newer_pack" theme="amber" :label="t('a newer pack is available')" />
       </div>
       <div v-if="v.newer_pack && can && latest" class="mb-3 flex flex-wrap items-end gap-2 text-sm">
-        <span class="pb-2 text-ink-gray-7">Pack version {{ v.pack_version }} adds checks; adopting it keeps everything you recorded.</span>
-        <label class="wq-field">Your password<input v-model="password" type="password" class="wq-input w-44" autocomplete="current-password"></label>
-        <Button label="Adopt the newer pack (sign)" :disabled="!password" :loading="busy" @click="edition = v.enabled.edition; adopt()" />
+        <span class="pb-2 text-ink-gray-7">{{ t('Pack version {version} adds checks; adopting it keeps everything you recorded.', { version: v.pack_version }) }}</span>
+        <label class="wq-field">{{ t('Your password') }}<input v-model="password" type="password" class="wq-input w-44" autocomplete="current-password"></label>
+        <Button :label="t('Adopt the newer pack (sign)')" :disabled="!password" :loading="busy" @click="edition = v.enabled.edition; adopt()" />
       </div>
       <p v-if="v.evaluation" class="mb-3 text-sm text-ink-gray-6">
-        <template v-if="!latest">Showing the check of {{ v.evaluation.day }} ({{ v.evaluation.trigger }}){{ v.shown_pack.id !== v.enabled.id ? `, made under pack version ${v.shown_pack.version}` : '' }}.
-          <RouterLink to="/system" class="wq-link">Show the latest</RouterLink></template>
-        <template v-else>Checked {{ ago(v.evaluation.at) }} ({{ v.evaluation.trigger }}). Looks at the last {{ v.settings.window_days }} days; checked again every day.</template></p>
+        <template v-if="!latest">{{ t('Showing the check of {day} ({trigger})', { day: v.evaluation.day, trigger: t(v.evaluation.trigger) }) }}{{ v.shown_pack.id !== v.enabled.id ? t(', made under pack version {version}', { version: v.shown_pack.version }) : '' }}.
+          <RouterLink to="/system" class="wq-link">{{ t('Show the latest') }}</RouterLink></template>
+        <template v-else>{{ t('Checked {when} ({trigger}). Looks at the last {days} days; checked again every day.', { when: ago(v.evaluation.at), trigger: t(v.evaluation.trigger), days: v.settings.window_days }) }}</template></p>
       <div data-help="qms-filter" class="flex flex-wrap gap-2">
         <button v-for="k in ['all', ...ORDER]" :key="k" class="rounded-3 border px-3 py-1.5 text-sm"
                 :class="filter === k ? 'border-outline-gray-4 bg-surface-gray-3 text-ink-gray-9' : 'border-outline-gray-2 text-ink-gray-7'" @click="filter = k">
-          {{ k === 'all' ? 'All' : S[k].label }} <span class="ms-1 font-semibold">{{ k === 'all' ? Object.values(counts).reduce((a, b) => a + b, 0) : counts[k] || 0 }}</span></button>
+          {{ k === 'all' ? t('All') : t(S[k].label) }} <span class="ms-1 font-semibold">{{ k === 'all' ? Object.values(counts).reduce((a, b) => a + b, 0) : counts[k] || 0 }}</span></button>
       </div>
     </section>
 
     <section data-help="qms-registers" class="registers wq-panel mb-5 p-5">
-      <h2 class="wq-h2">Registers</h2>
-      <p class="wq-muted mb-3">The records the standard asks for that are not nonconformances or documents. The checks read them.</p>
+      <h2 class="wq-h2">{{ t('Registers') }}</h2>
+      <p class="wq-muted mb-3">{{ t('The records the standard asks for that are not nonconformances or documents. The checks read them.') }}</p>
       <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <RouterLink v-for="g in regs" :key="g.name" :to="`/system/registers/${g.name}`"
                     class="rounded-4 border border-outline-gray-2 p-3 hover:bg-surface-gray-1">
           <p class="text-base font-medium text-ink-gray-9">{{ g.label }}</p>
-          <p class="text-sm text-ink-gray-5">{{ (g.counts.open || 0) + (g.counts.signed || 0) }} entries<template v-if="g.signed && g.counts.open"> · {{ g.counts.open }} to approve</template></p>
+          <p class="text-sm text-ink-gray-5">{{ t('{n} entries', { n: (g.counts.open || 0) + (g.counts.signed || 0) }) }}<template v-if="g.signed && g.counts.open"> · {{ t('{n} to approve', { n: g.counts.open }) }}</template></p>
         </RouterLink>
       </div>
     </section>
@@ -179,48 +176,48 @@ function to(p, c) {
       <h2 class="wq-h2">{{ p.label }}</h2>
       <article v-for="c in sorted(p.controls).filter(shown)" :key="c.id" class="control border-t border-outline-gray-1 py-3 first:border-t-0">
         <div class="flex flex-wrap items-start gap-2">
-          <Badge v-if="c.result" v-bind="S[c.result.status]" class="mt-0.5" />
+          <Badge v-if="c.result" v-bind="S[c.result.status]" :label="t(S[c.result.status].label)" class="mt-0.5" />
           <div class="min-w-0 flex-1">
             <p class="text-base text-ink-gray-9">{{ c.summary }}</p>
-            <p class="text-sm text-ink-gray-5">{{ v.name }} {{ c.clauses.join(', ') }}<template v-if="c.hint"> · evidence: {{ c.hint }}</template></p>
-            <p v-if="c.register" class="text-sm"><RouterLink :to="`/system/registers/${c.register}`" class="wq-link">Open the register</RouterLink></p>
-            <p v-if="c.our_rule && ruleOn(c)" class="text-sm text-ink-gray-6">Checked by the WenQuest Ops rule: {{ c.our_rule }} (can be switched off in the settings below)</p>
-            <p v-else-if="c.our_rule" class="text-sm text-ink-gray-6">Our rule is switched off: link the document that shows how you meet this.</p>
+            <p class="text-sm text-ink-gray-5">{{ v.name }} {{ c.clauses.join(', ') }}<template v-if="c.hint"> · {{ t('evidence: {hint}', { hint: c.hint }) }}</template></p>
+            <p v-if="c.register" class="text-sm"><RouterLink :to="`/system/registers/${c.register}`" class="wq-link">{{ t('Open the register') }}</RouterLink></p>
+            <p v-if="c.our_rule && ruleOn(c)" class="text-sm text-ink-gray-6">{{ t('Checked by the WenQuest Ops rule: {rule} (can be switched off in the settings below)', { rule: c.our_rule }) }}</p>
+            <p v-else-if="c.our_rule" class="text-sm text-ink-gray-6">{{ t('Our rule is switched off: link the document that shows how you meet this.') }}</p>
             <p v-if="c.result" class="mt-1 text-sm text-ink-gray-7">{{ c.result.detail }}</p>
             <ul v-if="c.result?.problems.length" class="mt-1 flex flex-col gap-0.5 text-sm">
               <li v-for="x in c.result.problems" :key="`${x.kind}${x.id}${x.why}`">
                 <RouterLink v-if="to(x, c)" :to="to(x, c)" class="wq-link">{{ x.label }}</RouterLink><span v-else>{{ x.label }}</span>
                 <span class="text-ink-gray-6"> — {{ x.why }}</span></li>
-              <li v-if="c.result.problem_count > c.result.problems.length" class="text-ink-gray-5">and {{ c.result.problem_count - c.result.problems.length }} more</li>
+              <li v-if="c.result.problem_count > c.result.problems.length" class="text-ink-gray-5">{{ t('and {n} more', { n: c.result.problem_count - c.result.problems.length }) }}</li>
             </ul>
-            <p v-if="c.result?.evidence.length && c.result.status === 'met' && c.rule !== 'linked_document'" class="mt-1 text-sm text-ink-gray-6">Records:
+            <p v-if="c.result?.evidence.length && c.result.status === 'met' && c.rule !== 'linked_document'" class="mt-1 text-sm text-ink-gray-6">{{ t('Records:') }}
               <template v-for="(x, i) in c.result.evidence" :key="x.id"><RouterLink :to="to(x, c)" class="wq-link">{{ x.label }}</RouterLink>{{ i < c.result.evidence.length - 1 ? ', ' : '' }}</template>
-              <span v-if="c.result.evidence_count > c.result.evidence.length"> and {{ c.result.evidence_count - c.result.evidence.length }} more</span></p>
+              <span v-if="c.result.evidence_count > c.result.evidence.length"> {{ t('and {n} more', { n: c.result.evidence_count - c.result.evidence.length }) }}</span></p>
           </div>
           <Button v-if="can && latest && (LINKED.includes(ruleOf(c)) || c.may_exclude)" size="sm" variant="ghost"
-                  :label="open === c.id ? 'Close' : 'Change'" @click="toggle(c)" />
+                  :label="open === c.id ? t('Close') : t('verb::Change')" @click="toggle(c)" />
         </div>
         <div v-if="open === c.id" class="mt-3 flex flex-col gap-3 rounded-4 bg-surface-gray-1 p-4 text-sm">
           <div v-if="LINKED.includes(ruleOf(c))">
-            <p class="mb-1 text-ink-gray-7">Documents linked as evidence:</p>
+            <p class="mb-1 text-ink-gray-7">{{ t('Documents linked as evidence:') }}</p>
             <ul class="mb-2"><li v-for="d in v.evidence[c.id] || []" :key="d.id">
-              <RouterLink :to="`/documents/${d.id}`" class="wq-link">{{ d.name }}</RouterLink> <span class="text-ink-gray-5">{{ d.status.replace('_', ' ') }}, by {{ d.email }}</span>
-              <Button size="sm" variant="ghost" label="Remove" @click="link(c, d.id, false)" /></li>
-              <li v-if="!(v.evidence[c.id] || []).length" class="text-ink-gray-5">None yet.</li></ul>
+              <RouterLink :to="`/documents/${d.id}`" class="wq-link">{{ d.name }}</RouterLink> <span class="text-ink-gray-5">{{ t('{status}, by {email}', { status: t(d.status.replace('_', ' ')), email: d.email }) }}</span>
+              <Button size="sm" variant="ghost" :label="t('Remove')" @click="link(c, d.id, false)" /></li>
+              <li v-if="!(v.evidence[c.id] || []).length" class="text-ink-gray-5">{{ t('None yet.') }}</li></ul>
             <div v-if="canDocs" class="flex flex-wrap items-end gap-2">
-              <label class="wq-field">Document<select v-model="form.doc" class="wq-select max-w-md">
-                <option value="" disabled>Choose a document</option>
-                <option v-for="d in docs" :key="d.id" :value="d.id">{{ docName(d) }} ({{ d.status.replace('_', ' ') }})</option></select></label>
-              <Button label="Link" :disabled="!form.doc" @click="link(c, form.doc, true)" />
+              <label class="wq-field">{{ t('Document') }}<select v-model="form.doc" class="wq-select max-w-md">
+                <option value="" disabled>{{ t('Choose a document') }}</option>
+                <option v-for="d in docs" :key="d.id" :value="d.id">{{ docName(d) }} ({{ t(d.status.replace('_', ' ')) }})</option></select></label>
+              <Button :label="t('Link')" :disabled="!form.doc" @click="link(c, form.doc, true)" />
             </div>
           </div>
           <div v-if="c.may_exclude">
-            <p class="mb-1 text-ink-gray-7">{{ v.applicability[c.id] ? `Now: ${v.applicability[c.id].applies ? 'applies' : 'does not apply'} (${v.applicability[c.id].reason})` : 'Say whether this applies to your company. Signed, with the reason.' }}</p>
+            <p class="mb-1 text-ink-gray-7">{{ v.applicability[c.id] ? t('Now: {state} ({reason})', { state: v.applicability[c.id].applies ? t('applies') : t('does not apply'), reason: v.applicability[c.id].reason }) : t('Say whether this applies to your company. Signed, with the reason.') }}</p>
             <div class="flex flex-wrap items-end gap-2">
-              <label class="wq-field">Reason<input v-model="form.reason" class="wq-input w-80" placeholder="e.g. we distribute; we do not design products"></label>
-              <label class="wq-field">Your password<input v-model="form.password" type="password" class="wq-input w-44" autocomplete="current-password"></label>
-              <Button label="Does not apply (sign)" :disabled="!form.reason || !form.password" @click="declare(c, false)" />
-              <Button label="Applies (sign)" :disabled="!form.reason || !form.password" @click="declare(c, true)" />
+              <label class="wq-field">{{ t('Reason') }}<input v-model="form.reason" class="wq-input w-80" :placeholder="t('e.g. we distribute; we do not design products')"></label>
+              <label class="wq-field">{{ t('Your password') }}<input v-model="form.password" type="password" class="wq-input w-44" autocomplete="current-password"></label>
+              <Button :label="t('Does not apply (sign)')" :disabled="!form.reason || !form.password" @click="declare(c, false)" />
+              <Button :label="t('Applies (sign)')" :disabled="!form.reason || !form.password" @click="declare(c, true)" />
             </div>
           </div>
         </div>
@@ -228,35 +225,34 @@ function to(p, c) {
     </section>
 
     <section v-if="latest" data-help="qms-settings" class="settings wq-panel mb-4 p-5">
-      <h2 class="wq-h2">Settings</h2>
-      <p class="wq-muted mb-3">Your company's values. The rules marked as ours are one way to show a requirement is met; switch them off and link
-        your own procedure instead. Changes are recorded and the system is checked again.</p>
+      <h2 class="wq-h2">{{ t('Settings') }}</h2>
+      <p class="wq-muted mb-3">{{ t('Your company\'s values. The rules marked as ours are one way to show a requirement is met; switch them off and link your own procedure instead. Changes are recorded and the system is checked again.') }}</p>
       <div class="flex flex-col gap-2 text-sm">
         <div v-for="(spec, key) in v.setting_specs" :key="key" class="flex flex-wrap items-center gap-3">
           <span class="min-w-96 text-ink-gray-8">{{ spec.label }}</span>
           <template v-if="typeof spec.value === 'boolean'">
             <label class="inline-flex items-center gap-1.5"><input type="checkbox" class="form-checkbox" :checked="v.settings[key]" :disabled="!can"
-              @change="saveSetting(key, $event.target.checked)">{{ v.settings[key] ? 'on' : 'off' }}</label>
+              @change="saveSetting(key, $event.target.checked)">{{ v.settings[key] ? t('on') : t('off') }}</label>
           </template>
           <template v-else>
             <input type="number" class="wq-input w-24" :min="spec.min" :max="spec.max" :value="v.settings[key]" :disabled="!can"
                    @change="saveSetting(key, Number($event.target.value))">
           </template>
-          <span v-if="v.settings[key] !== spec.value" class="text-ink-gray-5">default {{ spec.value === true ? 'on' : spec.value === false ? 'off' : spec.value }}</span>
+          <span v-if="v.settings[key] !== spec.value" class="text-ink-gray-5">{{ t('default {value}', { value: spec.value === true ? t('on') : spec.value === false ? t('off') : spec.value }) }}</span>
         </div>
       </div>
     </section>
 
     <section data-help="qms-history" class="wq-panel p-5">
-      <h2 class="wq-h2">Earlier checks</h2>
+      <h2 class="wq-h2">{{ t('Earlier checks') }}</h2>
       <div class="mb-3 flex flex-wrap items-end gap-2 text-sm">
-        <label class="wq-field">Show the check of a day<input v-model="pickDay" type="date" class="wq-input w-44"></label>
-        <Button label="Show" :disabled="!pickDay" @click="router.push(`/system?day=${pickDay}`)" />
+        <label class="wq-field">{{ t('Show the check of a day') }}<input v-model="pickDay" type="date" class="wq-input w-44"></label>
+        <Button :label="t('Show')" :disabled="!pickDay" @click="router.push(`/system?day=${pickDay}`)" />
       </div>
-      <table class="wq-table text-sm"><thead><tr><th>Day</th><th>Why</th><th>Met</th><th>Not met</th><th>Unknown</th><th>Does not apply</th></tr></thead>
+      <table class="wq-table text-sm"><thead><tr><th>{{ t('Day') }}</th><th>{{ t('Why') }}</th><th>{{ t('Met') }}</th><th>{{ t('Not met') }}</th><th>{{ t('Unknown') }}</th><th>{{ t('Does not apply') }}</th></tr></thead>
         <tbody><tr v-for="h in v.history.slice(0, 30)" :key="h.id" class="cursor-pointer" @click="router.push(`/system?evaluation=${h.id}`)">
           <td><RouterLink :to="`/system?evaluation=${h.id}`" class="wq-link">{{ h.day }}</RouterLink> <span class="text-ink-gray-5">{{ ago(h.at) }}</span></td>
-          <td>{{ h.trigger }}<span v-if="h.email" class="text-ink-gray-5"> by {{ h.email }}</span></td>
+          <td>{{ t(h.trigger) }}<span v-if="h.email" class="text-ink-gray-5"> {{ t('by {email}', { email: h.email }) }}</span></td>
           <td>{{ h.counts.met }}</td><td>{{ h.counts.not_met }}</td><td>{{ h.counts.unknown }}</td><td>{{ h.counts.not_applicable }}</td></tr></tbody></table>
     </section>
   </template>

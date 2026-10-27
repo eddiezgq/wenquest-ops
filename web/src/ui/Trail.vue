@@ -1,12 +1,13 @@
 <script setup>
 // Signatures or history of a quality record: who, what, when; nothing here can be changed (ADR-0010).
 import { ago } from '../format'
+import { t } from '../i18n'
 
 defineProps({ items: Array, kind: { type: String, default: 'history' } })
 </script>
 
 <template>
-  <p v-if="!items.length" class="wq-muted">None yet.</p>
+  <p v-if="!items.length" class="wq-muted">{{ t('None yet.') }}</p>
   <ol v-else class="wq-panel divide-y divide-outline-gray-1">
     <li v-for="(x, i) in items" :key="i" class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5 text-sm">
       <template v-if="kind === 'signatures'">

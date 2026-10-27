@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
 import { fmt, setCurrency } from '../format'
+import { t, locale } from '../i18n'
 import { LIGHT, optionFor } from '../ui/ovcharts'
 import FlowChain from '../components/FlowChain.vue'
 import OvChart from '../components/OvChart.vue'
@@ -75,19 +76,19 @@ const chartOf = computed(() => Object.fromEntries((v.value?.panels || []).map((p
     <header class="top">
       <div>
         <p class="company">{{ v?.company || 'WenQuest Ops' }}</p>
-        <h1 class="scene-title">{{ current?.title }}</h1>
+        <h1 class="scene-title">{{ current ? t(current.title) : '' }}</h1>
       </div>
       <div class="meta">
-        <p class="clock">{{ now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) }}
-          · {{ now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) }}</p>
-        <nav class="pips" aria-label="Scenes">
-          <button v-for="(s, i) in scenes" :key="s.title" :class="i === scene % scenes.length ? 'on' : ''" :aria-label="s.title" @click="scene = i" />
+        <p class="clock">{{ now.toLocaleDateString(locale(), { weekday: 'long', month: 'long', day: 'numeric' }) }}
+          · {{ now.toLocaleTimeString(locale(), { hour: 'numeric', minute: '2-digit' }) }}</p>
+        <nav class="pips" :aria-label="t('Scenes')">
+          <button v-for="(s, i) in scenes" :key="s.title" :class="i === scene % scenes.length ? 'on' : ''" :aria-label="t(s.title)" @click="scene = i" />
         </nav>
-        <button class="exit" @click="leave">Leave the big screen</button>
+        <button class="exit" @click="leave">{{ t('Leave the big screen') }}</button>
       </div>
     </header>
 
-    <p v-if="error" class="err">Not updated since {{ updated ? updated.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'the page opened' }}: {{ error }}. Sign in again on this screen if the session ended.</p>
+    <p v-if="error" class="err">{{ t('Not updated since {when}: {error}. Sign in again on this screen if the session ended.', { when: updated ? updated.toLocaleTimeString(locale(), { hour: 'numeric', minute: '2-digit' }) : t('the page opened'), error }) }}</p>
 
     <main v-if="v" :key="scene" class="stage">
       <template v-if="!current.panels.length">
@@ -95,32 +96,32 @@ const chartOf = computed(() => Object.fromEntries((v.value?.panels || []).map((p
         <section class="lights" :style="{ gridTemplateColumns: `repeat(${v.panels.length}, minmax(0, 1fr))` }">
           <div v-for="p in v.panels" :key="p.key" class="light" :style="{ '--c': LIGHT[p.light.color] }">
             <span class="lamp" />
-            <p class="l-label">{{ p.label }}</p>
+            <p class="l-label">{{ t(p.label) }}</p>
             <p class="l-value">{{ value(p.light) }}</p>
-            <p class="l-word">{{ COLOR_WORD[p.light.color] }}</p>
+            <p class="l-word">{{ t(COLOR_WORD[p.light.color]) }}</p>
           </div>
         </section>
       </template>
       <section v-else class="duo" :class="shownPanels.length === 1 ? 'solo' : ''">
         <article v-for="p in shownPanels" :key="p.key" class="wpanel" :style="{ '--c': LIGHT[p.light.color] }">
-          <h2 class="p-title"><span class="lamp sm" />{{ p.label }}<span class="p-what">{{ p.light.what }}</span></h2>
+          <h2 class="p-title"><span class="lamp sm" />{{ t(p.label) }}<span class="p-what">{{ t(p.light.what) }}</span></h2>
           <div class="figs">
-            <div v-for="f in figs(p).slice(0, 5)" :key="f.label" class="fig"><p class="f-value">{{ value(f) }}</p><p class="f-label">{{ f.label }}</p></div>
+            <div v-for="f in figs(p).slice(0, 5)" :key="f.label" class="fig"><p class="f-value">{{ value(f) }}</p><p class="f-label">{{ t(f.label) }}</p></div>
           </div>
           <template v-if="chartOf[p.key]">
-            <p class="s-label">{{ chartOf[p.key].label }}<span v-if="chartOf[p.key].scaled"> (shape only)</span></p>
+            <p class="s-label">{{ t(chartOf[p.key].label) }}<span v-if="chartOf[p.key].scaled"> {{ t('(shape only)') }}</span></p>
             <OvChart :key="`${p.key}-${chartOf[p.key].scaled}`" :option="chartOf[p.key].option" height="34vh" />
           </template>
           <div v-for="r in p.lists?.iso || []" :key="r.standard" class="iso">
-            <p class="s-label">{{ r.standard.toUpperCase().replace('ISO', 'ISO ') }}: {{ r.met }} control points met, {{ r.not_met }} not met, {{ r.unknown }} unknown</p>
+            <p class="s-label">{{ t('{standard}: {met} control points met, {not_met} not met, {unknown} unknown', { standard: r.standard.toUpperCase().replace('ISO', 'ISO '), met: r.met, not_met: r.not_met, unknown: r.unknown }) }}</p>
             <div class="iso-bar"><i :style="{ flex: r.met, background: LIGHT.green }" /><i :style="{ flex: r.not_met, background: LIGHT.red }" /><i :style="{ flex: r.unknown, background: LIGHT.unknown }" /></div>
           </div>
         </article>
       </section>
     </main>
     <footer class="foot">
-      <span>{{ paused ? 'Paused: space to go on' : `Next scene in ${SECONDS} s · arrow keys to move, space to pause, F for full screen` }}</span>
-      <span v-if="v?.visitor_mode">Visitor mode: no amounts or names shown</span>
+      <span>{{ paused ? t('Paused: space to go on') : t('Next scene in {s} s · arrow keys to move, space to pause, F for full screen', { s: SECONDS }) }}</span>
+      <span v-if="v?.visitor_mode">{{ t('Visitor mode: no amounts or names shown') }}</span>
     </footer>
   </div>
 </template>

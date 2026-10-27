@@ -8,6 +8,7 @@ import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
 import { CONF } from '../ui/themes'
 import { api, objectPath } from '../api'
+import { t } from '../i18n'
 
 const ws = inject('workspace')
 const route = useRoute()
@@ -21,7 +22,7 @@ const header = ref(1)
 const password = ref('')
 const busy = ref(false)
 const pv = computed(() => L.value?.preview)
-const ENGINE = { ai: 'AI', rules: 'rules (limited accuracy)', person: 'you' }
+const ENGINE = { ai: 'AI', rules: 'rules (limited accuracy)', person: 'you' }  // shown through t()
 const KEYS = { ncr: ['external_no', 'reported_on', 'title', 'description', 'severity', 'disposition', 'status'],
   capa: ['external_no', 'reported_on', 'kind', 'title', 'ncr', 'owner', 'status'],
   supplier: ['supplier_name', 'supplies', 'approved_on', 'certificate', 'approval'],
@@ -82,7 +83,7 @@ async function save(extra = {}) {
   for (const [f, vm] of Object.entries(vals.value)) if (columnOf(f)) values[f] = Object.fromEntries(Object.entries(vm).filter(([, v]) => v))
   try {
     set(await api(`/api/ledgers/${L.value.id}`, { method: 'PUT', body: { mapping, values, sheet: sheet.value, header_row: header.value, ...extra } }))
-    done.value = 'Saved. Check the rows below.'
+    done.value = t('Saved. Check the rows below.')
   } catch (e) { error.value = e.message }
 }
 async function retable(headerRow) {
@@ -97,17 +98,17 @@ async function doImport() {
   try {
     set(await api(`/api/ledgers/${L.value.id}/import`, { method: 'POST', body: { password: password.value, submit: submit.value, seen: pv.value.print } }))
     const r = L.value.result
-    done.value = toErp.value ? `Into ERPNext: ${r.imported} created, ${r.drafted} as drafts there, ${r.skipped} rows skipped (see why below).`
-      : `Imported: ${r.imported} records, ${r.drafted} drafts, ${r.skipped} rows skipped.`
+    done.value = toErp.value ? t('Into ERPNext: {imported} created, {drafted} as drafts there, {skipped} rows skipped (see why below).', { imported: r.imported, drafted: r.drafted, skipped: r.skipped })
+      : t('Imported: {imported} records, {drafted} drafts, {skipped} rows skipped.', { imported: r.imported, drafted: r.drafted, skipped: r.skipped })
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
 const show = (r, f) => r.values[f] ?? ''
 </script>
 
 <template>
-  <PageTop :title="pv ? `Import ${pv.target_label.toLowerCase().replace('erpnext', 'ERPNext')}` : 'Import a ledger'"
-           :crumbs="pv ? [{ label: 'Documents', to: '/documents?tab=library' }, { label: pv.document.name, to: `/documents/${pv.document.id}` }] : []">
-    <Badge v-if="L" :theme="L.status === 'imported' ? 'green' : 'amber'" size="lg" :label="L.status === 'imported' ? 'imported' : 'to check'" />
+  <PageTop :title="pv ? t('Import {what}', { what: pv.target_label.toLowerCase().replace('erpnext', 'ERPNext') }) : t('Import a ledger')"
+           :crumbs="pv ? [{ label: t('Documents'), to: '/documents?tab=library' }, { label: pv.document.name, to: `/documents/${pv.document.id}` }] : []">
+    <Badge v-if="L" :theme="L.status === 'imported' ? 'green' : 'amber'" size="lg" :label="L.status === 'imported' ? t('imported') : t('to check')" />
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <p v-if="done" class="mb-4 rounded-3 border border-outline-green-3 bg-surface-green-2 px-3 py-2 text-base text-ink-green-7">{{ done }}</p>
@@ -115,54 +116,54 @@ const show = (r, f) => r.values[f] ?? ''
   <template v-if="L && pv">
     <section data-help="ledger-mapping" class="wq-panel mb-5 p-5">
       <div class="mb-2 flex flex-wrap items-center gap-2">
-        <h2 class="text-base font-semibold text-ink-gray-9">Which column is which</h2>
-        <span class="text-sm text-ink-gray-5">proposed by {{ ENGINE[L.engine] || L.engine }}</span>
-        <Badge v-if="L.confidence && L.engine !== 'person'" :theme="CONF[L.confidence]" variant="outline" :label="`${L.confidence} confidence`" />
+        <h2 class="text-base font-semibold text-ink-gray-9">{{ t('Which column is which') }}</h2>
+        <span class="text-sm text-ink-gray-5">{{ t('proposed by {who}', { who: t(ENGINE[L.engine] || L.engine) }) }}</span>
+        <Badge v-if="L.confidence && L.engine !== 'person'" :theme="CONF[L.confidence]" variant="outline" :label="t('{level} confidence', { level: t(L.confidence) })" />
       </div>
       <p v-if="L.notes" class="mb-3 whitespace-pre-line text-base text-ink-gray-7">{{ L.notes }}</p>
       <div class="mb-4 flex flex-wrap items-center gap-3 text-sm text-ink-gray-6">
-        <label class="flex items-center gap-2">Sheet
+        <label class="flex items-center gap-2">{{ t('Sheet') }}
           <select v-model="sheet" class="wq-select" :disabled="L.status !== 'proposed'" @change="changeSheet"><option v-for="s in pv.sheets" :key="s">{{ s }}</option></select></label>
-        <label class="flex items-center gap-2">Header row
+        <label class="flex items-center gap-2">{{ t('Header row') }}
           <input v-model.number="header" class="wq-input w-20" type="number" min="1" :disabled="L.status !== 'proposed'" @change="retable(header)"></label>
-        <span>{{ pv.total }} rows under it</span>
+        <span>{{ t('{n} rows under it', { n: pv.total }) }}</span>
       </div>
       <div class="overflow-x-auto">
         <table class="wq-table">
-          <thead><tr><th>Field</th><th>Column in the ledger</th><th>The ledger's words</th></tr></thead>
+          <thead><tr><th>{{ t('Field') }}</th><th>{{ t('Column in the ledger') }}</th><th>{{ t('The ledger\'s words') }}</th></tr></thead>
           <tbody><tr v-for="(spec, f) in pv.fields" :key="f">
             <td class="whitespace-nowrap">{{ spec.label }}<span v-if="spec.required" class="text-ink-red-6"> *</span></td>
             <td><select v-model="pick[f]" class="wq-select" :disabled="L.status !== 'proposed'" :aria-label="spec.label">
-              <option value="">— not in the ledger</option>
+              <option value="">{{ t('— not in the ledger') }}</option>
               <option v-for="h in pv.headers" :key="h" :value="`c:${h}`">{{ h }}</option>
-              <template v-if="spec.kind === 'choice'"><option v-for="ch in spec.choices" :key="ch" :value="`v:${ch}`">every row: {{ ch.replaceAll('_', ' ') }}</option></template>
+              <template v-if="spec.kind === 'choice'"><option v-for="ch in spec.choices" :key="ch" :value="`v:${ch}`">{{ t('every row: {value}', { value: ch.replaceAll('_', ' ') }) }}</option></template>
             </select></td>
             <td><div v-if="spec.kind === 'choice' && columnOf(f) && pv.choice_values[f]" class="flex flex-wrap gap-x-4 gap-y-1.5">
               <label v-for="w in pv.choice_values[f]" :key="w" class="flex items-center gap-1.5 text-sm">
                 <span class="text-ink-gray-8">“{{ w }}”</span> →
                 <select :value="(vals[f] || {})[w] || ''" class="wq-select" :disabled="L.status !== 'proposed'"
                         @change="setVal(f, w, $event.target.value)">
-                  <option value="">unknown</option><option v-for="ch in spec.choices" :key="ch" :value="ch">{{ ch.replaceAll('_', ' ') }}</option></select></label>
+                  <option value="">{{ t('unknown') }}</option><option v-for="ch in spec.choices" :key="ch" :value="ch">{{ ch.replaceAll('_', ' ') }}</option></select></label>
             </div>
-              <span v-else-if="spec.kind === 'choice' && columnOf(f)" class="text-sm text-ink-gray-5">save to match the column's words</span></td>
+              <span v-else-if="spec.kind === 'choice' && columnOf(f)" class="text-sm text-ink-gray-5">{{ t('save to match the column\'s words') }}</span></td>
           </tr></tbody>
         </table>
       </div>
-      <div v-if="L.status === 'proposed'" data-help="ledger-save" class="mt-4"><Button :variant="dirty ? 'solid' : 'subtle'" icon-left="lucide-save" label="Save the mapping" @click="save()" />
-        <span class="wq-muted ms-2">Words left “unknown” stay empty on the record; nothing is guessed.</span></div>
+      <div v-if="L.status === 'proposed'" data-help="ledger-save" class="mt-4"><Button :variant="dirty ? 'solid' : 'subtle'" icon-left="lucide-save" :label="t('Save the mapping')" @click="save()" />
+        <span class="wq-muted ms-2">{{ t('Words left “unknown” stay empty on the record; nothing is guessed.') }}</span></div>
     </section>
 
     <section data-help="ledger-rows" class="mb-5">
-      <h2 class="wq-h2">Rows</h2>
-      <p class="wq-muted mb-2">{{ pv.ready }} ready to import · {{ pv.with_problems }} with notes · {{ pv.already }} already imported<span v-if="pv.total > pv.rows.length"> · first {{ pv.rows.length }} shown</span></p>
+      <h2 class="wq-h2">{{ t('Rows') }}</h2>
+      <p class="wq-muted mb-2">{{ t('{ready} ready to import · {notes} with notes · {already} already imported', { ready: pv.ready, notes: pv.with_problems, already: pv.already }) }}<span v-if="pv.total > pv.rows.length"> · {{ t('first {n} shown', { n: pv.rows.length }) }}</span></p>
       <div class="wq-panel overflow-x-auto">
         <table class="wq-table text-sm">
-          <thead><tr><th>Row</th><th v-for="k in keysOf(L.target)" :key="k">{{ pv.fields[k]?.label }}</th><th>Notes</th></tr></thead>
+          <thead><tr><th>{{ t('Row') }}</th><th v-for="k in keysOf(L.target)" :key="k">{{ pv.fields[k]?.label }}</th><th>{{ t('Notes') }}</th></tr></thead>
           <tbody><tr v-for="r in pv.rows" :key="r.row" :class="{ 'opacity-60': r.done || !r.ok }">
             <td>{{ r.row }}</td>
             <td v-for="k in keysOf(L.target)" :key="k" class="max-w-64">{{ show(r, k) }}</td>
-            <td class="max-w-80"><span v-if="r.done" class="text-ink-gray-6">imported as {{ r.done }}</span>
-              <span v-if="r.exists && !r.done" class="block text-ink-gray-6">{{ r.exists }}: skipped</span>
+            <td class="max-w-80"><span v-if="r.done" class="text-ink-gray-6">{{ t('imported as {ref}', { ref: r.done }) }}</span>
+              <span v-if="r.exists && !r.done" class="block text-ink-gray-6">{{ t('{what}: skipped', { what: r.exists }) }}</span>
               <span v-for="(p, i) in r.problems" :key="i" class="block" :class="r.ok ? 'text-ink-amber-7' : 'text-ink-red-7'">{{ p }}</span></td>
           </tr></tbody>
         </table>
@@ -170,32 +171,31 @@ const show = (r, f) => r.values[f] ?? ''
     </section>
 
     <section v-if="canImport" data-help="ledger-import" class="wq-panel mb-5 p-5">
-      <h2 class="wq-h2">Import</h2>
-      <p v-if="toErp" class="wq-muted mb-3">Each ready row is written into ERPNext now. Records already there are skipped, not doubled; a row
-        ERPNext refuses is skipped with its reason, and you can import the file again later for the rest.
-        {{ drafts ? 'Opening stock and orders are created as drafts in ERPNext: check them there and submit them.' : '' }} Sign with your password.</p>
+      <h2 class="wq-h2">{{ t('Import') }}</h2>
+      <p v-if="toErp" class="wq-muted mb-3">{{ t('Each ready row is written into ERPNext now. Records already there are skipped, not doubled; a row ERPNext refuses is skipped with its reason, and you can import the file again later for the rest.') }}
+        {{ drafts ? t('Opening stock and orders are created as drafts in ERPNext: check them there and submit them.') : '' }} {{ t('Sign with your password.') }}</p>
       <label v-if="drafts" class="mb-3 flex items-center gap-2 text-base text-ink-gray-8"><input v-model="submit" type="checkbox" class="form-checkbox">
-        Submit them in ERPNext at once instead (they then count in stock and orders straight away)</label>
-      <p v-if="!toErp" class="wq-muted mb-3">{{ L.target === 'supplier' ? 'Each new supplier becomes a draft in Drafts; it is created in ERPNext when someone confirms it. Suppliers already in ERPNext are skipped.'
-        : 'Each ready row becomes a record that names this file and row. Rows closed in the ledger are kept as closed before WenQuest Ops; open ones continue here.' }}
-        Sign with your password.</p>
+        {{ t('Submit them in ERPNext at once instead (they then count in stock and orders straight away)') }}</label>
+      <p v-if="!toErp" class="wq-muted mb-3">{{ L.target === 'supplier' ? t('Each new supplier becomes a draft in Drafts; it is created in ERPNext when someone confirms it. Suppliers already in ERPNext are skipped.')
+        : t('Each ready row becomes a record that names this file and row. Rows closed in the ledger are kept as closed before WenQuest Ops; open ones continue here.') }}
+        {{ t('Sign with your password.') }}</p>
       <div class="flex flex-wrap items-center gap-2">
-        <input v-model="password" class="wq-input max-w-56" type="password" placeholder="Your password to sign" autocomplete="current-password">
-        <Button variant="solid" icon-left="lucide-pen-line" :loading="busy" :label="`Import ${pv.ready} rows (sign)`" :disabled="!pv.ready || dirty" @click="doImport" />
+        <input v-model="password" class="wq-input max-w-56" type="password" :placeholder="t('Your password to sign')" autocomplete="current-password">
+        <Button variant="solid" icon-left="lucide-pen-line" :loading="busy" :label="t('Import {n} rows (sign)', { n: pv.ready })" :disabled="!pv.ready || dirty" @click="doImport" />
       </div>
-      <p v-if="dirty" class="mt-2 text-sm text-ink-amber-7">You changed the mapping: save it first, so the rows above show what will be imported.</p>
+      <p v-if="dirty" class="mt-2 text-sm text-ink-amber-7">{{ t('You changed the mapping: save it first, so the rows above show what will be imported.') }}</p>
     </section>
 
     <template v-if="L.outcomes">
-      <h2 data-help="ledger-outcomes" class="wq-h2">What happened to each row</h2>
+      <h2 data-help="ledger-outcomes" class="wq-h2">{{ t('What happened to each row') }}</h2>
       <div class="wq-panel mb-5 overflow-x-auto">
-        <table class="wq-table text-sm"><thead><tr><th>Row</th><th>Outcome</th><th>Record</th><th>Note</th></tr></thead>
+        <table class="wq-table text-sm"><thead><tr><th>{{ t('Row') }}</th><th>{{ t('Outcome') }}</th><th>{{ t('Record') }}</th><th>{{ t('Note') }}</th></tr></thead>
           <tbody><tr v-for="o in L.outcomes" :key="o.row_no"><td>{{ o.row_no }}</td>
-            <td><Badge :theme="o.outcome === 'skipped' ? 'gray' : 'green'" :label="o.outcome" /></td>
+            <td><Badge :theme="o.outcome === 'skipped' ? 'gray' : 'green'" :label="t(o.outcome)" /></td>
             <td><RouterLink v-if="REF(o.ref)" :to="REF(o.ref)" class="wq-link">{{ o.ref }}</RouterLink><span v-else>{{ o.ref }}</span></td>
             <td class="text-ink-gray-6">{{ o.note }}</td></tr></tbody></table>
       </div>
-      <h2 class="wq-h2">Signature</h2>
+      <h2 class="wq-h2">{{ t('Signature') }}</h2>
       <Trail :items="L.signatures" kind="signatures" />
     </template>
   </template>

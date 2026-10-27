@@ -2,6 +2,7 @@
 // Root causes (upstream) and impact (downstream), one step per row, each with the reason and its numbers.
 import { computed } from 'vue'
 import { objectPath } from '../api'
+import { t } from '../i18n'
 
 const props = defineProps({ explain: Object })
 const title = computed(() => Object.fromEntries(props.explain.nodes.map((n) => [`${n.type}|${n.key}`, n.title])))
@@ -16,8 +17,8 @@ const SIDES = [
   <div class="chain grid gap-6 lg:grid-cols-2">
     <section v-for="side in SIDES" :key="side.key">
       <h3 class="mb-2 flex items-center gap-2 text-sm font-medium text-ink-gray-6">
-        <span :class="side.icon" class="size-4" />{{ side.title }} <span class="text-ink-gray-4">({{ side.sub }})</span></h3>
-      <p v-if="!explain[side.key].length" class="wq-muted">{{ side.none }}</p>
+        <span :class="side.icon" class="size-4" />{{ t(side.title) }} <span class="text-ink-gray-4">({{ t(side.sub) }})</span></h3>
+      <p v-if="!explain[side.key].length" class="wq-muted">{{ t(side.none) }}</p>
       <ol class="space-y-2">
         <li v-for="(s, i) in explain[side.key]" :key="side.key + i" class="relative"
             :style="{ marginLeft: `${(s.depth - 1) * 1.5}rem` }">
@@ -25,7 +26,7 @@ const SIDES = [
           <div class="wq-panel px-3 py-2.5">
             <div class="text-base">
               <RouterLink :to="objectPath(...s.from)" class="font-medium text-ink-gray-9 hover:underline">{{ name(s.from) }}</RouterLink>
-              <span class="mx-1.5 text-sm text-ink-gray-5">{{ s.relation }}</span>
+              <span class="mx-1.5 text-sm text-ink-gray-5">{{ t(s.relation) }}</span>
               <RouterLink v-if="s.to" :to="objectPath(...s.to)" class="font-medium text-ink-gray-9 hover:underline">{{ name(s.to) }}</RouterLink>
             </div>
             <p class="mt-1 text-sm text-ink-gray-6">{{ s.why }}</p>
