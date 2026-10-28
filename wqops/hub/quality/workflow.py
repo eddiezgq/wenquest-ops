@@ -18,7 +18,9 @@ from pathlib import Path
 import yaml
 from psycopg.types.json import Json
 
+from wqops import i18n as I18N
 from wqops.hub import permissions as P
+from wqops.i18n import say
 
 DIR = Path(__file__).resolve().parent / "workflows"
 KINDS = {"ncr": "ncr_records", "capa": "capas"}
@@ -56,26 +58,43 @@ GATES = {"ncr": {"contain", "disposition", "approve", "close", "cancel"},
 BACK = {"ncr": ("disposition not approved",), "capa": ("not effective",)}
 
 
+def _sep() -> str:
+    return "、" if I18N.current() == "zh" else ", "
+
+
+def _or() -> str:
+    return "或" if I18N.current() == "zh" else " or "
+
+
+def need_text(kind: str, f: str) -> str:
+    """What a step needs, as the people using it say it, in the reader's language."""
+    return I18N.label(NEEDS[kind].get(f, f))
+
+
+def who_text(f: str) -> str:
+    return I18N.label(WHO.get(f, f))
+
+
 def well_formed(cfg) -> list[str]:
     """The structure a workflow needs before it can even be checked."""
     if not isinstance(cfg, dict):
-        return ["a workflow is a set of named parts"]
+        return [say("a workflow is a set of named parts")]
     errs = []
     for key, typ in (("states", dict), ("steps", dict), ("numbering", dict), ("rules", dict), ("fields", dict),
                      ("approvals", list)):
         if key in cfg and not isinstance(cfg[key], typ):
-            errs.append(f"{key} has the wrong form")
+            errs.append(say("{key} has the wrong form", key=key))
     for key in ("states", "steps", "numbering"):
         if key not in cfg:
-            errs.append(f"{key} is missing")
+            errs.append(say("{key} is missing", key=key))
     for part in ("states", "steps", "fields"):
         if isinstance(cfg.get(part), dict) and any(not isinstance(v, dict) for v in cfg[part].values()):
-            errs.append(f"every entry of {part} has named parts")
+            errs.append(say("every entry of {part} has named parts", part=part))
     if isinstance(cfg.get("approvals"), list):
         for a in cfg["approvals"]:
             if not isinstance(a, dict) or not isinstance(a.get("when", {}), dict) or \
                     any(not isinstance(v, list) for v in (a.get("when") or {}).values()):
-                errs.append("every approval has named parts and its conditions are lists")
+                errs.append(say("every approval has named parts and its conditions are lists"))
                 break
     return errs
 
@@ -120,7 +139,7 @@ def validate(cfg: dict, in_use: set[str] | None = None) -> list[str]:  # noqa: P
     errs: list[str] = []
     kind = cfg.get("kind") if isinstance(cfg, dict) else None
     if kind not in KINDS:
-        return [f"kind must be one of: {', '.join(KINDS)}"]
+        return [say("kind must be one of: {kinds}", kinds=", ".join(KINDS))]
     shape = well_formed(cfg)
     if shape:
         return shape
@@ -132,65 +151,68 @@ def validate(cfg: dict, in_use: set[str] | None = None) -> list[str]:  # noqa: P
     except (TypeError, ValueError):
         digits = 0
     if not str(num.get("prefix") or "").replace("-", "").isalnum() or not 3 <= digits <= 8:
-        errs.append("numbering needs a prefix of letters or digits and 3 to 8 digits")
+        errs.append(say("numbering needs a prefix of letters or digits and 3 to 8 digits"))
     if cfg.get("initial") != base["initial"]:
-        errs.append(f"the first state stays {base['initial']}")
+        errs.append(say("the first state stays {state}", state=base["initial"]))
     if set(states) != set(base["states"]):
-        errs.append("the states stay " + ", ".join(base["states"]) + " (their names on screen can change)")
+        errs.append(say("the states stay {states} (their names on screen can change)",
+                        states=_sep().join(base["states"])))
     for s, v in base["states"].items():
         if s in states and bool((states[s] or {}).get("final")) != bool(v.get("final")):
-            errs.append(f"state {s} stays {'final' if v.get('final') else 'open'}")
+            errs.append(say("state {s} stays final", s=s) if v.get("final") else say("state {s} stays open", s=s))
     for name in sorted(set(base["steps"]) - set(steps)):
-        errs.append(f"step {name} is carried out by WenQuest Ops and cannot be removed")
+        errs.append(say("step {name} is carried out by WenQuest Ops and cannot be removed", name=name))
     for name in sorted(set(steps) - set(base["steps"])):
-        errs.append(f"step {name} is not a step WenQuest Ops can carry out")
+        errs.append(say("step {name} is not a step WenQuest Ops can carry out", name=name))
     for name, want in base["steps"].items():
         st = steps.get(name)
         if not isinstance(st, dict):
             continue
         for key in sorted((set(want) | set(st)) - CHANGEABLE):
             if st.get(key) != want.get(key):
-                errs.append(f"step {name}: {key} stays {want.get(key)!r}")
+                errs.append(say("step {name}: {key} stays {value}", name=name, key=key, value=repr(want.get(key))))
         if bool(str(st.get("sign") or "").strip()) != bool(want.get("sign")):
-            errs.append(f"step {name}: " + ("approving and closing are signed with the person's password"
-                                            if want.get("sign") else "only the steps WenQuest Ops signs can be signed"))
+            errs.append(say("step {name}: approving and closing are signed with the person's password", name=name)
+                        if want.get("sign") else say("step {name}: only the steps WenQuest Ops signs can be signed",
+                                                     name=name))
         req = _list(st.get("required"))
         for f in sorted(set(_list(want.get("required"))) - set(req)):
-            errs.append(f"step {name}: it still needs {NEEDS[kind].get(f, f)}")
+            errs.append(say("step {name}: it still needs {field}", name=name, field=need_text(kind, f)))
         for f in req:
             if f not in NEEDS[kind]:
-                errs.append(f"step {name}: unknown field {f!r} in required")
+                errs.append(say("step {name}: unknown field {field} in required", name=name, field=repr(f)))
         nb = _list(st.get("not_by"))
         missing_sep = set(_list(want.get("not_by"))) - set(nb)
         if missing_sep:
-            errs.append(f"step {name}: {', '.join(WHO[x] for x in sorted(missing_sep))} may not do it; this "
-                        "separation of duties cannot be removed")
+            errs.append(say("step {name}: {who} may not do it; this separation of duties cannot be removed",
+                            name=name, who=_sep().join(who_text(x) for x in sorted(missing_sep))))
         for x in nb:
             if x not in NOT_BY_FIELDS[kind]:
-                errs.append(f"step {name}: {x!r} is not a person a {kind} record names")
+                errs.append(say("step {name}: {person} is not a person a {kind} record names", name=name,
+                                person=repr(x), kind=kind))
         for r in _list(st.get("roles")):
             if r not in P.ROLE_PERMISSIONS:
-                errs.append(f"step {name}: unknown role {r!r}")
+                errs.append(say("step {name}: unknown role {role}", name=name, role=repr(r)))
         if "roles" in st and not _list(st.get("roles")):
-            errs.append(f"step {name}: roles, when given, name at least one role")
+            errs.append(say("step {name}: roles, when given, name at least one role", name=name))
         for key in ("required", "not_by", "roles"):
             if key in st and not isinstance(st[key], list):
-                errs.append(f"step {name}: {key} is a list")
+                errs.append(say("step {name}: {key} is a list", name=name, key=key))
     for key in sorted(set(cfg) - TOP_KEYS):
-        errs.append(f"{key!r} is not part of a workflow")
+        errs.append(say("{key} is not part of a workflow", key=repr(key)))
     errs += _check_fields(kind, cfg, steps) + _check_approvals(kind, cfg, steps)
     for s in sorted((in_use or set()) - set(states)):
-        errs.append(f"records are in state {s} now; a new version cannot remove it")
+        errs.append(say("records are in state {s} now; a new version cannot remove it", s=s))
     rules = cfg.get("rules") or {}
     if kind == "ncr":
         for key in ("capa_closed_before_close", "eight_d_before_close"):
             if any(x not in SEVERITIES for x in _list(rules.get(key))):
-                errs.append(f"rule {key}: severities are {', '.join(SEVERITIES)}")
+                errs.append(say("rule {key}: severities are {list}", key=key, list=", ".join(SEVERITIES)))
         if "major" not in _list(rules.get("capa_closed_before_close")):
-            errs.append("a major nonconformance closes only after its corrective action is closed; this cannot be "
-                        "removed")
+            errs.append(say("a major nonconformance closes only after its corrective action is closed; this cannot "
+                            "be removed"))
     if kind == "capa" and rules.get("one_open_capa_per_ncr") is not True:
-        errs.append("one open corrective action per nonconformance report cannot be removed")
+        errs.append(say("one open corrective action per nonconformance report cannot be removed"))
     return list(dict.fromkeys(errs))
 
 
@@ -198,23 +220,25 @@ def _check_fields(kind: str, cfg: dict, steps: dict) -> list[str]:
     errs = []
     fields = cfg.get("fields") or {}
     if not isinstance(fields, dict):
-        return ["fields is a list of named fields"]
+        return [say("fields is a list of named fields")]
     for name, raw in fields.items():
         f = raw if isinstance(raw, dict) else {}
         if not NAME.fullmatch(str(name)) or name in NEEDS[kind] or name in NOT_BY_FIELDS[kind]:
-            errs.append(f"field {name!r}: a name of lower-case letters, digits and _ that WenQuest Ops does not use")
+            errs.append(say("field {name}: a name of lower-case letters, digits and _ that WenQuest Ops does not use",
+                            name=repr(name)))
         if not str(f.get("label") or "").strip():
-            errs.append(f"field {name}: give it a label")
+            errs.append(say("field {name}: give it a label", name=name))
         if f.get("type") not in FIELD_TYPES:
-            errs.append(f"field {name}: type is one of {', '.join(FIELD_TYPES)}")
+            errs.append(say("field {name}: type is one of {types}", name=name, types=", ".join(FIELD_TYPES)))
         if f.get("type") == "choice" and not (isinstance(f.get("choices"), list) and len(f["choices"]) >= 2
                                               and all(str(c).strip() for c in f["choices"])):
-            errs.append(f"field {name}: a choice field needs at least two choices")
+            errs.append(say("field {name}: a choice field needs at least two choices", name=name))
         for st in _list(f.get("required_at")):
             if st not in GATES[kind]:
-                errs.append(f"field {name}: it can be needed before {', '.join(sorted(GATES[kind]))}, not {st!r}")
+                errs.append(say("field {name}: it can be needed before {steps}, not {step}", name=name,
+                                steps=", ".join(sorted(GATES[kind])), step=repr(st)))
         if f.get("type") == "choice" and any(not isinstance(c, str) for c in _list(f.get("choices"))):
-            errs.append(f"field {name}: choices are words")
+            errs.append(say("field {name}: choices are words", name=name))
     return errs
 
 
@@ -222,36 +246,38 @@ def _check_approvals(kind: str, cfg: dict, steps: dict) -> list[str]:  # noqa: P
     errs, seen = [], set()
     approvals = cfg.get("approvals") or []
     if not isinstance(approvals, list):
-        return ["approvals is a list"]
+        return [say("approvals is a list")]
     for raw in approvals:
         a = raw if isinstance(raw, dict) else {}
         name = str(a.get("name") or "")
         if not NAME.fullmatch(name) or name in seen:
-            errs.append(f"approval {name!r}: a unique name of lower-case letters, digits and _")
+            errs.append(say("approval {name}: a unique name of lower-case letters, digits and _", name=repr(name)))
         seen.add(name)
         if not str(a.get("label") or "").strip():
-            errs.append(f"approval {name}: give it a label")
+            errs.append(say("approval {name}: give it a label", name=name))
         if a.get("before") not in GATES[kind]:
-            errs.append(f"approval {name}: it can come before {', '.join(sorted(GATES[kind]))}, not "
-                        f"{a.get('before')!r}")
+            errs.append(say("approval {name}: it can come before {steps}, not {before}", name=name,
+                            steps=", ".join(sorted(GATES[kind])), before=repr(a.get("before"))))
         if a.get("before") == "disposition" and "disposition" in (a.get("when") or {}):
-            errs.append(f"approval {name}: the disposition is not known before it is submitted; put this approval "
-                        "before approving or closing")
+            errs.append(say("approval {name}: the disposition is not known before it is submitted; put this "
+                            "approval before approving or closing", name=name))
         if not str(a.get("sign") or "").strip():
-            errs.append(f"approval {name}: an approval is signed; give the signature's meaning")
+            errs.append(say("approval {name}: an approval is signed; give the signature's meaning", name=name))
         roles = _list(a.get("roles"))
         if not roles or any(r not in P.ROLE_PERMISSIONS for r in roles):
-            errs.append(f"approval {name}: name the roles that may approve")
+            errs.append(say("approval {name}: name the roles that may approve", name=name))
         elif any("quality:view" not in P.ROLE_PERMISSIONS[r] for r in roles):
-            errs.append(f"approval {name}: only roles that can see quality records can approve")
+            errs.append(say("approval {name}: only roles that can see quality records can approve", name=name))
         for x in _list(a.get("not_by")):
             if x not in NOT_BY_FIELDS[kind]:
-                errs.append(f"approval {name}: {x!r} is not a person a {kind} record names")
+                errs.append(say("approval {name}: {person} is not a person a {kind} record names", name=name,
+                                person=repr(x), kind=kind))
         for key, vals in (a.get("when") or {}).items():
             if key not in WHEN[kind]:
-                errs.append(f"approval {name}: a condition on {key!r} is not possible")
+                errs.append(say("approval {name}: a condition on {key} is not possible", name=name, key=repr(key)))
             elif not _list(vals) or (WHEN[kind][key] and any(v not in WHEN[kind][key] for v in vals)):
-                errs.append(f"approval {name}: {key} is one of {', '.join(WHEN[kind][key] or ['the codes in use'])}")
+                errs.append(say("approval {name}: {key} is one of {values}", name=name, key=key,
+                                values=", ".join(WHEN[kind][key] or [say("the codes in use")])))
     return errs
 
 
@@ -263,11 +289,11 @@ def clean_custom(cfg: dict, values: dict, people: set[str]) -> dict:
     """A company's own field values, checked against their definitions; an empty value removes the field."""
     fields = cfg.get("fields") or {}
     if not isinstance(values, dict):
-        raise StepError("fields are given by name")
+        raise StepError(say("fields are given by name"))
     out = {}
     for name, given in values.items():
         if name not in fields:
-            raise StepError(f"there is no field {name!r} in this workflow")
+            raise StepError(say("there is no field {name} in this workflow", name=repr(name)))
         f, v = fields[name], ("" if given is None else str(given).strip())
         if v == "":
             out[name] = None
@@ -275,18 +301,18 @@ def clean_custom(cfg: dict, values: dict, people: set[str]) -> dict:
             try:
                 out[name] = float(v)
             except ValueError as exc:
-                raise StepError(f"{f['label']}: a number") from exc
+                raise StepError(say("{label}: a number", label=f['label'])) from exc
             if out[name] != out[name] or out[name] in (float("inf"), float("-inf")):
-                raise StepError(f"{f['label']}: a number")
+                raise StepError(say("{label}: a number", label=f['label']))
         elif f["type"] == "date":
             try:
                 out[name] = dt.date.fromisoformat(v).isoformat()
             except ValueError as exc:
-                raise StepError(f"{f['label']}: a date like 2026-10-31") from exc
+                raise StepError(say("{label}: a date like 2026-10-31", label=f['label'])) from exc
         elif f["type"] == "choice" and v not in f["choices"]:
-            raise StepError(f"{f['label']}: one of {', '.join(f['choices'])}")
+            raise StepError(say("{label}: one of {choices}", label=f['label'], choices=', '.join(f['choices'])))
         elif f["type"] == "person" and v.lower() not in people:
-            raise StepError(f"{f['label']}: someone who can sign in")
+            raise StepError(say("{label}: someone who can sign in", label=f['label']))
         else:
             out[name] = v.lower() if f["type"] == "person" else v[:2000]
     return out
@@ -297,55 +323,60 @@ def _sample(digits) -> str:
     try:
         d = int(digits)
     except (TypeError, ValueError):
-        return f"? ({digits!r} digits)"
-    return "0" * (d - 1) + "1" if 1 <= d <= 12 else f"? ({d} digits)"
+        return say("? ({digits} digits)", digits=repr(digits))
+    return "0" * (d - 1) + "1" if 1 <= d <= 12 else say("? ({digits} digits)", digits=d)
 
 
 def diff(old: dict, new: dict) -> list[str]:  # noqa: PLR0912 - one line per kind of change
     """What a new version changes, one line each, in plain words."""
     out = []
     if old.get("label") != new.get("label"):
-        out.append(f"named {new.get('label')!r}")
+        out.append(say("named {label}", label=repr(new.get("label"))))
     if old.get("numbering") != new.get("numbering"):
         o, n = old.get("numbering") or {}, new.get("numbering") or {}
-        out.append(f"numbers: {o.get('prefix')}-{_sample(o.get('digits'))} -> "
-                   f"{n.get('prefix')}-{_sample(n.get('digits'))}")
+        out.append(say("numbers: {old} -> {new}", old=f"{o.get('prefix')}-{_sample(o.get('digits'))}",
+                       new=f"{n.get('prefix')}-{_sample(n.get('digits'))}"))
     for s, v in (new.get("states") or {}).items():
         if (old.get("states") or {}).get(s, {}).get("label") != v.get("label"):
-            out.append(f"state {s}: named {v.get('label')!r}")
+            out.append(say("state {s}: named {label}", s=s, label=repr(v.get("label"))))
     for name, st in (new.get("steps") or {}).items():
         o = (old.get("steps") or {}).get(name) or {}
         for key in ("label", "sign", "verb"):
             if st.get(key) != o.get(key):
-                out.append(f"step {name}: {key} {o.get(key)!r} -> {st.get(key)!r}")
+                out.append(say("step {name}: {key} {old} -> {new}", name=name, key=key, old=repr(o.get(key)),
+                               new=repr(st.get(key))))
         for key in ("required", "not_by", "roles"):
             a, b = set(_list(o.get(key))), set(_list(st.get(key)))
             if b - a:
-                out.append(f"step {name}: {key} adds {', '.join(sorted(b - a))}")
+                out.append(say("step {name}: {key} adds {list}", name=name, key=key, list=", ".join(sorted(b - a))))
             if a - b:
-                out.append(f"step {name}: {key} drops {', '.join(sorted(a - b))}")
+                out.append(say("step {name}: {key} drops {list}", name=name, key=key, list=", ".join(sorted(a - b))))
     for key in sorted(set(old.get("rules") or {}) | set(new.get("rules") or {})):
         if (old.get("rules") or {}).get(key) != (new.get("rules") or {}).get(key):
-            out.append(f"rule {key}: {(old.get('rules') or {}).get(key)!r} -> {(new.get('rules') or {}).get(key)!r}")
+            out.append(say("rule {key}: {old} -> {new}", key=key, old=repr((old.get("rules") or {}).get(key)),
+                           new=repr((new.get("rules") or {}).get(key))))
     of_, nf = old.get("fields") or {}, new.get("fields") or {}
     for name in sorted(set(of_) | set(nf)):
         if name not in of_:
-            out.append(f"new field {name} ({nf[name].get('label')}, {nf[name].get('type')})")
+            out.append(say("new field {name} ({label}, {type})", name=name, label=nf[name].get("label"),
+                           type=nf[name].get("type")))
         elif name not in nf:
-            out.append(f"field {name} removed (values already entered stay on the records)")
+            out.append(say("field {name} removed (values already entered stay on the records)", name=name))
         elif of_[name] != nf[name]:
-            out.append(f"field {name} changed")
+            out.append(say("field {name} changed", name=name))
     oa = {a.get("name"): a for a in old.get("approvals") or []}
     na = {a.get("name"): a for a in new.get("approvals") or []}
     for name in sorted(set(oa) | set(na)):
         if name not in oa:
-            when = "".join(f", when {k} is {' or '.join(_list(v))}" for k, v in (na[name].get("when") or {}).items())
-            out.append(f"new approval {name}: {na[name].get('label')} before {na[name].get('before')}, by "
-                       f"{', '.join(_list(na[name].get('roles')))}{when}")
+            when = "".join(say(", when {key} is {values}", key=k, values=_or().join(_list(v)))
+                           for k, v in (na[name].get("when") or {}).items())
+            out.append(say("new approval {name}: {label} before {before}, by {roles}{when}", name=name,
+                           label=na[name].get("label"), before=na[name].get("before"),
+                           roles=", ".join(_list(na[name].get("roles"))), when=when))
         elif name not in na:
-            out.append(f"approval {name} removed")
+            out.append(say("approval {name} removed", name=name))
         elif oa[name] != na[name]:
-            out.append(f"approval {name} changed")
+            out.append(say("approval {name} changed", name=name))
     return out
 
 
@@ -360,12 +391,12 @@ def ensure(conn, kind: str) -> dict:
     cfg = default(kind)
     bad = validate(cfg)
     if bad:
-        raise WorkflowError(f"the default {kind} workflow is wrong: {'; '.join(bad)}")
+        raise WorkflowError(say("the default {kind} workflow is wrong: {bad}", kind=kind, bad='; '.join(bad)))
     made = conn.execute("insert into workflow_versions (kind, version, config, status, fingerprint, created_by, "
                         "enabled_by, enabled_at, note) values (%s, 1, %s, 'enabled', %s, 'WenQuest Ops', "
-                        "'WenQuest Ops', now(), 'default workflow') on conflict (kind, version) do nothing "
+                        "'WenQuest Ops', now(), %s) on conflict (kind, version) do nothing "
                         "returning id",
-                        (kind, Json(cfg), fingerprint(cfg))).fetchone()
+                        (kind, Json(cfg), fingerprint(cfg), say("default workflow"))).fetchone()
     if made:                                    # records from before workflows were versioned run under version 1
         table = KINDS[kind]
         conn.execute(f"update {table} set workflow_version = %s where workflow_version is null",  # noqa: S608
@@ -390,7 +421,7 @@ def of(conn, kind: str, record: dict | None = None) -> dict:
 # ---------------------------------------------------------------- the guard
 
 def _label(cfg: dict, state: str) -> str:
-    return state.replace("_", " ")
+    return say("record state::" + state.replace("_", " "))
 
 
 def check(cfg: dict, record: dict, step: str, user: dict | None, facts: dict | None = None,  # noqa: PLR0912
@@ -401,35 +432,40 @@ def check(cfg: dict, record: dict, step: str, user: dict | None, facts: dict | N
     transaction (records.check_signer)."""
     st = cfg["steps"].get(step)
     if st is None:
-        raise StepError(f"this workflow has no step {step}")
+        raise StepError(say("this workflow has no step {step}", step=step))
     if record["status"] not in st["from"]:
-        raise StepError(f"{record[name_field]} is {_label(cfg, record['status'])}; this step needs it to be "
-                        f"{' or '.join(_label(cfg, s) for s in st['from'])}")
+        raise StepError(say("{record} is {cfg}; this step needs it to be {v}",
+                            record=record[name_field], cfg=_label(cfg, record['status']),
+                            v=_or().join(_label(cfg, s) for s in st['from'])))
     if user is not None:
         roles = user.get("roles") or []
         if roles and st.get("permission") and not P.allows(roles, st["permission"]):
-            raise NotAllowed(f"your role does not allow: {P.PERMISSIONS[st['permission']]}")
+            raise NotAllowed(say("your role does not allow: {PERMISSIONS}",
+                                 PERMISSIONS=P.PERMISSIONS[st['permission']]))
         if st.get("roles") and roles and not set(roles) & set(st["roles"]):
-            raise NotAllowed(f"{st.get('label', step)}: only {', '.join(st['roles'])} may do this")
+            raise NotAllowed(say("{st}: only {roles} may do this",
+                                 st=st.get('label', step), roles=', '.join(st['roles'])))
         for f in st.get("not_by") or []:
             if record.get(f) and record.get(f) == user.get("email"):
-                raise StepError(f"someone other than {WHO.get(f, f)} must "
-                                + (st.get("verb") or f"do this ({st.get('label', step).lower()})"))
+                raise StepError(say("someone other than {who} must {verb}", who=who_text(f),
+                                    verb=st.get("verb") or say("do this ({label})",
+                                                               label=st.get("label", step).lower())))
     values = {**record, **(facts or {})}
     custom = {**(record.get("custom") or {}), **((facts or {}).get("custom") or {})}
     for name, f in (cfg.get("fields") or {}).items():
         if step in _list(f.get("required_at")) and custom.get(name) in (None, ""):
-            raise StepError(f"still needed: {f['label']}")
+            raise StepError(say("still needed: {label}", label=f['label']))
     done = set((facts or {}).get("approvals_done") or ())
     for a in cfg.get("approvals") or []:
         if a["before"] == step and applies(a, values) and a["name"] not in done:
-            raise StepError(f"{a['label']} is needed first (signed by {' or '.join(a['roles'])})")
+            raise StepError(say("{label} is needed first (signed by {roles})",
+                                label=a['label'], roles=_or().join(a['roles'])))
     gaps = [f for f in st.get("required") or [] if values.get(f) in (None, "", [], False, 0)]
     for f in gaps:
         if f in (explain or {}):
             raise StepError(explain[f])
     if gaps:
-        raise StepError("still needed: " + ", ".join(NEEDS[cfg["kind"]].get(f, f) for f in gaps))
+        raise StepError(say("still needed: {list}", list=_sep().join(need_text(cfg["kind"], f) for f in gaps)))
     return st
 
 
@@ -452,9 +488,9 @@ def view(cfg: dict) -> dict:
     out.setdefault("fields", {})
     out.setdefault("approvals", [])
     for name, st in out["steps"].items():
-        st["needs"] = [NEEDS[cfg["kind"]].get(f, f) for f in st.get("required") or []]
-        st["not_by_text"] = [WHO.get(f, f) for f in st.get("not_by") or []]
-        st["permission_text"] = P.PERMISSIONS.get(st.get("permission"), "")
+        st["needs"] = [need_text(cfg["kind"], f) for f in st.get("required") or []]
+        st["not_by_text"] = [who_text(f) for f in st.get("not_by") or []]
+        st["permission_text"] = I18N.label(P.PERMISSIONS.get(st.get("permission"), ""))
         st["who"] = st.get("roles") or sorted(r for r, perms in P.ROLE_PERMISSIONS.items()
                                               if st.get("permission") in perms)
         st["name"] = name

@@ -15,10 +15,12 @@ import re
 
 from psycopg.types.json import Json
 
+from wqops import i18n as I18N
 from wqops.hub.docs import classify as C
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import workflow as W
 from wqops.hub.quality import workflow_admin as WA
+from wqops.i18n import say
 
 OPS = {
     "require": "a step needs a field the record already has",
@@ -43,6 +45,14 @@ FILLABLE = {"ncr": {s: ("owner", "severity") for s in ("open", "contained", "pen
             "capa": Q.EDITABLE}
 
 
+def _sep() -> str:
+    return "、" if I18N.current() == "zh" else ", "
+
+
+def _or() -> str:
+    return "或" if I18N.current() == "zh" else " or "
+
+
 class ChangeError(ValueError):
     """A proposed change is not in a shape WenQuest Ops can apply."""
 
@@ -61,20 +71,20 @@ def _when(v) -> dict:
     if v in (None, {}):
         return {}
     if not isinstance(v, dict):
-        raise ChangeError("the conditions of an approval are given by name")
+        raise ChangeError(say("the conditions of an approval are given by name"))
     out = {_s(k, 40): _names(x) for k, x in v.items()}
     if any(not x for x in out.values()):
-        raise ChangeError("every condition of an approval names at least one value")
+        raise ChangeError(say("every condition of an approval names at least one value"))
     return out
 
 
 def clean(kind: str, raw: dict) -> dict:  # noqa: PLR0911 - one shape per kind of change
     """A change in the shape it is stored and applied in; ChangeError when it cannot be made sense of."""
     if not isinstance(raw, dict) or not isinstance(raw.get("op"), str) or raw["op"] not in OPS:
-        raise ChangeError(f"a change is one of: {', '.join(OPS)}")
+        raise ChangeError(say("a change is one of: {OPS}", OPS=', '.join(OPS)))
     op = raw["op"]
     if op in ("require", "not_by", "roles") and _s(raw.get("step")) not in W.BUILT_IN[kind]:
-        raise ChangeError(f"there is no step {_s(raw.get('step'))!r}")
+        raise ChangeError(say("there is no step {raw}", raw=repr(_s(raw.get('step')))))
     if op == "require":
         return {"op": op, "step": _s(raw["step"]), "field": _s(raw.get("field"))}
     if op == "not_by":
@@ -83,7 +93,8 @@ def clean(kind: str, raw: dict) -> dict:  # noqa: PLR0911 - one shape per kind o
         return {"op": op, "step": _s(raw["step"]), "roles": sorted(set(_names(raw.get("roles"))))}
     if op == "rule":
         if kind != "ncr" or _s(raw.get("rule")) not in RULES:
-            raise ChangeError(f"rules that can be proposed: {', '.join(RULES)} (nonconformance reports)")
+            raise ChangeError(say("rules that can be proposed: {RULES} (nonconformance reports)",
+                                  RULES=', '.join(RULES)))
         return {"op": op, "rule": _s(raw["rule"]), "severity": _s(raw.get("severity"))}
     if op == "field":
         out = {"op": op, "name": _s(raw.get("name"), 40), "label": _s(raw.get("label"), 80),
@@ -101,7 +112,7 @@ def clean(kind: str, raw: dict) -> dict:  # noqa: PLR0911 - one shape per kind o
     if isinstance(digits, str) and digits.strip().isdigit():
         digits = int(digits)
     if type(digits) is not int or not 3 <= digits <= 8:
-        raise ChangeError("numbering needs 3 to 8 digits")
+        raise ChangeError(say("numbering needs 3 to 8 digits"))
     return {"op": op, "prefix": _s(raw.get("prefix"), 20), "digits": digits}
 
 
@@ -144,11 +155,13 @@ def _clash(cfg: dict, ch: dict) -> str | None:
     """A field or approval of the same name that is something else: the change would replace it."""
     if ch["op"] == "field" and ch["name"] in (cfg.get("fields") or {}):
         if apply(cfg, ch)["fields"][ch["name"]] != cfg["fields"][ch["name"]]:
-            return f"the workflow already has a field {ch['name']!r} that is different; change it by hand"
+            return say("the workflow already has a field {name} that is different; change it by hand",
+                       name=repr(ch["name"]))
     if ch["op"] == "approval":
         old = next((a for a in cfg.get("approvals") or [] if a.get("name") == ch["name"]), None)
         if old is not None and old != next(a for a in apply(cfg, ch)["approvals"] if a["name"] == ch["name"]):
-            return f"the workflow already has an approval {ch['name']!r} that is different; change it by hand"
+            return say("the workflow already has an approval {name} that is different; change it by hand",
+                       name=repr(ch["name"]))
     return None
 
 
@@ -164,14 +177,15 @@ def _loosens(cfg: dict, ch: dict) -> str | None:
         more = set(ch["roles"]) - allowed_now(cfg, ch["step"])
         if more:
             label = cfg["steps"][ch["step"]].get("label", ch["step"]).lower()
-            return f"it would let {', '.join(sorted(more))} {label}; a suggestion can only limit who may do a step"
+            return say("it would let {roles} {step}; a suggestion can only limit who may do a step",
+                       roles=", ".join(sorted(more)), step=label)
     if ch["op"] == "require" and ch["field"] in W.NEEDS[cfg["kind"]] and \
             ch["field"] not in (cfg["steps"][ch["step"]].get("required") or []):
         st = cfg["steps"][ch["step"]]
         fillable = [set(FILLABLE[cfg["kind"]].get(s, ())) for s in st["from"]]
         if ch["step"] == "cancel" or not fillable or ch["field"] not in set.intersection(*fillable):
-            return (f"{W.NEEDS[cfg['kind']][ch['field']]} cannot be filled in before "
-                    f"{st.get('label', ch['step']).lower()}; records would get stuck")
+            return say("{field} cannot be filled in before {step}; records would get stuck",
+                       field=W.need_text(cfg["kind"], ch["field"]), step=st.get("label", ch["step"]).lower())
     return None
 
 
@@ -186,13 +200,13 @@ def check(cfg: dict, ch: dict, quote: str, body: str | None, in_use: set[str] | 
     problems = []
     verified = body is not None and quoted(quote, body)
     if body is None:
-        problems.append("it does not name one of the procedures that were read")
+        problems.append(say("it does not name one of the procedures that were read"))
     elif not verified:
-        problems.append("its quote is not in the procedure it names" if len(C.norm(quote)) >= MIN_QUOTE
-                        else "its quote is too short to rest on")
+        problems.append(say("its quote is not in the procedure it names") if len(C.norm(quote)) >= MIN_QUOTE
+                        else say("its quote is too short to rest on"))
     if ch["op"] == "numbering" and verified and not re.search(
             rf"(?<![a-z0-9]){re.escape(C.norm(ch['prefix']))}(?![a-z0-9])", C.norm(quote)):
-        problems.append(f"the quote does not show the prefix {ch['prefix']}")
+        problems.append(say("the quote does not show the prefix {prefix}", prefix=ch["prefix"]))
     clash = _clash(cfg, ch)
     if clash:
         problems.append(clash)
@@ -221,21 +235,25 @@ def _describe(ch: dict, cfg: dict) -> str:  # noqa: PLR0911 - one sentence per k
 
     op = ch["op"]
     if op == "require":
-        return f"{step(ch['step'])} needs {W.NEEDS[kind].get(ch['field'], ch['field'])}"
+        return say("{step} needs {field}", step=step(ch["step"]), field=W.need_text(kind, ch["field"]))
     if op == "not_by":
-        return f"{W.WHO.get(ch['person'], ch['person'])} may not {step(ch['step']).lower()}"
+        return say("{who} may not {step}", who=W.who_text(ch["person"]), step=step(ch["step"]).lower())
     if op == "roles":
-        return f"only {' or '.join(ch['roles'])} may {step(ch['step']).lower()}"
+        return say("only {roles} may {step}", roles=_or().join(ch["roles"]), step=step(ch["step"]).lower())
     if op == "rule":
-        what = "a closed corrective action" if ch["rule"] == "capa_closed_before_close" else "a completed 8D"
-        return f"{ch['severity']} reports close only after {what}"
+        if ch["rule"] == "capa_closed_before_close":
+            return say("{severity} reports close only after a closed corrective action", severity=ch["severity"])
+        return say("{severity} reports close only after a completed 8D", severity=ch["severity"])
     if op == "field":
-        need = f", needed before {', '.join(step(s).lower() for s in ch['required_at'])}" if ch["required_at"] else ""
-        return f"new field {ch['label']} ({ch['type']}){need}"
+        if ch["required_at"]:
+            return say("new field {label} ({type}), needed before {steps}", label=ch["label"], type=ch["type"],
+                       steps=_sep().join(step(s).lower() for s in ch["required_at"]))
+        return say("new field {label} ({type})", label=ch["label"], type=ch["type"])
     if op == "approval":
-        when = "".join(f" when {k} is {' or '.join(v)}" for k, v in ch["when"].items())
-        return f"{ch['label']}: signed by {' or '.join(ch['roles'])} before {step(ch['before']).lower()}{when}"
-    return f"numbers {ch['prefix']}-{'0' * (max(ch['digits'], 1) - 1)}1"
+        when = "".join(say(" when {key} is {values}", key=k, values=_or().join(v)) for k, v in ch["when"].items())
+        return say("{label}: signed by {roles} before {step}{when}", label=ch["label"], roles=_or().join(ch["roles"]),
+                   step=step(ch["before"]).lower(), when=when)
+    return say("numbers {sample}", sample=f"{ch['prefix']}-{'0' * (max(ch['digits'], 1) - 1)}1")
 
 
 # ---------------------------------------------------------------- procedures the model may read
@@ -256,13 +274,15 @@ def read(conn, kind: str, ids: list[int]) -> list[dict]:
     """The procedures the model will read, with their text cut to what it may read."""
     allowed = {r["id"]: r for r in procedures(conn, kind)}
     if not ids:
-        raise WA.AdminError("choose the procedures to read")
+        raise WA.AdminError(say("choose the procedures to read"))
     if len(ids) > 8:
-        raise WA.AdminError("choose at most 8 procedures at a time")
+        raise WA.AdminError(say("choose at most 8 procedures at a time"))
     out, total = [], 0
     for i in dict.fromkeys(ids):
         if i not in allowed:
-            raise WA.AdminError(f"document {i} is not a procedure, work instruction or form of the library with text")
+            raise WA.AdminError(say("document {i} is not a procedure, work instruction or form of the library with "
+                                    "text",
+                                    i=i))
         body = conn.execute("select body from doc_text where document_id = %s", (i,)).fetchone()["body"]
         room = max(0, min(MAX_READ, MAX_TOTAL - total))
         d = allowed[i]
@@ -288,7 +308,7 @@ def store(conn, kind: str, email: str, docs: list[dict], result: dict, ai_run: i
     raw_cannot = result.get("cannot") if isinstance(result.get("cannot"), list) else []
     summary = _s(result.get("summary"), 2000)
     if len(changes) > MAX_ITEMS:
-        summary += f" (The AI suggested {len(changes)} changes; the first {MAX_ITEMS} are kept.)"
+        summary += say(" (The AI suggested {n} changes; the first {max} are kept.)", n=len(changes), max=MAX_ITEMS)
     with conn.transaction():
         base = W.version(conn, kind, base_id)
         bodies = {d["id"]: d["text"] for d in docs}
@@ -351,7 +371,7 @@ def view(conn, p: dict) -> dict:
         try:
             text = describe(clean(p["kind"], it["change"]), base["config"])
         except (ChangeError, KeyError):
-            text = "a change WenQuest Ops cannot make"
+            text = say("a change WenQuest Ops cannot make")
         out_items.append({**{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in it.items()},
                           "text": text, "document": docs.get(it["document_id"]), "acceptable": acceptable(it)})
     return {**{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in p.items()},
@@ -376,7 +396,8 @@ def _item(conn, iid: int) -> tuple[dict, dict]:
     if it is None:
         raise KeyError(iid)
     if it["decision"] != "open":
-        raise WA.AdminError(f"this change was already {it['decision']} by {it['decided_by']}")
+        raise WA.AdminError(say("this change was already {decision} by {decided_by}",
+                                decision=it['decision'], decided_by=it['decided_by']))
     return it, get(conn, it["proposal_id"])
 
 
@@ -387,7 +408,7 @@ def accept(conn, iid: int, email: str, note: str = "") -> dict:
         it, p = _item(conn, iid)
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-workflow:{p['kind']}",))
         if not acceptable(it):
-            raise WA.AdminError("only a change whose quote was found and that passes the checks can be accepted")
+            raise WA.AdminError(say("only a change whose quote was found and that passes the checks can be accepted"))
         ch = clean(p["kind"], it["change"])
         draft = conn.execute("select * from workflow_versions where kind = %s and status = 'draft' for update",
                              (p["kind"],)).fetchone() or WA.new_draft(conn, p["kind"], email)
@@ -395,21 +416,22 @@ def accept(conn, iid: int, email: str, note: str = "") -> dict:
         # was found in the procedure when the proposal was made and is kept unchanged, so it is its own text here)
         found = check(draft["config"], ch, it["quote"], it["quote"], WA.in_use(conn, p["kind"]))
         if found["problems"]:
-            raise WA.AdminError("in the draft as it is now: " + "; ".join(found["problems"]))
+            raise WA.AdminError(say("in the draft as it is now: {list}", list="; ".join(found["problems"])))
         now = conn.execute("select status from documents where id = %s", (it["document_id"],)).fetchone()
         if now is None or now["status"] not in READABLE:
-            raise WA.AdminError("the procedure it quotes is no longer in effect in the document library")
+            raise WA.AdminError(say("the procedure it quotes is no longer in effect in the document library"))
         errors = W.validate(apply(draft["config"], ch), WA.in_use(conn, p["kind"]))
         if errors:
-            raise WA.AdminError("fix the draft first: " + "; ".join(errors))
-        doc = next((d["name"] for d in p["documents"] if d["id"] == it["document_id"]), "a procedure")
+            raise WA.AdminError(say("fix the draft first: {list}", list="; ".join(errors)))
+        doc = next((d["name"] for d in p["documents"] if d["id"] == it["document_id"]), say("a procedure"))
         if found["already"]:
-            WA.log(conn, draft["id"], email, "proposal accepted",
-                   f"already in the draft: {describe(ch, draft['config'])} ({doc})")
+            WA.log(conn, draft["id"], email, say("proposal accepted"),
+                   say("already in the draft: {change} ({doc})", change=describe(ch, draft["config"]), doc=doc))
         else:
             WA.save(conn, draft["id"], email, apply(draft["config"], ch))
-            WA.log(conn, draft["id"], email, "proposal accepted",
-                   f"{describe(ch, draft['config'])}; {doc}: \"{it['quote'][:600]}\"")
+            WA.log(conn, draft["id"], email, say("proposal accepted"),
+                   say("{change}; {doc}: \"{quote}\"", change=describe(ch, draft["config"]), doc=doc,
+                       quote=it["quote"][:600]))
         return conn.execute(
             "update workflow_proposal_items set decision = 'accepted', decided_by = %s, decided_at = now(), "
             "decision_note = %s, draft_version = %s where id = %s returning *",

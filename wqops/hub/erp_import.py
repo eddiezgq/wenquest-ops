@@ -15,12 +15,14 @@ import datetime as dt
 import httpx
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.erp import ErpClient, ErpError
 from wqops.hub.docs import erp_rows as ER
 from wqops.hub.docs import ledger as LG
 from wqops.hub.docs import ledgers as LS
 from wqops.hub.docs import library as LIB
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 MASTERS = {"erp_item": "Item", "erp_customer": "Customer", "erp_supplier": "Supplier"}
 
@@ -78,8 +80,9 @@ def opening_account(erp: ErpClient, company: str) -> str:
     """The company's temporary opening account, which ERPNext needs for opening stock (an asset or liability)."""
     rows = erp.find("Account", {"account_type": "Temporary", "company": company, "is_group": 0})
     if not rows:
-        raise ErpImportError(f"ERPNext has no Temporary account for {company} (normally 'Temporary Opening'); "
-                             "add it in ERPNext's chart of accounts first")
+        raise ErpImportError(say("ERPNext has no Temporary account for {company} (normally 'Temporary Opening'); add "
+                                 "it in ERPNext's chart of accounts first",
+                                 company=company))
     return rows[0]["name"]
 
 
@@ -98,9 +101,9 @@ def run(conn, erp: ErpClient, user: dict, lid: int, password: str, *, company: s
     imp = LS.get(conn, lid)
     target = imp["target"]
     if not target.startswith("erp_"):
-        raise ErpImportError("this import is not for ERPNext")
+        raise ErpImportError(say("this import is not for ERPNext"))
     if seen != LS.mapping_print(imp):
-        raise ErpImportError("the mapping changed since you looked at it: look at the rows again, then sign")
+        raise ErpImportError(say("the mapping changed since you looked at it: look at the rows again, then sign"))
     Q.check_signer(conn, user, password)              # before anything is written: a failed attempt stays recorded
     account = opening_account(erp, company) if target == "erp_opening_stock" else ""
     lock = f"wqo-erp-import:{target}"
@@ -116,12 +119,12 @@ def _run(conn, erp, user, imp, *, company, today, submit, account):  # noqa: PLR
     with conn.transaction():                          # claim it: a second run of the same import stops here
         if conn.execute("select status from ledger_imports where id = %s for update", (lid,)).fetchone()["status"] \
                 != "proposed":
-            raise ErpImportError("this import has been run; start a new one on the same file to bring in the rest")
+            raise ErpImportError(say("this import has been run; start a new one on the same file to bring in the rest"))
         doc = LIB.get(conn, imp["document_id"])
         conn.execute("update ledger_imports set status = 'imported', imported_by = %s, imported_at = now(), "
                      "submit = %s where id = %s", (user["email"], submit, lid))
-        Q._sign(conn, user, "Rows imported into ERPNext", "ledger", lid,
-                f"{doc['original_name']}: {LG.TARGETS[target]['label']}")
+        Q._sign(conn, user, say("Rows imported into ERPNext"), "ledger", lid,
+                f"{doc['original_name']}: {I18N.label(LG.TARGETS[target]['label'])}")
     t = LS.table_of(conn, doc, imp["sheet"], imp["header_row"])
     rows = ER.annotate(conn, target, LG.rows(t, LS.flds(conn, target), imp["mapping"], imp["values_map"]))
     done = LS._done_rows(conn, doc["id"], target, t.sheet)
@@ -134,7 +137,7 @@ def _run(conn, erp, user, imp, *, company, today, submit, account):  # noqa: PLR
     try:
         ready = []
         for r in rows:
-            why = (f"imported before as {done[r['row']]['ref']}" if r["row"] in done else r.get("exists")
+            why = (say("imported before as {ref}", ref=done[r["row"]]["ref"]) if r["row"] in done else r.get("exists")
                    or (None if r["ok"] else "; ".join(r["problems"])))
             if why:
                 skip(r, why)
@@ -157,13 +160,13 @@ def _run(conn, erp, user, imp, *, company, today, submit, account):  # noqa: PLR
                     units.append(mine)
                 else:                                 # part of an order cannot come in: none of it does
                     for r in mine:
-                        skip(r, f"another line of order {ER.label(g)} cannot be imported")
+                        skip(r, say("another line of order {order} cannot be imported", order=ER.label(g)))
         for unit in units:
             if target == "erp_opening_stock":         # each item in a warehouse once, ever
                 taken = [r for r in unit if _take(conn, target, ER.key_of(target, r), lid, r["row"])]
                 for r in unit:
                     if r not in taken:
-                        skip(r, "imported by another import meanwhile")
+                        skip(r, say("imported by another import meanwhile"))
                 unit = taken                          # noqa: PLW2901 - the lines still to bring in
                 if not unit:
                     continue
@@ -172,7 +175,7 @@ def _run(conn, erp, user, imp, *, company, today, submit, account):  # noqa: PLR
                 k = ER.key_of(target, unit[0])
                 if not _take(conn, target, k, lid, unit[0]["row"]):
                     for r in unit:
-                        skip(r, "imported by another import meanwhile")
+                        skip(r, say("imported by another import meanwhile"))
                     continue
                 keys = [k] if k else []
             if target in MASTERS:
@@ -190,12 +193,12 @@ def _run(conn, erp, user, imp, *, company, today, submit, account):  # noqa: PLR
                 conn.execute("delete from erp_import_keys where target = %s and key = any(%s) and ref is null",
                              (target, keys))
                 for r in unit:
-                    skip(r, f"ERPNext refused it: {exc}"[:900])
+                    skip(r, say("ERPNext refused it: {error}", error=exc)[:900])
                 continue
             except Exception as exc:  # unknown whether ERPNext created it: its key stays taken
                 for r in unit:
-                    skip(r, f"no clear answer from ERPNext ({type(exc).__name__}): check ERPNext before importing "
-                            "this row again")
+                    skip(r, say("no clear answer from ERPNext ({error}): check ERPNext before importing this row "
+                                "again", error=type(exc).__name__))
                 continue
             conn.execute("update erp_import_keys set ref = %s where target = %s and key = any(%s)",
                          (f"{payload['doctype']}:{name}", target, keys))
@@ -203,10 +206,11 @@ def _run(conn, erp, user, imp, *, company, today, submit, account):  # noqa: PLR
             for r in unit:
                 counts[outcome] += 1
                 _record(conn, lid, doc, imp, t.sheet, r["row"], outcome, f"{payload['doctype']}:{name}",
-                        "" if outcome == "imported" else "a draft in ERPNext: check and submit it there")
+                        "" if outcome == "imported" else say("a draft in ERPNext: check and submit it there"))
     finally:
         conn.execute("update ledger_imports set result = %s where id = %s", (Jsonb(counts), lid))
-        LIB.log(conn, doc["id"], user["email"], "imported into ERPNext",
-                f"{LG.TARGETS[target]['label']}: {counts['imported']} created, {counts['drafted']} drafts, "
-                f"{counts['skipped']} skipped")
+        LIB.log(conn, doc["id"], user["email"], say("imported into ERPNext"),
+                say("{target}: {imported} created, {drafted} drafts, {skipped} skipped",
+                    target=I18N.label(LG.TARGETS[target]["label"]), imported=counts["imported"],
+                    drafted=counts["drafted"], skipped=counts["skipped"]))
     return LS.get(conn, lid)

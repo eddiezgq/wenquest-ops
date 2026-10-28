@@ -12,6 +12,8 @@ from urllib.parse import quote
 
 import httpx
 
+from wqops.i18n import say
+
 
 class ErpError(RuntimeError):
     pass
@@ -34,7 +36,9 @@ class ErpClient:
                 msg = body.get("exception") or body.get("message") or body.get("_server_messages") or r.text
             except ValueError:
                 msg = r.text
-            raise ErpError(f"ERPNext {r.request.method} {r.request.url.path} -> {r.status_code}: {str(msg)[:300]}")
+            raise ErpError(say("ERPNext {method} {path} -> {status_code}: {msg}",
+                               method=r.request.method, path=r.request.url.path, status_code=r.status_code,
+                               msg=str(msg)[:300]))
         return r.json()
 
     def logged_user(self) -> str:

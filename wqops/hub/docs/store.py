@@ -10,6 +10,8 @@ import os
 import secrets
 from pathlib import Path
 
+from wqops.i18n import say
+
 MAX_BYTES = 50 * 1024 * 1024
 
 
@@ -23,7 +25,7 @@ def digest(data: bytes) -> str:
 
 def path(sha: str) -> Path:
     if len(sha) != 64 or any(ch not in "0123456789abcdef" for ch in sha):
-        raise ValueError("not a SHA-256")
+        raise ValueError(say("not a SHA-256"))
     return root() / sha[:2] / sha
 
 
@@ -42,5 +44,5 @@ def put(data: bytes) -> str:
 def get(sha: str) -> bytes:
     data = path(sha).read_bytes()
     if digest(data) != sha:
-        raise OSError(f"stored file {sha} does not match its fingerprint")
+        raise OSError(say("stored file {sha} does not match its fingerprint", sha=sha))
     return data

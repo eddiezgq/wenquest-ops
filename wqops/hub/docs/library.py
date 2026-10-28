@@ -18,12 +18,14 @@ import re
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.docs import checks as CK
 from wqops.hub.docs import classify as K
 from wqops.hub.docs import control as CTL
 from wqops.hub.docs import extract as X
 from wqops.hub.docs import store as F
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 KEPT = ("draft", "in_review", "approved", "effective", "confirmed")      # in the library
 CHARS_PER_TOKEN = 4
@@ -42,7 +44,13 @@ def log(conn, doc_id: int, email: str | None, action: str, note: str = "") -> No
 def history(conn, doc_id: int) -> list[dict]:
     rows = conn.execute("select at, email, action, note from doc_log where document_id = %s order by id",
                         (doc_id,)).fetchall()
-    return [dict(r, at=r["at"].isoformat()) for r in rows]
+    # the action stays English in the log (it is compared, e.g. 'sent for approval'); the reader sees it translated
+    return [dict(r, at=r["at"].isoformat(), action=I18N.label(f"doc log::{r['action']}")) for r in rows]
+
+
+def status_word(status: str) -> str:
+    """A document's status as a word in a sentence ("to review"), in the reader's language."""
+    return I18N.label(f"doc status::{(status or '').replace('_', ' ')}")
 
 
 def get(conn, doc_id: int) -> dict:
@@ -56,13 +64,18 @@ def processes(conn) -> dict[str, str]:
     return {r["code"]: r["name"] for r in conn.execute("select code, name from doc_processes order by sort, code")}
 
 
+def process_names(conn) -> dict[str, str]:
+    """The processes as the reader sees them (the codes stay; only for responses, never for checks or the model)."""
+    return {k: I18N.label(v) for k, v in processes(conn).items()}
+
+
 # ---------------------------------------------------------------- import
 
 def clean_path(raw: str) -> tuple[str, str]:
     """(folder path, file name) from a browser's relative path or a zip entry; never leaves the import."""
     parts = [p for p in re.split(r"[\\/]+", raw or "") if p not in ("", ".", "..")]
     if not parts:
-        raise DocError("a file needs a name")
+        raise DocError(say("a file needs a name"))
     return "/".join(parts[:-1])[:500], parts[-1][:255]
 
 
@@ -82,11 +95,12 @@ def add_file(conn, import_id: int, raw_name: str, data: bytes) -> dict:
     """Store one file of an import; identical bytes are stored once and the row points to the first copy."""
     path, name = clean_path(raw_name)
     if not X.accepted(name):
-        raise DocError(f"{name}: this kind of file is not taken (PDF, Word, Excel, CSV, text and images are)")
+        raise DocError(say("{name}: this kind of file is not taken (PDF, Word, Excel, CSV, text and images are)",
+                           name=name))
     if len(data) > F.MAX_BYTES:
-        raise DocError(f"{name}: larger than {F.MAX_BYTES // (1024 * 1024)} MB")
+        raise DocError(say("{name}: larger than {v} MB", name=name, v=F.MAX_BYTES // (1024 * 1024)))
     if not data:
-        raise DocError(f"{name}: the file is empty")
+        raise DocError(say("{name}: the file is empty", name=name))
     sha = F.put(data)
     first = conn.execute("select id from documents where sha256 = %s and status <> 'rejected' order by id limit 1",
                          (sha,)).fetchone()
@@ -108,7 +122,9 @@ def _set_text(conn, doc: dict, t: X.Text) -> None:
                  "set body = excluded.body", (doc["id"], t.body))
     conn.execute("update documents set text_status = %s, text_chars = %s, updated_at = now() where id = %s",
                  (t.status, len(t.body), doc["id"]))
-    log(conn, doc["id"], None, "text", f"{t.status}, {len(t.body)} characters" + (f"; {t.note}" if t.note else ""))
+    log(conn, doc["id"], None, "text",
+        say("{status}, {n} characters; {note}", status=t.status, n=len(t.body), note=t.note) if t.note
+        else say("{status}, {n} characters", status=t.status, n=len(t.body)))
 
 
 def extract_one(conn, doc: dict) -> None:
@@ -116,12 +132,12 @@ def extract_one(conn, doc: dict) -> None:
                         "where d.sha256 = %s and d.id <> %s and d.text_status <> 'pending' limit 1",
                         (doc["sha256"], doc["id"])).fetchone()
     if same:
-        _set_text(conn, doc, X.Text(same["body"], same["text_status"], "same file as an earlier one"))
+        _set_text(conn, doc, X.Text(same["body"], same["text_status"], say("same file as an earlier one")))
     else:
         try:
             data = F.get(doc["sha256"])
         except OSError as exc:                          # missing or damaged in the store: say so, go on
-            _set_text(conn, doc, X.Text("", "error", f"stored file unreadable: {exc}"))
+            _set_text(conn, doc, X.Text("", "error", say("stored file unreadable: {error}", error=exc)))
             return
         _set_text(conn, doc, X.text_of(doc["original_name"], data))
 
@@ -137,8 +153,8 @@ def extract_import(conn, import_id: int) -> dict:
 def recover(conn) -> list[int]:
     """After a restart: work that stopped half-way. Classification is marked as stopped (classify again); imports
     whose text was being read are returned so the reading can continue."""
-    conn.execute("update doc_imports set status = 'done', error = 'classification stopped when the hub restarted; "
-                 "classify again' where status = 'classifying'")
+    conn.execute("update doc_imports set status = 'done', error = %s where status = 'classifying'",
+                 (say("classification stopped when the hub restarted; classify again"),))
     return [r["id"] for r in conn.execute("select id from doc_imports where status = 'extracting' order by id")]
 
 
@@ -186,23 +202,24 @@ def propose(conn, doc_id: int, proposal: dict, engine: str, ai_run: int | None =
          p.get("revision"), eff, p.get("owner"), p.get("language"), p.get("summary"), Jsonb(p.get("refs", [])),
          Jsonb(p.get("evidence", {})), ai_run, doc_id)).fetchone()
     if row is None:
-        raise DocError(f"document {doc_id} is not waiting for classification")
-    log(conn, doc_id, None, "classified", f"{engine}, confidence {p.get('confidence', 'low')}")
+        raise DocError(say("document {doc_id} is not waiting for classification", doc_id=doc_id))
+    log(conn, doc_id, None, "classified", say("{engine}, confidence {level}", engine=engine,
+                                              level=I18N.label(f"confidence::{p.get('confidence', 'low')}")))
     return row
 
 
 def _check_fields(conn, f: dict) -> None:
     if f.get("doc_type") not in K.TYPES:
-        raise DocError("choose a type")
+        raise DocError(say("choose a type"))
     if f.get("process") not in processes(conn):
-        raise DocError("choose a process")
+        raise DocError(say("choose a process"))
     if not str(f.get("title") or "").strip():
-        raise DocError("a document needs a title")
+        raise DocError(say("a document needs a title"))
     if f.get("effective_date"):
         try:
             dt.date.fromisoformat(str(f["effective_date"]))
         except ValueError as exc:
-            raise DocError("effective date must be a date (YYYY-MM-DD)") from exc
+            raise DocError(say("effective date must be a date (YYYY-MM-DD)")) from exc
 
 
 EDITABLE = ("doc_type", "process", "number", "title", "revision", "effective_date", "owner", "language", "summary")
@@ -216,7 +233,8 @@ def confirm(conn, email: str, doc_id: int, changes: dict | None = None) -> dict:
         if doc is None:
             raise KeyError(doc_id)
         if doc["status"] not in ("to_review", "to_classify"):
-            raise DocError(f"document {doc_id} is {doc['status'].replace('_', ' ')}; nothing to confirm")
+            raise DocError(say("document {doc_id} is {status}; nothing to confirm",
+                               doc_id=doc_id, status=status_word(doc["status"])))
         changes = {k: (str(v).strip() or None) if v is not None else None for k, v in (changes or {}).items()
                    if k in EDITABLE}
         f = {k: doc[k] for k in EDITABLE} | changes
@@ -235,8 +253,9 @@ def confirm(conn, email: str, doc_id: int, changes: dict | None = None) -> dict:
             (*(f[k] for k in EDITABLE), Jsonb(corrected), email, "confirmed" if kept else "draft",
              doc["sha256"] if kept else None, doc_id)).fetchone()
         note = "; ".join(f"{c['field']}: {c['from'] or '-'} -> {c['to'] or '-'}" for c in corrected)
-        log(conn, doc_id, email, "confirmed", (note or "as proposed") + ("; kept in the library" if kept else
-                                                                          "; draft, needs approval"))
+        what = note or say("as proposed")
+        log(conn, doc_id, email, "confirmed", say("{changes}; kept in the library", changes=what) if kept else
+            say("{changes}; draft, needs approval", changes=what))
     return row
 
 
@@ -256,12 +275,12 @@ def confirm_batch(conn, email: str, ids: list[int]) -> dict:
 def reject(conn, email: str, doc_id: int, reason: str) -> dict:
     """Not a document to keep (a stray file, a draft copy). The file stays in the import record."""
     if not reason.strip():
-        raise DocError("say why this file is not kept")
+        raise DocError(say("say why this file is not kept"))
     row = conn.execute("update documents set status = 'rejected', updated_at = now() where id = %s and status in "
                        "('to_classify', 'to_review') returning *", (doc_id,)).fetchone()
     if row is None:
         get(conn, doc_id)
-        raise DocError(f"document {doc_id} is already in the library; make it obsolete instead")
+        raise DocError(say("document {doc_id} is already in the library; make it obsolete instead", doc_id=doc_id))
     log(conn, doc_id, email, "not kept", reason.strip())
     return row
 
@@ -299,13 +318,16 @@ def _no_clash(conn, doc: dict) -> None:
                         "('in_review', 'approved', 'effective', 'obsolete')",
                         (doc["number"], doc["revision"], doc["id"])).fetchone()
     if same:
-        raise DocError(f"{doc['number']} rev {doc['revision']} already exists (document {same['id']})")
+        raise DocError(say("{number} rev {revision} already exists (document {id})",
+                           number=doc['number'], revision=doc['revision'], id=same['id']))
     other = conn.execute("select id, revision, status from documents where number = %s and status in ('approved', "
                          "'effective') and id <> %s and id is distinct from %s and supersedes is distinct from %s",
                          (doc["number"], doc["id"], doc["supersedes"], doc["id"])).fetchone()
     if other:
-        raise DocError(f"{doc['number']} rev {other['revision']} is {other['status']} (document {other['id']}): upload "
-                       "this as a new revision of it, or make that one obsolete first")
+        raise DocError(say("{number} rev {revision} is {status} (document {id}): upload this as a new revision of "
+                           "it, or make that one obsolete first",
+                           number=doc['number'], revision=other['revision'], status=status_word(other['status']),
+                           id=other['id']))
 
 
 def involved(conn, doc: dict) -> set[str]:
@@ -320,7 +342,7 @@ def edit(conn, email: str, doc_id: int, changes: dict) -> dict:
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] != "draft":
-            raise DocError("only a draft can be changed; an effective document changes by a new revision")
+            raise DocError(say("only a draft can be changed; an effective document changes by a new revision"))
         changes = {k: (str(v).strip() or None) if v is not None else None for k, v in (changes or {}).items()
                    if k in EDITABLE}
         f = {k: doc[k] for k in EDITABLE} | changes
@@ -328,8 +350,8 @@ def edit(conn, email: str, doc_id: int, changes: dict) -> dict:
             f["effective_date"] = f["effective_date"].isoformat()
         _check_fields(conn, f)
         if f["doc_type"] not in K.CONTROLLED and not (doc.get("ai_drafted") or doc.get("generated_from")):
-            raise DocError("a draft stays a procedure, work instruction or form; to keep it as a record, make it "
-                           "obsolete after approval or ask for it to be imported again")
+            raise DocError(say("a draft stays a procedure, work instruction or form; to keep it as a record, make it "
+                               "obsolete after approval or ask for it to be imported again"))
         before = {k: (str(doc[k]) if doc[k] is not None else None) for k in EDITABLE}
         diff = {k: v for k, v in changes.items() if before[k] != v}
         if not diff:
@@ -345,9 +367,10 @@ def submit(conn, email: str, doc_id: int) -> dict:
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] != "draft":
-            raise DocError(f"only a draft can be sent for approval; this one is {doc['status'].replace('_', ' ')}")
+            raise DocError(say("only a draft can be sent for approval; this one is {status}",
+                               status=status_word(doc["status"])))
         if not doc["number"] or not doc["revision"]:
-            raise DocError("give the document a number and a revision before sending it for approval")
+            raise DocError(say("give the document a number and a revision before sending it for approval"))
         _no_clash(conn, doc)
         row = conn.execute("update documents set status = 'in_review', submitted_by = %s, updated_at = now() "
                            "where id = %s returning *", (email, doc_id)).fetchone()
@@ -357,11 +380,11 @@ def submit(conn, email: str, doc_id: int) -> dict:
 
 def send_back(conn, email: str, doc_id: int, reason: str) -> dict:
     if not reason.strip():
-        raise DocError("say what needs to change")
+        raise DocError(say("say what needs to change"))
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] != "in_review":
-            raise DocError("only a document waiting for approval can be sent back")
+            raise DocError(say("only a document waiting for approval can be sent back"))
         row = conn.execute("update documents set status = 'draft', updated_at = now() where id = %s returning *",
                            (doc_id,)).fetchone()
         log(conn, doc_id, email, "sent back", reason.strip())
@@ -375,12 +398,12 @@ def approve(conn, user: dict, doc_id: int, password: str, today: dt.date,  # noq
     revision it replaces becomes obsolete and the people who must read it are asked to."""
     def allowed(doc):
         if doc["status"] != "in_review":
-            raise DocError("only a document waiting for approval can be approved")
+            raise DocError(say("only a document waiting for approval can be approved"))
         if user["email"] in involved(conn, doc):
-            raise PermissionError("approval must come from someone who did not upload, confirm or submit it")
+            raise PermissionError(say("approval must come from someone who did not upload, confirm or submit it"))
 
     if effective_on is not None and effective_on < today:
-        raise DocError("it cannot take effect before the day it is approved")
+        raise DocError(say("it cannot take effect before the day it is approved"))
     first = get(conn, doc_id)
     allowed(first)
     if effective_on is None and first["effective_date"] and first["effective_date"] > today:
@@ -390,7 +413,7 @@ def approve(conn, user: dict, doc_id: int, password: str, today: dt.date,  # noq
         doc = _lock(conn, doc_id)
         allowed(doc)
         _no_clash(conn, doc)
-        Q._sign(conn, user, "Document approved", "document", doc_id, name_of(doc))
+        Q._sign(conn, user, say("Document approved"), "document", doc_id, name_of(doc))
         later = effective_on is not None and effective_on > today
         row = conn.execute(
             "update documents set status = %s, approved_by = %s, approved_at = now(), fingerprint = sha256, "
@@ -398,10 +421,11 @@ def approve(conn, user: dict, doc_id: int, password: str, today: dt.date,  # noq
             ("approved" if later else "effective", user["email"],
              effective_on if later else (doc["effective_date"] or today), doc_id)).fetchone()
         if later:
-            log(conn, doc_id, user["email"], "approved", f"takes effect on {effective_on}; fingerprint "
-                                                           f"{doc['sha256'][:12]}")
+            log(conn, doc_id, user["email"], "approved", say("takes effect on {date}; fingerprint {fingerprint}",
+                                                             date=effective_on, fingerprint=doc["sha256"][:12]))
         else:
-            log(conn, doc_id, user["email"], "approved, effective", f"fingerprint {doc['sha256'][:12]}")
+            log(conn, doc_id, user["email"], "approved, effective",
+                say("fingerprint {fingerprint}", fingerprint=doc["sha256"][:12]))
             _took_effect(conn, row, user["email"], today)
     return row
 
@@ -410,9 +434,11 @@ def _took_effect(conn, doc: dict, email: str, today: dt.date) -> None:
     if doc["supersedes"]:
         old = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, updated_at = now() "
                            "where id = %s and status = 'effective' returning id",
-                           (f"replaced by revision {doc['revision']}", doc["supersedes"])).fetchone()
+                           (say("replaced by revision {revision}", revision=doc["revision"]),
+                            doc["supersedes"])).fetchone()
         if old:
-            log(conn, old["id"], email, "obsolete", f"replaced by revision {doc['revision']} (document {doc['id']})")
+            log(conn, old["id"], email, "obsolete", say("replaced by revision {revision} (document {id})",
+                                                        revision=doc["revision"], id=doc["id"]))
     CTL.on_effective(conn, doc, email, today)
 
 
@@ -433,7 +459,7 @@ def take_effect_due(conn, today: dt.date) -> list[int]:
                 continue
             row = conn.execute("update documents set status = 'effective', updated_at = now() where id = %s "
                                "returning *", (doc["id"],)).fetchone()
-            log(conn, doc["id"], "WenQuest Ops", "effective", f"planned for {doc['effective_date']}")
+            log(conn, doc["id"], "WenQuest Ops", "effective", say("planned for {date}", date=doc["effective_date"]))
             _took_effect(conn, row, "WenQuest Ops", today)
             done.append(doc["id"])
     return done
@@ -441,17 +467,18 @@ def take_effect_due(conn, today: dt.date) -> list[int]:
 
 def obsolete(conn, email: str, doc_id: int, reason: str) -> dict:
     if not reason.strip():
-        raise DocError("say why the document is obsolete")
+        raise DocError(say("say why the document is obsolete"))
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] not in ("effective", "confirmed", "approved"):
-            raise DocError("only an effective, approved or kept document can be made obsolete")
+            raise DocError(say("only an effective, approved or kept document can be made obsolete"))
         row = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, updated_at = now() "
                            "where id = %s returning *", (reason.strip(), doc_id)).fetchone()
         log(conn, doc_id, email, "obsolete" if doc["status"] != "approved" else "withdrawn before taking effect",
             reason.strip())
+        why = say("document made obsolete: {reason}", reason=reason.strip())[:1000]
         conn.execute("update doc_training set status = 'superseded', done_at = now(), note = %s where document_id = "
-                     "%s and status = 'pending'", (f"document made obsolete: {reason.strip()}"[:1000], doc_id))
+                     "%s and status = 'pending'", (why, doc_id))
     return row
 
 
@@ -462,17 +489,17 @@ def new_revision(conn, email: str, doc_id: int, *, name: str, data: bytes, revis
     with conn.transaction():
         old = _lock(conn, doc_id)
         if old["status"] != "effective" or old["doc_type"] not in K.CONTROLLED:
-            raise DocError("a new revision starts from an effective procedure, work instruction or form")
+            raise DocError(say("a new revision starts from an effective procedure, work instruction or form"))
         if not revision or revision == old["revision"]:
-            raise DocError("give the new revision a name different from the current one")
+            raise DocError(say("give the new revision a name different from the current one"))
         if conn.execute("select 1 from documents where supersedes = %s and status in ('draft', 'in_review', "
                         "'approved')",
                         (doc_id,)).fetchone():
-            raise DocError("a new revision of this document is already in progress")
-        imp = new_import(conn, email, f"New revision of {old['number'] or old['title']}")
+            raise DocError(say("a new revision of this document is already in progress"))
+        imp = new_import(conn, email, say("New revision of {name}", name=old["number"] or old["title"]))
         doc = add_file(conn, imp["id"], name, data)
         if doc["sha256"] == old["sha256"]:
-            raise DocError("this is the same file as the current revision")
+            raise DocError(say("this is the same file as the current revision"))
         conn.execute("update doc_imports set status = 'done', engine = 'person' where id = %s", (imp["id"],))
         extract_one(conn, doc)
         row = conn.execute(
@@ -482,8 +509,10 @@ def new_revision(conn, email: str, doc_id: int, *, name: str, data: bytes, revis
             "updated_at = now() where id = %s returning *",
             (old["doc_type"], old["process"], old["number"], old["title"], revision, old["owner"], old["language"],
              old["summary"], doc_id, email, Jsonb(old["trainees"]), doc["id"])).fetchone()
-        log(conn, row["id"], email, "new revision", f"revision {revision} of document {doc_id}")
-        log(conn, doc_id, email, "new revision started", f"revision {revision} (document {row['id']})")
+        log(conn, row["id"], email, "new revision", say("revision {revision} of document {id}", revision=revision,
+                                                        id=doc_id))
+        log(conn, doc_id, email, "new revision started", say("revision {revision} (document {id})", revision=revision,
+                                                             id=row["id"]))
     return row
 
 
@@ -545,7 +574,8 @@ def overview(conn) -> dict:
             totals[r["status"]] += r["n"]
     procs = processes(conn)
     empty = [p for p in procs if p != "other" and p not in grid]
-    return {"processes": procs, "types": K.TYPES, "grid": grid, "totals": totals, "empty_processes": empty}
+    return {"processes": {k: I18N.label(v) for k, v in procs.items()}, "types": K.type_names(), "grid": grid,
+            "totals": totals, "empty_processes": empty}
 
 
 # ---------------------------------------------------------------- checks and numbering (14b)
@@ -583,8 +613,8 @@ SINGLE = {   # issues listed for many documents at once, as they read on one doc
 def suggestions(conn, doc: dict, state: dict | None = None) -> dict:
     """The suggested number (when it has none or one off the convention) and standard file name of a document."""
     state = state or check(conn)
-    mine = [dict(i, docs=[doc["id"]], title=SINGLE[i["kind"]][0], detail=SINGLE[i["kind"]][1]) if i["kind"] in SINGLE
-            else i for i in state["issues"] if doc["id"] in i["docs"]]
+    mine = [dict(i, docs=[doc["id"]], title=say(SINGLE[i["kind"]][0]), detail=say(SINGLE[i["kind"]][1]))
+            if i["kind"] in SINGLE else i for i in state["issues"] if doc["id"] in i["docs"]]
     number = next((i["suggest"] for i in mine if i["kind"] in ("no_number", "odd_number") and i.get("suggest")), None)
     return {"number": number, "file_name": CK.standard_name(dict(doc, number=doc["number"] or number)),
             "issues": mine}
@@ -592,17 +622,18 @@ def suggestions(conn, doc: dict, state: dict | None = None) -> dict:
 
 def set_rule(conn, email: str, doc_type: str, template: str, digits: int) -> dict:
     if doc_type not in CK.NUMBERED:
-        raise DocError("numbering rules are for procedures, work instructions, forms and specifications")
+        raise DocError(say("numbering rules are for procedures, work instructions, forms and specifications"))
     template = (template or "").strip().upper().replace("{PROCESS}", "{process}").replace("{SEQ}", "{seq}")
     if template.count("{seq}") != 1 or not template.endswith("{seq}") or not re.fullmatch(
             r"[A-Z0-9._/-]*(\{process\}[A-Z0-9._/-]*)?\{seq\}", template):
-        raise DocError("a rule looks like QP-{seq} or F-{process}-{seq}: letters, digits and - before {seq} at the end")
+        raise DocError(say("a rule looks like QP-{seq} or F-{process}-{seq}: letters, digits and - before {seq} at "
+                           "the end"))
     try:
         digits = int(digits)
     except (TypeError, ValueError) as exc:
-        raise DocError("the sequence number has 1 to 6 digits") from exc
+        raise DocError(say("the sequence number has 1 to 6 digits")) from exc
     if not 1 <= digits <= 6:
-        raise DocError("the sequence number has 1 to 6 digits")
+        raise DocError(say("the sequence number has 1 to 6 digits"))
     return conn.execute("insert into doc_number_rules (doc_type, template, digits, updated_by) values (%s, %s, %s, %s) "
                         "on conflict (doc_type) do update set template = excluded.template, digits = excluded.digits, "
                         "updated_by = excluded.updated_by, updated_at = now() returning *",
@@ -617,17 +648,17 @@ def archive(conn, email: str, doc_id: int, reason: str) -> dict:
     """Keep an older revision (or a superseded file) found during import as obsolete: in the library's history, never
     in use. Its file is frozen like any kept document."""
     if not reason.strip():
-        raise DocError("say why it is kept as obsolete (for example: replaced by rev C)")
+        raise DocError(say("say why it is kept as obsolete (for example: replaced by rev C)"))
     with conn.transaction():
         doc = _lock(conn, doc_id)
         if doc["status"] not in ("to_classify", "to_review", "draft"):
-            raise DocError("only a file waiting for review or a draft can be kept as obsolete; make an effective "
-                           "document obsolete instead")
+            raise DocError(say("only a file waiting for review or a draft can be kept as obsolete; make an effective "
+                               "document obsolete instead"))
         if doc["supersedes"]:
-            raise DocError("this is a new revision in progress, not an older one; send it back or leave it")
+            raise DocError(say("this is a new revision in progress, not an older one; send it back or leave it"))
         f = {k: doc[k] for k in EDITABLE}
         if not f["doc_type"] or f["process"] not in processes(conn) or not f["title"]:
-            raise DocError("give it a type, process and title first, so it can be found later")
+            raise DocError(say("give it a type, process and title first, so it can be found later"))
         row = conn.execute("update documents set status = 'obsolete', obsolete_reason = %s, fingerprint = sha256, "
                            "confirmed_by = coalesce(confirmed_by, %s), confirmed_at = coalesce(confirmed_at, now()), "
                            "updated_at = now() where id = %s returning *", (reason.strip(), email, doc_id)).fetchone()

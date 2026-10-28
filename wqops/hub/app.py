@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 import wqops
 from wqops import company as C
+from wqops import i18n as I18N
 from wqops.erp import ErpError
 from wqops.hub import accounts as A
 from wqops.hub import db as DB
@@ -40,6 +41,7 @@ from wqops.hub import sync as Y
 from wqops.hub.ont import anomaly as AN
 from wqops.hub.ont import api as OA
 from wqops.hub.ont import project as OP
+from wqops.i18n import say
 
 log = logging.getLogger("wqops.hub")
 
@@ -76,7 +78,8 @@ def load_company() -> tuple[dict | None, str]:
 
 def _page(title: str, body: str) -> str:
     """Plain server pages (sign-in, the page without a web build) in Frappe's look (ADR-0013), no scripts."""
-    return (f"<!doctype html><html lang='en'><head><meta charset='utf-8'><title>{html.escape(title)}</title>"
+    lang = "zh-CN" if I18N.current() == "zh" else "en"
+    return (f"<!doctype html><html lang='{lang}'><head><meta charset='utf-8'><title>{html.escape(title)}</title>"
             "<meta name='viewport' content='width=device-width, initial-scale=1'>"
             "<style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;"
             "justify-content:center;background:#f8f8f8;color:#383838;padding:2rem 1rem;"
@@ -192,10 +195,12 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 await task
 
     app = FastAPI(title="WenQuest Ops", version=wqops.__version__, lifespan=lifespan)
+    app.add_middleware(I18N.LanguageMiddleware)
+    I18N.set_company_language(((company()[0] or {}).get("company") or {}).get("language"))
 
     def conn():
         if not db_url:
-            raise HTTPException(503, "the hub database is not configured")
+            raise HTTPException(503, say("the hub database is not configured"))
         c = DB.connect(db_url)
         try:
             yield c
@@ -207,13 +212,14 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
 
     def current_user(u=Depends(user_or_none)) -> dict:
         if u is None:
-            raise HTTPException(401, "sign in first")
+            raise HTTPException(401, say("sign in first"))
         return u
 
     def require(permission: str):
         def dep(u=Depends(current_user)) -> dict:
             if not P.allows(u["roles"], permission):
-                raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[permission]}")
+                raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                             PERMISSIONS=P.describe(permission)))
             return u
         return dep
 
@@ -247,7 +253,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     def oidc_client(provider: str) -> O.Client:
         p = O.providers().get(provider)
         if p is None:
-            raise HTTPException(404, f"sign-in with {provider} is not set up")
+            raise HTTPException(404, say("sign-in with {provider} is not set up", provider=provider))
         return O.Client(p, oidc_http)
 
     def public_url(request: Request) -> str:
@@ -279,14 +285,15 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
             return RedirectResponse(f"/login?error={urllib.parse.quote(msg)}", status_code=303)
 
         if error:
-            return fail(f"{cl.p.label} sign-in was cancelled or refused ({error})")
+            return fail(say("{label} sign-in was cancelled or refused ({error})", label=cl.p.label, error=error))
         try:
             email, nxt = cl.finish(c, state, code, O.redirect_uri(public_url(request), provider))
         except (O.OidcError, httpx.HTTPError) as exc:
             return fail(str(exc))
         u = A.get(c, email)
         if u is None or not u["active"]:
-            return fail(f"{email} is not on the list of people for this company; ask the owner to add you")
+            return fail(say("{email} is not on the list of people for this company; ask the owner to add you",
+                            email=email))
         return start_session(request, c, u, f"oidc:{provider}", RedirectResponse(nxt or "/", status_code=303))
 
     @app.post("/api/login")
@@ -318,7 +325,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     def oauth_authorize(request: Request, *, client_id: str = "", redirect_uri: str = "", state: str = "",
                         u=Depends(user_or_none), c=Depends(conn)):
         if client_id != S.CLIENT_ID:
-            raise HTTPException(400, "unknown client")
+            raise HTTPException(400, say("unknown client"))
         try:
             S.check_redirect(redirect_uri, os.environ.get("WQO_ERP_PUBLIC_URL", ""))
         except S.SsoError as exc:
@@ -329,7 +336,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         try:
             S.ensure_erp_user(erp_client(), u)
         except (ErpError, httpx.HTTPError) as exc:
-            raise HTTPException(502, f"could not prepare your ERPNext account: {exc}") from exc
+            raise HTTPException(502, say("could not prepare your ERPNext account: {exc}", exc=exc)) from exc
         code = S.issue_code(c, u, redirect_uri)
         sep = "&" if "?" in redirect_uri else "?"
         return RedirectResponse(f"{redirect_uri}{sep}{urllib.parse.urlencode({'code': code, 'state': state})}",
@@ -374,10 +381,11 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         data = await request.json()
         email = str(data.get("email") or u["email"]).lower()
         if email != u["email"] and not P.allows(u["roles"], "users:manage"):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS['users:manage']}")
+            raise HTTPException(403, say("your role does not allow: {users_manage}",
+                                         users_manage=P.describe('users:manage')))
         if email == u["email"] and u["password_hash"] and not A.check_password(str(data.get("current", "")),
                                                                                 u["password_hash"]):
-            raise HTTPException(400, "current password is wrong")
+            raise HTTPException(400, say("current password is wrong"))
         try:
             A.set_password(c, email, str(data.get("password", "")), by=u["email"])
         except A.AccountError as exc:
@@ -457,15 +465,25 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
 
     FWA.mount(app, conn, current_user, company)
 
+    @app.get("/api/i18n/{lang}")
+    def hub_texts(lang: str):
+        """The hub's table of fixed texts (ADR-0023): the web page shows stored hub texts (history entries, signature
+        meanings) in the reader's language with it. Not secret: the same for every company."""
+        if lang not in I18N.LANGS or lang == "en":
+            raise HTTPException(404, say("not found"))
+        return JSONResponse(I18N.table(lang), headers={"cache-control": "public, max-age=3600"})
+
     @app.get("/api/workspace")
     def workspace(u=Depends(current_user)):
         """What the web workspace needs to start: who is signed in, the company, where ERPNext is."""
         m, _ = company()
         c = (m or {}).get("company", {})
-        return {"company": c.get("name", "WenQuest Ops"), "demo": bool(m and m.get("demo")),
-                "currency": c.get("currency", "USD"), "timezone": c.get("timezone", "UTC"),
-                "erp_url": os.environ.get("WQO_ERP_PUBLIC_URL"), "user": A.public(u), "version": wqops.__version__,
-                "may": [P.PERMISSIONS[p] for p in sorted(P.of(u["roles"]))]}
+        I18N.set_company_language(c.get("language"))
+        return {"company": c.get("name", "WenQuest Ops"), "language": c.get("language", "en"),
+                "demo": bool(m and m.get("demo")), "currency": c.get("currency", "USD"),
+                "timezone": c.get("timezone", "UTC"), "erp_url": os.environ.get("WQO_ERP_PUBLIC_URL"),
+                "user": A.public(u), "version": wqops.__version__,
+                "may": [P.describe(p) for p in sorted(P.of(u["roles"]))]}
 
     @app.get("/api/sync/status")
     def sync_status(_=Depends(require("dashboard:view")), c=Depends(conn)):
@@ -478,7 +496,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         except Y.SyncBusy as exc:
             raise HTTPException(409, str(exc)) from exc
         except (ErpError, httpx.HTTPError) as exc:
-            raise HTTPException(502, f"ERPNext did not answer as expected: {exc}") from exc
+            raise HTTPException(502, say("ERPNext did not answer as expected: {exc}", exc=exc)) from exc
 
     def draft_out(d: dict) -> dict:
         base = os.environ.get("WQO_ERP_PUBLIC_URL")
@@ -492,13 +510,13 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         except D.NotAllowed as exc:
             raise HTTPException(403, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "no such draft") from exc
+            raise HTTPException(404, say("no such draft")) from exc
         except D.Conflict as exc:
             raise HTTPException(409, str(exc)) from exc
         except D.DraftError as exc:
             raise HTTPException(400, str(exc)) from exc
         except (ErpError, httpx.HTTPError) as exc:
-            raise HTTPException(502, f"ERPNext did not accept the draft: {exc}") from exc
+            raise HTTPException(502, say("ERPNext did not accept the draft: {exc}", exc=exc)) from exc
 
     @app.post("/api/erp/drafts", status_code=201)
     async def propose_draft(request: Request, u=Depends(current_user), c=Depends(conn)):
@@ -536,20 +554,23 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     def login_page(error: str = "", next: str = ""):
         name, demo = company_name()
         err = f"<p class='err'>{html.escape(error)}</p>" if error else ""
-        tag = " <small class='muted'>(fictional demo company)</small>" if demo else ""
+        tag = f" <small class='muted'>{html.escape(say('(fictional demo company)'))}</small>" if demo else ""
         nxt = safe_next(next)
         q = f"?next={urllib.parse.quote(nxt)}" if nxt else ""
         sso = "".join(f"<p><a class='sso' href='/auth/oidc/{p.name}/start{q}'>"
-                      f"Sign in with {html.escape(p.label)}</a></p>" for p in O.providers().values())
+                      f"{html.escape(say('Sign in with {label}', label=p.label))}</a></p>"
+                      for p in O.providers().values())
         hidden = f"<input type='hidden' name='next' value='{html.escape(nxt)}'>" if nxt else ""
         if sso:
-            sso += "<p class='muted'>or with a password:</p>"
-        return _page(f"Sign in - {name}", f"<h1>{html.escape(name)}{tag}</h1><h2>Sign in to WenQuest Ops</h2>{err}{sso}"
-                     f"<form method='post' action='/api/login'>{hidden}"
-                     "<label for='email'>Email</label><input id='email' name='email' type='email' required autofocus>"
-                     "<label for='password'>Password</label>"
+            sso += f"<p class='muted'>{html.escape(say('or with a password:'))}</p>"
+        return _page(say("Sign in - {name}", name=name),
+                     f"<h1>{html.escape(name)}{tag}</h1><h2>{html.escape(say('Sign in to WenQuest Ops'))}</h2>"
+                     f"{err}{sso}<form method='post' action='/api/login'>{hidden}"
+                     f"<label for='email'>{html.escape(say('Email'))}</label>"
+                     "<input id='email' name='email' type='email' required autofocus>"
+                     f"<label for='password'>{html.escape(say('Password'))}</label>"
                      "<input id='password' name='password' type='password' required>"
-                     "<button type='submit'>Sign in</button></form>")
+                     f"<button type='submit'>{html.escape(say('Sign in'))}</button></form>")
 
     web = web_dir if web_dir is not None else os.environ.get("WQO_WEB_DIR", "")
     index = os.path.join(web, "index.html") if web else ""
@@ -579,18 +600,21 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         if has_web:
             return spa(request, u)
         name, demo = company_name()
-        tag = " <small class='muted'>(fictional demo company)</small>" if demo else ""
-        roles = ", ".join(P_LABEL.get(r, r) for r in u["roles"])
+        tag = f" <small class='muted'>{html.escape(say('(fictional demo company)'))}</small>" if demo else ""
+        roles = ("、" if I18N.current() == "zh" else ", ").join(I18N.label(P_LABEL.get(r, r)) for r in u["roles"])
         erp_url = os.environ.get("WQO_ERP_PUBLIC_URL")
-        erp_link = (f"<p><a href='{html.escape(erp_url)}/login'>Open ERPNext</a> "
-                    "(choose “Login with WenQuest Ops”)</p>") if erp_url else ""
-        perms = "".join(f"<li>{html.escape(P.PERMISSIONS[p])}</li>" for p in sorted(P.of(u["roles"])))
+        erp_link = (f"<p><a href='{html.escape(erp_url)}/login'>{html.escape(say('Open ERPNext'))}</a> "
+                    f"{html.escape(say('(choose “Login with WenQuest Ops”)'))}</p>") if erp_url else ""
+        perms = "".join(f"<li>{html.escape(P.describe(p))}</li>" for p in sorted(P.of(u["roles"])))
+        signed = say("Signed in as {name} ({email}) - {roles}", name="\x00", email=u["email"], roles=roles)
+        before, _, after = signed.partition("\x00")
+        later = say("The workspace (ops hub, AI assistant, quality) arrives in the next steps of Phase 1.")
         return _page(f"{name} - WenQuest Ops",
-                     f"<h1>{html.escape(name)}{tag}</h1><p>Signed in as <b>{html.escape(u['name'])}</b> "
-                     f"({html.escape(u['email'])}) - {html.escape(roles)}</p>{erp_link}"
-                     f"<h3>What you can do</h3><ul>{perms}</ul>"
-                     "<p class='muted'>The workspace (ops hub, AI assistant, quality) arrives in the next steps of "
-                     "Phase 1.</p><form method='post' action='/api/logout'><button>Sign out</button></form>"
+                     f"<h1>{html.escape(name)}{tag}</h1><p>{html.escape(before)}<b>{html.escape(u['name'])}</b>"
+                     f"{html.escape(after)}</p>{erp_link}"
+                     f"<h3>{html.escape(say('What you can do'))}</h3><ul>{perms}</ul>"
+                     f"<p class='muted'>{html.escape(later)}</p>"
+                     f"<form method='post' action='/api/logout'><button>{html.escape(say('Sign out'))}</button></form>"
                      f"<p class='muted'>WenQuest Ops {wqops.__version__}</p>")
 
     return app

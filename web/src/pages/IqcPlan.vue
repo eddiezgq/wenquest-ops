@@ -99,7 +99,7 @@ const limits = (c) => c.kind === 'attribute' ? t('pass / fail') : [c.lsl !== nul
     <section class="wq-panel p-5 text-sm">
       <h2 class="wq-h2">{{ t('Versions and history') }}</h2>
       <ul class="mb-3"><li v-for="v in p.versions" :key="v.id"><RouterLink :to="`/quality/iqc/plans/${v.id}`" class="wq-link">{{ t('version {n}', { n: v.version }) }}</RouterLink> {{ t(v.status) }}</li></ul>
-      <ul><li v-for="(x, i) in p.history" :key="i" class="text-ink-gray-7">{{ ago(x.at) }} · {{ x.email }} · {{ x.action }} {{ x.note }}</li>
+      <ul><li v-for="(x, i) in p.history" :key="i" class="text-ink-gray-7">{{ ago(x.at) }} · {{ x.email }} · {{ t(x.action) }} {{ x.note }}</li>
         <li v-for="(s, i) in p.signatures" :key="`s${i}`" class="text-ink-gray-7">{{ ago(s.at) }} · {{ t('signed by {name} ({email}): {meaning}', { name: s.name, email: s.email, meaning: s.meaning }) }}</li></ul>
     </section>
   </template>

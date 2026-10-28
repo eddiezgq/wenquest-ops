@@ -7,16 +7,19 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import permissions as P
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import risk as R
 from wqops.hub.quality import risk_rules as RR
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per action
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                         PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def run(fn):
         try:
@@ -24,7 +27,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except (R.RiskError, Q.QualityError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -35,7 +38,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     def can(u: dict) -> dict:
@@ -44,8 +47,9 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
 
     def criteria(c) -> dict:
         lv, m = R.levels(c), R.matrix(c)
-        return {"levels": lv, "matrix": [{"severity": s, "probability": p, "verdict": v} for (s, p), v in m.items()],
-                "gaps": RR.matrix_gaps(lv, m), "verdicts": RR.VERDICTS, "example_note": RR.EXAMPLE_NOTE}
+        return {"levels": RR.shown_levels(lv),
+                "matrix": [{"severity": s, "probability": p, "verdict": v} for (s, p), v in m.items()],
+                "gaps": RR.matrix_gaps(lv, m), "verdicts": RR.verdicts(), "example_note": say(RR.EXAMPLE_NOTE)}
 
     @app.get("/api/risk")
     def home(status: str = "current", u=Depends(user_dep), c=Depends(conn_dep)):
@@ -143,5 +147,5 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             row = run(lambda: R.revise(c, u["email"], fid))
             return page(c, u, row["id"])
         else:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return page(c, u, fid)

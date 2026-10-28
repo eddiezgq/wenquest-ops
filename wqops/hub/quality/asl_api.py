@@ -7,17 +7,20 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import asl as A
 from wqops.hub.quality import iqc as I
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                         PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def run(fn):
         try:
@@ -25,7 +28,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         except (A.AslError, I.IqcError, Q.QualityError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -42,12 +45,13 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
                         "status <> 'void'").fetchone()["n"]
         return {"entries": A.listing(c, today()), "suppliers": I.suppliers(c), "items": I.items(c),
                 "settings": {k: v for k, v in I.settings(c).items() if k.startswith("asl_")},
-                "setting_labels": {k: v[1] for k, v in I.SETTINGS.items() if k.startswith("asl_")},
+                "setting_labels": {k: I18N.label(v[1]) for k, v in I.SETTINGS.items()
+                                   if k.startswith("asl_")},
                 "register_entries": reg, "can_configure": P.allows(u["roles"], "qms:configure")}
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     @app.get("/api/asl")
@@ -95,5 +99,5 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
             to = {"suspend": "suspended", "disqualify": "disqualified", "requalify": "draft"}[action]
             run(lambda: A.move(c, u["email"], ident(eid), to, str(d.get("reason") or "")))
         else:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return page(c, u)

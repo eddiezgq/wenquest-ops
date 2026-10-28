@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import re
 
+from wqops import i18n as I18N
+from wqops.i18n import say
+
 METHODS = {"fishbone": "Fishbone", "five_why": "5 Why"}
 BONES = ("People", "Machines", "Materials", "Methods", "Environment", "Measurement")
 MAX_LEVEL = 7
@@ -21,12 +24,13 @@ class CauseError(ValueError):
     pass
 
 
-def text(v, what: str = "the cause", n: int = MAX_TEXT) -> str:
+def text(v, what: str | None = None, n: int = MAX_TEXT) -> str:
+    what = what or say("the cause")
     s = re.sub(r"\s+", " ", CONTROL.sub(" ", str(v if v is not None else ""))).strip()
     if not s:
-        raise CauseError(f"write {what}")
+        raise CauseError(say("write {what}", what=what))
     if len(s) > n:
-        raise CauseError(f"{what} is longer than {n} characters")
+        raise CauseError(say("{what} is longer than {n} characters", what=what, n=n))
     return s
 
 
@@ -35,14 +39,14 @@ def categories(v) -> list[str]:
     if v in (None, "", []):
         return list(BONES)
     if not isinstance(v, list):
-        raise CauseError("the categories are a list")
+        raise CauseError(say("the categories are a list"))
     out: list[str] = []
     for raw in v:
-        c = text(raw, "a category", 40)
+        c = text(raw, say("a category"), 40)
         if c.lower() not in {x.lower() for x in out}:
             out.append(c)
     if not 2 <= len(out) <= 10:
-        raise CauseError("a fishbone has 2 to 10 categories")
+        raise CauseError(say("a fishbone has 2 to 10 categories"))
     return out
 
 
@@ -73,15 +77,17 @@ def can_add(analysis: dict, items: list[dict], *, category: str | None, level: i
     """Where a new cause may go. A fishbone cause goes on one of its bones; a why goes one level below an accepted
     answer: each level is confirmed by a person before the next is asked."""
     if analysis["status"] != "open":
-        raise CauseError(f"{analysis['name']} is {analysis['status']}; add an addendum instead")
+        raise CauseError(say("{name} is {status}; add an addendum instead",
+                             name=analysis['name'], status=analysis['status']))
     if analysis["method"] == "fishbone":
         if category not in analysis["categories"]:
-            raise CauseError(f"choose one of the categories: {', '.join(analysis['categories'])}")
+            raise CauseError(say("choose one of the categories: {categories}",
+                                 categories=', '.join(analysis['categories'])))
         return
     if not isinstance(level, int) or isinstance(level, bool) or not 1 <= level <= MAX_LEVEL:
-        raise CauseError(f"a why is at level 1 to {MAX_LEVEL}")
+        raise CauseError(say("a why is at level 1 to {MAX_LEVEL}", MAX_LEVEL=MAX_LEVEL))
     if level > 1 and not accepted(items, level - 1):
-        raise CauseError(f"accept an answer to why {level - 1} first; each why is confirmed before the next")
+        raise CauseError(say("accept an answer to why {v} first; each why is confirmed before the next", v=level - 1))
 
 
 def can_accept(analysis: dict, items: list[dict], item: dict) -> None:
@@ -90,15 +96,15 @@ def can_accept(analysis: dict, items: list[dict], item: dict) -> None:
         return
     lv = item["level"]
     if lv > 1 and not accepted(items, lv - 1):
-        raise CauseError(f"accept an answer to why {lv - 1} first")
+        raise CauseError(say("accept an answer to why {v} first", v=lv - 1))
     other = [i for i in accepted(items, lv) if i["id"] != item["id"]]
     if other:
-        raise CauseError(f"why {lv} already has an accepted answer; remove it first")
+        raise CauseError(say("why {lv} already has an accepted answer; remove it first", lv=lv))
 
 
 def can_remove(analysis: dict, items: list[dict], item: dict) -> None:
     if analysis["method"] == "five_why" and item["status"] == "accepted" and accepted(items, item["level"] + 1):
-        raise CauseError(f"remove the answer to why {item['level'] + 1} first: it rests on this one")
+        raise CauseError(say("remove the answer to why {v} first: it rests on this one", v=item['level'] + 1))
 
 
 def verify(proposals: list[dict], shown: set[str]) -> tuple[list[dict], list[dict]]:
@@ -111,7 +117,7 @@ def verify(proposals: list[dict], shown: set[str]) -> tuple[list[dict], list[dic
         bad = [r for r in cited if r not in shown]
         if not good:
             dropped.append({"text": str(p.get("text") or "")[:200], "refs": cited,
-                            "reason": "cites no record it was shown" if cited else "cites no record"})
+                            "reason": say("cites no record it was shown") if cited else say("cites no record")})
             continue
         kept.append(p | {"refs": good, "unshown": bad})
     return kept, dropped
@@ -121,15 +127,17 @@ def ready(analysis: dict, items: list[dict]) -> list[str]:
     """What still stands between the analysis and its conclusion (empty when ready)."""
     out = []
     if analysis["status"] != "open":
-        out.append(f"{analysis['name']} is {analysis['status']}")
+        out.append(say("{name} is {status}", name=analysis["name"], status=analysis["status"]))
     if any(i["status"] == "proposed" for i in items):
-        out.append("accept, edit or remove every suggestion first")
+        out.append(say("accept, edit or remove every suggestion first"))
     if not any(i["status"] == "accepted" for i in items):
-        out.append("accept at least one cause" if analysis["method"] == "fishbone" else "accept an answer to why 1")
+        out.append(say("accept at least one cause") if analysis["method"] == "fishbone"
+                   else say("accept an answer to why 1"))
     return out
 
 
 def write_back(existing: str | None, conclusion: str, name: str, method: str) -> str:
     """The root cause text with the conclusion added; what was there is kept."""
-    line = f"{conclusion} (from {METHODS[method]} {name})"
+    line = say("{conclusion} (from {method} {name})", conclusion=conclusion, method=I18N.label(METHODS[method]),
+               name=name)
     return f"{existing.strip()}\n\n{line}" if (existing or "").strip() else line

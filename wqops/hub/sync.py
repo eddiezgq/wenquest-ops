@@ -24,6 +24,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.erp import ErpClient, ErpError
 from wqops.hub import db as DB
+from wqops.i18n import say
 
 
 @dataclass(frozen=True)
@@ -168,7 +169,7 @@ def paused(conn):
 def run(conn, erp: ErpClient, *, trigger: str = "manual", page: int = PAGE, specs: tuple[Spec, ...] = SPECS) -> dict:
     """Pull every change since the last run. Raises SyncBusy when another run holds the lock."""
     if not conn.execute("select pg_try_advisory_lock(%s) as ok", (LOCK_ID,)).fetchone()["ok"]:
-        raise SyncBusy("a sync is already running")
+        raise SyncBusy(say("a sync is already running"))
     try:
         run_id = conn.execute("insert into erp_sync_runs (trigger) values (%s) returning id",
                               (trigger,)).fetchone()["id"]

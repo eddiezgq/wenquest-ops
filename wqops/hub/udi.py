@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import psycopg
 
 from wqops.hub import udi_rules as U
+from wqops.i18n import say
 
 
 class UdiError(ValueError):
@@ -33,7 +34,7 @@ def set_di(conn, email: str, item_code: str, data: dict) -> dict:
     item_code = str(item_code or "").strip()
     if not conn.execute("select 1 from ont_objects where type = 'Item' and key = %s and not deleted",
                         (item_code,)).fetchone():
-        raise UdiError(f"{item_code or 'the item'} is not an item in ERPNext")
+        raise UdiError(say("{item_code} is not an item in ERPNext", item_code=item_code or 'the item'))
     agency = data.get("agency")
     try:
         if agency == "gs1":
@@ -41,13 +42,13 @@ def set_di(conn, email: str, item_code: str, data: dict) -> dict:
         elif agency == "hibcc":
             di = U.hibc_di(data.get("lic"), data.get("pcn"), data.get("unit"))
         else:
-            raise UdiError("choose GS1 or HIBCC")
+            raise UdiError(say("choose GS1 or HIBCC"))
     except U.UdiError as exc:
         raise UdiError(str(exc)) from exc
     try:
         return _store(conn, email, item_code, agency, di)
     except psycopg.errors.UniqueViolation as exc:        # someone gave it to another item at the same moment
-        raise UdiError(f"{di} is already the identifier of another item") from exc
+        raise UdiError(say("{di} is already the identifier of another item", di=di)) from exc
 
 
 def _store(conn, email: str, item_code: str, agency: str, di: str) -> dict:
@@ -55,7 +56,7 @@ def _store(conn, email: str, item_code: str, agency: str, di: str) -> dict:
         other = conn.execute("select item_code from udi_items where di = %s and item_code <> %s",
                              (di, item_code)).fetchone()
         if other:
-            raise UdiError(f"{di} is already the identifier of {other['item_code']}")
+            raise UdiError(say("{di} is already the identifier of {item_code}", di=di, item_code=other['item_code']))
         old = item(conn, item_code)
         row = conn.execute("insert into udi_items (item_code, agency, di, set_by) values (%s, %s, %s, %s) on conflict "
                            "(item_code) do update set agency = excluded.agency, di = excluded.di, set_by = "
@@ -76,13 +77,15 @@ def label(conn, record_id: int, *, expiry: dt.date | None = None, tz: str = "UTC
     if r is None:
         raise KeyError(record_id)
     if r["status"] != "released":
-        raise UdiError(f"{r['name']} is {r['status'].replace('_', ' ')}: labels are printed for released lots")
+        raise UdiError(say("{name} is {status}: labels are printed for released lots",
+                           name=r['name'], status=r['status'].replace('_', ' ')))
     u = item(conn, r["item_code"])
     if u is None:
-        raise UdiError(f"{r['item_code']} has no device identifier yet: add it under Device identifiers")
+        raise UdiError(say("{item_code} has no device identifier yet: add it under Device identifiers",
+                           item_code=r['item_code']))
     made = (r["submitted_at"] or r["created_at"]).astimezone(ZoneInfo(tz)).date()   # when the lot was finished
     if expiry and expiry <= made:
-        raise UdiError("the expiry date must be after the production date")
+        raise UdiError(say("the expiry date must be after the production date"))
     try:
         if u["agency"] == "gs1":
             data, text = U.gs1_data(u["di"], lot=r["lot_no"], production=made, expiry=expiry)

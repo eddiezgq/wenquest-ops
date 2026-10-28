@@ -13,6 +13,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from wqops import i18n as I18N
+from wqops.i18n import say
+
 CLASSES = ("class I", "class II", "class III", "not yet classified")
 
 
@@ -102,13 +105,13 @@ def effectiveness(rows: list[dict]) -> dict:
 def to_open(r: dict, shipped: int) -> list[str]:
     out = []
     if not (r.get("reason") or "").strip():
-        out.append("the reason")
+        out.append(say("the reason"))
     if not r.get("scope"):
-        out.append("at least one lot")
+        out.append(say("at least one lot"))
     if r.get("classification") not in CLASSES:
-        out.append("the classification")
+        out.append(say("the classification"))
     if not shipped and not (r.get("strategy") or "").strip():
-        out.append("nothing was delivered: say in the strategy what happens to the stock")
+        out.append(say("nothing was delivered: say in the strategy what happens to the stock"))
     return out
 
 
@@ -116,13 +119,14 @@ def to_close(r: dict, rows: list[dict]) -> list[str]:
     out = []
     late = [x["delivery_note"] for x in rows if not x.get("notified_on")]
     if late:
-        out.append("every consignee notified (" + ", ".join(sorted(set(late))[:10]) + ")")
+        sep = "、" if I18N.current() == "zh" else ", "
+        out.append(say("every consignee notified ({list})", list=sep.join(sorted(set(late))[:10])))
     if not (r.get("effectiveness") or "").strip():
-        out.append("the effectiveness conclusion")
+        out.append(say("the effectiveness conclusion"))
     if any(not x.get("confirmed_on") for x in rows) and not (r.get("unconfirmed_note") or "").strip():
-        out.append("a note on the consignees who did not confirm")
+        out.append(say("a note on the consignees who did not confirm"))
     if not (r.get("regulatory_decision") or "").strip():
-        out.append("the regulatory decision")
+        out.append(say("the regulatory decision"))
     return out
 
 

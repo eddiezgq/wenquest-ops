@@ -9,10 +9,12 @@ import json
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from wqops import i18n as I18N
 from wqops.hub import integration as IG
 from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 MAX_BODY = 1_000_000
 
@@ -20,7 +22,7 @@ MAX_BODY = 1_000_000
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route after another
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.describe(perm)))
 
     def run(fn):
         try:
@@ -28,7 +30,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         except (IG.IntegrationError, Q.QualityError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -43,18 +45,18 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         """The JSON body, read only up to 1 MB."""
         size = request.headers.get("content-length", "")
         if size.isdigit() and int(size) > MAX_BODY:
-            raise HTTPException(413, "the request is larger than 1 MB")
+            raise HTTPException(413, say("the request is larger than 1 MB"))
         raw = bytearray()
         async for chunk in request.stream():
             raw += chunk
             if len(raw) > MAX_BODY:
-                raise HTTPException(413, "the request is larger than 1 MB")
+                raise HTTPException(413, say("the request is larger than 1 MB"))
         try:
             d = json.loads(bytes(raw) or b"{}")
         except (ValueError, RecursionError) as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         if has_nul(d):
-            raise HTTPException(400, "the request holds a NUL character")
+            raise HTTPException(400, say("the request holds a NUL character"))
         return d if isinstance(d, dict) else {}
 
     # ---------------------------------------------------------------- machines
@@ -66,10 +68,12 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         path = request.url.path
         if tok is None:
             IG.called(c, None, request.method, path, 401)
-            return JSONResponse({"detail": "a valid access token is needed (Authorization: Bearer wqo_...)"}, 401)
+            return JSONResponse({"detail": say("a valid access token is needed (Authorization: Bearer wqo_...)")},
+                                401)
         if scope and scope not in tok["scopes"]:
             IG.called(c, tok["id"], request.method, path, 403)
-            return JSONResponse({"detail": f"this token may not: {IG.SCOPES[scope]}"}, 403)
+            return JSONResponse({"detail": say("this token may not: {scope}", scope=I18N.label(IG.SCOPES[scope]))},
+                                403)
         try:
             out = await fn(tok)
             status = 202 if request.method == "POST" else 200
@@ -107,7 +111,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     async def read_events(request: Request, after: int = 0, limit: int = 100, c=Depends(conn_dep)):
         async def go(tok):
             if not 0 <= after < 2**63 or not 1 <= limit <= 500:
-                raise HTTPException(400, "after is an event id; limit is 1 to 500")
+                raise HTTPException(400, say("after is an event id; limit is 1 to 500"))
             return IG.events(c, after, limit)
         return await machine(request, "events:read", c, go)
 
@@ -116,7 +120,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     @app.get("/api/integrations/tokens")
     def list_tokens(u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "integrations:manage")
-        return {"tokens": IG.tokens(c), "scopes": IG.SCOPES}
+        return {"tokens": IG.tokens(c), "scopes": {k: I18N.label(v) for k, v in IG.SCOPES.items()}}
 
     @app.post("/api/integrations/tokens", status_code=201)
     async def create_token(request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -140,7 +144,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     def list_inbox(status: str = "pending", u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "quality:view")
         if status not in ("pending", "accepted", "rejected", "all"):
-            raise HTTPException(400, "status is pending, accepted, rejected or all")
+            raise HTTPException(400, say("status is pending, accepted, rejected or all"))
         return {"items": IG.inbox(c, status), "can_decide": P.allows(u["roles"], "quality:edit")}
 
     @app.get("/api/integrations/inbox/{iid}")

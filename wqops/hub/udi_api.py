@@ -12,12 +12,13 @@ from wqops.hub import permissions as P
 from wqops.hub import udi as UD
 from wqops.hub import udi_rules as U
 from wqops.hub.ont import api as OA
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.describe(perm)))
 
     def run(fn):
         try:
@@ -25,13 +26,13 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         except (UD.UdiError, U.UdiError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
 
     async def body(request: Request) -> dict:
         try:
             d = await request.json()
         except ValueError as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         return d if isinstance(d, dict) else {}
 
     def tz() -> str:
@@ -43,11 +44,11 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         try:
             return dt.date.fromisoformat(str(v)[:10])
         except ValueError as exc:
-            raise HTTPException(400, "a date looks like 2028-12-31") from exc
+            raise HTTPException(400, say("a date looks like 2028-12-31")) from exc
 
     def rid_ok(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     @app.get("/api/udi/items")
@@ -89,7 +90,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
         fmt = d.get("format")
         copies = d.get("copies", 1)
         if fmt not in ("screen", "zpl") or type(copies) is not int or not 1 <= copies <= 500:
-            raise HTTPException(400, "choose screen or zpl, and 1 to 500 copies")
+            raise HTTPException(400, say("choose screen or zpl, and 1 to 500 copies"))
         lab = run(lambda: UD.label(c, rid_ok(rid), expiry=date(d.get("expiry")), tz=tz()))
         text = run(lambda: U.zpl(lab["data"], lab["lines"], gs1=lab["agency"] == "gs1", copies=copies)) \
             if fmt == "zpl" else None

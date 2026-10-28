@@ -13,6 +13,8 @@ import os
 
 import httpx
 
+from wqops.i18n import say
+
 DEFAULT_MODEL = "claude-sonnet-5-5"
 API = "https://api.anthropic.com/v1/messages"
 VERSION = "2023-06-01"
@@ -54,11 +56,11 @@ class Anthropic:
                 json=body,
             )
         except httpx.HTTPError as exc:
-            raise LlmError(f"could not reach the model: {type(exc).__name__}") from exc
+            raise LlmError(say("could not reach the model: {name}", name=type(exc).__name__)) from exc
         if r.status_code >= 400:
             try:
                 msg = r.json().get("error", {}).get("message", r.text)
             except ValueError:
                 msg = r.text
-            raise LlmError(f"model error {r.status_code}: {str(msg)[:300]}")
+            raise LlmError(say("model error {status_code}: {msg}", status_code=r.status_code, msg=str(msg)[:300]))
         return r.json()

@@ -11,6 +11,7 @@ import datetime as dt
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub import drafts as D
 from wqops.hub.docs import erp_rows as ER
 from wqops.hub.docs import ledger as LG
@@ -18,6 +19,7 @@ from wqops.hub.docs import library as LIB
 from wqops.hub.docs import store as F
 from wqops.hub.quality import records as Q
 from wqops.hub.system import registers as RG
+from wqops.i18n import say
 
 SHEETS = (".xlsx", ".xlsm", ".csv")
 PREVIEW = 200
@@ -39,31 +41,34 @@ def is_ledger(doc: dict) -> bool:
 
 def table_of(conn, doc: dict, sheet: str = "", header_row: int = 0) -> LG.Table:
     if not is_ledger(doc):
-        raise LedgerError("only Excel (.xlsx) and CSV files can be imported as ledgers")
+        raise LedgerError(say("only Excel (.xlsx) and CSV files can be imported as ledgers"))
     if doc.get("duplicate_of"):
-        raise LedgerError(f"this file is the same as document {doc['duplicate_of']}; read that one")
+        raise LedgerError(say("this file is the same as document {duplicate_of}; read that one",
+                              duplicate_of=doc['duplicate_of']))
     try:
         return LG.table(doc["original_name"], F.get(doc["sha256"]), sheet, header_row)
     except ValueError as exc:
         raise LedgerError(str(exc)) from exc
     except Exception as exc:  # a damaged or mislabelled file: say so instead of failing
-        raise LedgerError(f"the spreadsheet could not be read ({type(exc).__name__}); save it again as .xlsx or "
-                          ".csv") from exc
+        raise LedgerError(say("the spreadsheet could not be read ({name}); save it again as .xlsx or .csv",
+                              name=type(exc).__name__)) from exc
 
 
 def flds(conn, target: str) -> dict[str, LG.Field]:
     if target not in LG.TARGETS:
-        raise LedgerError(f"a ledger is one of: {', '.join(LG.TARGETS)}")
+        raise LedgerError(say("a ledger is one of: {TARGETS}", TARGETS=', '.join(LG.TARGETS)))
     return LG.fields(target, dispositions(conn))
 
 
 def create(conn, email: str, doc: dict, target: str, t: LG.Table, proposal: dict, engine: str,  # noqa: PLR0917
            ai_run: int | None = None) -> dict:
     checked = LG.check_mapping(target, t, flds(conn, target), proposal)
-    notes = checked["notes"] + (("\nNot used: " + "; ".join(checked["dropped"])) if checked["dropped"] else "")
+    notes = checked["notes"] + ("\n" + say("Not used: {items}", items="; ".join(checked["dropped"]))
+                                if checked["dropped"] else "")
     same = [f"{f} = {m['value']}" for f, m in checked["mapping"].items() if "value" in m]
     if same:
-        notes += "\nSet the same for every row (not a column of the ledger; check it): " + ", ".join(same)
+        notes += "\n" + say("Set the same for every row (not a column of the ledger; check it): {items}",
+                            items=", ".join(same))
     return conn.execute(
         "insert into ledger_imports (document_id, target, sheet, header_row, mapping, values_map, engine, confidence, "
         "notes, ai_run, created_by) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
@@ -107,14 +112,14 @@ def preview(conn, imp: dict) -> dict:
         if "column" in m and spec[f].kind == "choice":
             columns[f] = sorted({v[m["column"]] for _, v in t.data() if v.get(m["column"])})
     return {"sheets": t.sheets, "sheet": t.sheet, "header_row": t.header_row, "headers": [h for h in t.headers if h],
-            "fields": {k: {"label": v.label, "kind": v.kind, "required": v.required, "choices": list(v.choices)}
-                       for k, v in spec.items()},
+            "fields": {k: {"label": LG.field_name(v), "kind": v.kind, "required": v.required,
+                           "choices": list(v.choices)} for k, v in spec.items()},
             "choice_values": columns, "rows": rows[:PREVIEW], "total": len(rows),
             "ready": sum(r["ok"] and "done" not in r and "exists" not in r for r in rows),
             "with_problems": sum(bool(r["problems"]) for r in rows),
             "already": sum("done" in r or "exists" in r for r in rows), "submit": imp.get("submit", False),
             "print": mapping_print(imp),
-            "target_label": LG.TARGETS[imp["target"]]["label"],
+            "target_label": LG.target_label(imp["target"]),
             "document": {"id": doc["id"], "name": doc["original_name"], "title": doc["title"]}}
 
 
@@ -123,7 +128,7 @@ def update(conn, email: str, lid: int, *, mapping: dict, values: dict, sheet: st
     """A person's mapping replaces the proposal (only what fits the table is kept)."""
     imp = get(conn, lid)
     if imp["status"] != "proposed":
-        raise LedgerError("this ledger is already imported")
+        raise LedgerError(say("this ledger is already imported"))
     doc = LIB.get(conn, imp["document_id"])
     t = table_of(conn, doc, imp["sheet"] if sheet is None else sheet,
                  imp["header_row"] if header_row is None and sheet is None else header_row or 0)
@@ -133,7 +138,7 @@ def update(conn, email: str, lid: int, *, mapping: dict, values: dict, sheet: st
     checked = LG.check_mapping(imp["target"], t, flds(conn, imp["target"]),
                                {"mapping": mapping, "values": values, "confidence": imp["confidence"]})
     if checked["dropped"]:
-        raise LedgerError("does not fit the table: " + "; ".join(checked["dropped"][:5]))
+        raise LedgerError(say("does not fit the table: {problems}", problems="; ".join(checked["dropped"][:5])))
     return conn.execute("update ledger_imports set sheet = %s, header_row = %s, mapping = %s, values_map = %s, "
                         "engine = 'person' where id = %s returning *",
                         (t.sheet, t.header_row, Jsonb(checked["mapping"]), Jsonb(checked["values"]), lid)).fetchone()
@@ -154,20 +159,26 @@ def _at(d: str | None) -> dt.datetime | None:
 
 
 def _source(doc: dict, n: int) -> str:
-    return f"{doc['original_name']} row {n}"
+    return say("{file} row {n}", file=doc["original_name"], n=n)
 
 
-def _said(raw: dict, v: dict, f: str, label: str, then: str) -> str | None:
-    """A note for a field the record leaves unknown: what the ledger said, or that it said nothing."""
+def _sentences(notes: list[str]) -> str:
+    """Notes as sentences after the description."""
+    return "。".join(notes) + "。" if I18N.current() == "zh" else ". ".join(notes) + "."
+
+
+def _said(raw: dict, v: dict, f: str, unmatched: str, missing: str | None) -> str | None:
+    """A note for a field the record leaves unknown: what the ledger said (``unmatched``, with {value}), or that it
+    said nothing (``missing``). Both are already in the reader's language."""
     if f in v:
         return None
     if raw.get(f):
-        return f"{label} in the ledger: {raw[f]!r}, not matched{then}"
-    return f"{label} not given in the ledger{then}"
+        return unmatched.replace("{value}", repr(raw[f]))
+    return missing
 
 
 def _dropped_close(v: dict, status: str) -> str | None:
-    return f"Closing date in the ledger: {v['closed_on']} (kept only for closed records)" \
+    return say("Closing date in the ledger: {date} (kept only for closed records)", date=v["closed_on"]) \
         if v.get("closed_on") and status != "closed" else None
 
 
@@ -175,19 +186,24 @@ def _ncr(conn, email: str, doc: dict, n: int, v: dict, raw: dict) -> tuple[str, 
     if v.get("external_no") and conn.execute(
             "select 1 from ncr_records where external_no = %s and reported_on is not distinct from %s",
             (v["external_no"], v.get("reported_on"))).fetchone():
-        return "skipped", "", f"NCR {v['external_no']} of {v.get('reported_on') or 'no date'} was imported before"
+        return "skipped", "", (say("NCR {no} of {date} was imported before", no=v["external_no"],
+                                   date=v["reported_on"]) if v.get("reported_on") else
+                               say("NCR {no} of no date was imported before", no=v["external_no"]))
     desc = v["description"]
     notes = []
     owner = _person(conn, v.get("owner"))
     if v.get("owner") and not owner:
-        notes.append(f"Owner in the ledger: {v['owner']}")
+        notes.append(say("Owner in the ledger: {owner}", owner=v["owner"]))
     status = v.get("status") or "open"
-    notes += [x for x in (_said(raw, v, "severity", "Severity", "; set it before closing"),
-                          _said(raw, v, "status", "Status", "; imported as open"),
-                          _said(raw, v, "disposition", "Disposition", "") if raw.get("disposition") else None,
-                          _dropped_close(v, status)) if x]
+    notes += [x for x in (
+        _said(raw, v, "severity", say("Severity in the ledger: {value}, not matched; set it before closing"),
+              say("Severity not given in the ledger; set it before closing")),
+        _said(raw, v, "status", say("Status in the ledger: {value}, not matched; imported as open"),
+              say("Status not given in the ledger; imported as open")),
+        _said(raw, v, "disposition", say("Disposition in the ledger: {value}, not matched"), None),
+        _dropped_close(v, status)) if x]
     title = v.get("title") or desc.splitlines()[0][:80]
-    full = desc + ("\n\n" + ". ".join(notes) + "." if notes else "")
+    full = desc + ("\n\n" + _sentences(notes) if notes else "")
     name, wf = Q.new_name(conn, "ncr")
     row = conn.execute(
         "insert into ncr_records (name, title, description, item_code, supplier, quantity, severity, owner, "
@@ -196,12 +212,12 @@ def _ncr(conn, email: str, doc: dict, n: int, v: dict, raw: dict) -> tuple[str, 
         "%s, %s, %s, %s, %s) returning *",
         (name, title, full, v.get("item_code"), v.get("supplier"), v.get("quantity"), v.get("severity"),
          owner, v.get("containment"), v.get("disposition"), status, _at(v.get("closed_on")) if status == "closed"
-         else None, "cancelled in the ledger" if status == "cancelled" else None, email, v.get("external_no"),
+         else None, say("cancelled in the ledger") if status == "cancelled" else None, email, v.get("external_no"),
          v.get("reported_on"), doc["id"], n, wf)).fetchone()
-    Q.log(conn, "ncr", row["id"], email, "imported", f"from {_source(doc, n)}")
+    Q.log(conn, "ncr", row["id"], email, "imported", say("from {source}", source=_source(doc, n)))
     if status == "closed":
         Q.log(conn, "ncr", row["id"], None, "closed before WenQuest Ops",
-              f"on {v['closed_on']}" if v.get("closed_on") else "date not in the ledger")
+              say("on {date}", date=v["closed_on"]) if v.get("closed_on") else say("date not in the ledger"))
     return "imported", name, ""
 
 
@@ -209,22 +225,26 @@ def _capa(conn, email: str, doc: dict, n: int, v: dict, raw: dict) -> tuple[str,
     if v.get("external_no") and conn.execute(
             "select 1 from capas where external_no = %s and reported_on is not distinct from %s",
             (v["external_no"], v.get("reported_on"))).fetchone():
-        return "skipped", "", f"CAPA {v['external_no']} of {v.get('reported_on') or 'no date'} was imported before"
+        return "skipped", "", (say("CAPA {no} of {date} was imported before", no=v["external_no"],
+                                   date=v["reported_on"]) if v.get("reported_on") else
+                               say("CAPA {no} of no date was imported before", no=v["external_no"]))
     notes = []
     owner = _person(conn, v.get("owner"))
     if v.get("owner") and not owner:
-        notes.append(f"Owner in the ledger: {v['owner']}")
+        notes.append(say("Owner in the ledger: {owner}", owner=v["owner"]))
     status = v.get("status") or "draft"
-    said = _said(raw, v, "status", "Status", "; starts as a draft")
+    said = _said(raw, v, "status", say("Status in the ledger: {value}, not matched; starts as a draft"),
+                 say("Status not given in the ledger; starts as a draft"))
     if said:
         notes.append(said)
     elif status not in ("closed", "cancelled", "draft"):
-        notes.append(f"Status in the ledger: {raw.get('status') or status}; continue it here from the start")
+        notes.append(say("Status in the ledger: {status}; continue it here from the start",
+                         status=raw.get("status") or status))
         status = "draft"
     if (x := _dropped_close(v, status)):
         notes.append(x)
     if v.get("action"):
-        notes.append(f"Action in the ledger: {v['action']}")
+        notes.append(say("Action in the ledger: {action}", action=v["action"]))
     ncr = None
     if v.get("ncr"):
         found = conn.execute("select id, name from ncr_records where external_no = %s or name = %s order by id",
@@ -232,9 +252,10 @@ def _capa(conn, email: str, doc: dict, n: int, v: dict, raw: dict) -> tuple[str,
         if len(found) == 1:
             ncr = found[0]
         else:                                       # none, or several with that number: no link is guessed
-            notes.append(f"Related NCR in the ledger: {v['ncr']}, " + ("not found here" if not found else
-                         "more than one NCR has that number (" + ", ".join(f["name"] for f in found) + ")"))
-    desc = (v.get("description") or "") + ("\n\n" + ". ".join(notes) + "." if notes else "")
+            notes.append(say("Related NCR in the ledger: {ncr}, not found here", ncr=v["ncr"]) if not found else
+                         say("Related NCR in the ledger: {ncr}, more than one NCR has that number ({names})",
+                             ncr=v["ncr"], names=", ".join(f["name"] for f in found)))
+    desc = (v.get("description") or "") + ("\n\n" + _sentences(notes) if notes else "")
     name, wf = Q.new_name(conn, "capa")
     row = conn.execute(
         "insert into capas (name, kind, title, description, owner, risk, root_cause, containment, status, closed_at, "
@@ -242,15 +263,15 @@ def _capa(conn, email: str, doc: dict, n: int, v: dict, raw: dict) -> tuple[str,
         "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
         (name, v["kind"], v["title"], desc.strip(), owner, v.get("risk"), v.get("root_cause"), v.get("containment"),
          status, _at(v.get("closed_on")) if status == "closed" else None,
-         "cancelled in the ledger" if status == "cancelled" else None, email, v.get("external_no"),
+         say("cancelled in the ledger") if status == "cancelled" else None, email, v.get("external_no"),
          v.get("reported_on"), doc["id"], n, wf)).fetchone()
     if ncr:
         conn.execute("insert into capa_ncrs (capa_id, ncr_id) values (%s, %s) on conflict do nothing",
                      (row["id"], ncr["id"]))
-    Q.log(conn, "capa", row["id"], email, "imported", f"from {_source(doc, n)}")
+    Q.log(conn, "capa", row["id"], email, "imported", say("from {source}", source=_source(doc, n)))
     if status == "closed":
         Q.log(conn, "capa", row["id"], None, "closed before WenQuest Ops",
-              f"on {v['closed_on']}" if v.get("closed_on") else "date not in the ledger")
+              say("on {date}", date=v["closed_on"]) if v.get("closed_on") else say("date not in the ledger"))
     return "imported", name, ""
 
 
@@ -258,20 +279,21 @@ def _supplier(conn, user: dict, doc: dict, n: int, v: dict) -> tuple[str, str, s
     name = v["supplier_name"].strip()
     if conn.execute("select 1 from ont_objects where type = 'Supplier' and not deleted and (lower(key) = lower(%s) "
                     "or lower(title) = lower(%s))", (name, name)).fetchone():
-        return "skipped", "", f"{name} is already in ERPNext"
+        return "skipped", "", say("{name} is already in ERPNext", name=name)
     if conn.execute("select 1 from erp_drafts where doctype = 'Supplier' and status in ('pending', 'confirming', "
                     "'failed') and lower(payload->>'supplier_name') = lower(%s)", (name,)).fetchone():
-        return "skipped", "", f"a draft for {name} is already waiting"
-    details = [f"{label}: {v[k]}" for k, label in (("supplies", "Supplies"), ("approval", "Approval status"),
-                                                    ("approved_on", "Approved on"), ("certificate", "Certificate"),
-                                                    ("country", "Country")) if v.get(k)]
-    details.append(f"From {_source(doc, n)}")
+        return "skipped", "", say("a draft for {name} is already waiting", name=name)
+    with I18N.use(I18N.company_language()):           # written into ERPNext: the company's language
+        details = [say("{label}: {value}", label=I18N.label(label), value=v[k]) for k, label in (
+            ("supplies", "Supplies"), ("approval", "Approval status"), ("approved_on", "Approved on"),
+            ("certificate", "Certificate"), ("country", "Country")) if v.get(k)]
+        details.append(say("From {source}", source=_source(doc, n)))
     payload = {"supplier_name": name, "supplier_details": "\n".join(details)}
     if v.get("website"):
         payload["website"] = v["website"]
-    d = D.propose(conn, user, "Supplier", payload, summary=f"New supplier {name} from the supplier list "
-                                                            f"({_source(doc, n)})")
-    return "drafted", f"draft {d['id']}", ""
+    d = D.propose(conn, user, "Supplier", payload, summary=say("New supplier {name} from the supplier list ({source})",
+                                                                name=name, source=_source(doc, n)))
+    return "drafted", say("draft {id}", id=d["id"]), ""
 
 
 def _register(conn, email: str, name: str, doc: dict, n: int, v: dict) -> tuple[str, str, str]:  # noqa: PLR0917
@@ -281,7 +303,7 @@ def _register(conn, email: str, name: str, doc: dict, n: int, v: dict) -> tuple[
         row = RG.create(conn, email, name, vals, source_doc=doc["id"], source_row=n, note=_source(doc, n))
     except RG.RegisterError as exc:
         return "skipped", "", str(exc)
-    return "imported", f"entry {row['id']}", ""
+    return "imported", say("entry {id}", id=row["id"]), ""
 
 
 def run_import(conn, user: dict, lid: int, password: str) -> dict:
@@ -289,9 +311,9 @@ def run_import(conn, user: dict, lid: int, password: str) -> dict:
     password; each row's outcome is recorded (append-only)."""
     imp = get(conn, lid)
     if imp["status"] != "proposed":
-        raise LedgerError("this ledger is already imported")
+        raise LedgerError(say("this ledger is already imported"))
     if imp["target"].startswith("erp_"):
-        raise LedgerError("rows for ERPNext are written by the ERPNext import (wqops/hub/erp_import.py)")
+        raise LedgerError(say("rows for ERPNext are written by the ERPNext import (wqops/hub/erp_import.py)"))
     doc = LIB.get(conn, imp["document_id"])
     t = table_of(conn, doc, imp["sheet"], imp["header_row"])
     rows = LG.rows(t, flds(conn, imp["target"]), imp["mapping"], imp["values_map"])
@@ -302,11 +324,11 @@ def run_import(conn, user: dict, lid: int, password: str) -> dict:
         conn.execute("select id from documents where id = %s for update", (doc["id"],))
         if conn.execute("select status from ledger_imports where id = %s for update", (lid,)).fetchone()["status"] \
                 != "proposed":
-            raise LedgerError("this ledger is already imported")
+            raise LedgerError(say("this ledger is already imported"))
         done = _done_rows(conn, doc["id"], imp["target"], t.sheet)
         for r in rows:
             if r["row"] in done:
-                outcome, ref, note = "skipped", "", f"imported before as {done[r['row']]['ref']}"
+                outcome, ref, note = "skipped", "", say("imported before as {ref}", ref=done[r["row"]]["ref"])
             elif not r["ok"]:
                 outcome, ref, note = "skipped", "", "; ".join(r["problems"])
             elif imp["target"] == "ncr":
@@ -323,13 +345,14 @@ def run_import(conn, user: dict, lid: int, password: str) -> dict:
             conn.execute("insert into ledger_rows (import_id, document_id, target, sheet, row_no, outcome, ref, note) "
                          "values (%s, %s, %s, %s, %s, %s, %s, %s)", (lid, doc["id"], imp["target"], t.sheet, r["row"],
                                                                      outcome, ref or None, note[:1000]))
-        Q._sign(conn, user, "Ledger rows imported", "ledger", lid,
-                f"{doc['original_name']}: {counts['imported'] + counts['drafted']} rows")
+        Q._sign(conn, user, say("Ledger rows imported"), "ledger", lid,
+                say("{file}: {n} rows", file=doc["original_name"], n=counts["imported"] + counts["drafted"]))
         out = conn.execute("update ledger_imports set status = 'imported', imported_by = %s, imported_at = now(), "
                            "result = %s where id = %s returning *", (user["email"], Jsonb(counts), lid)).fetchone()
         LIB.log(conn, doc["id"], user["email"], "ledger imported",
-                f"{LG.TARGETS[imp['target']]['label']}: {counts['imported']} imported, {counts['drafted']} drafted, "
-                f"{counts['skipped']} skipped")
+                say("{kind}: {imported} imported, {drafted} drafted, {skipped} skipped",
+                    kind=LG.target_label(imp["target"]), imported=counts["imported"], drafted=counts["drafted"],
+                    skipped=counts["skipped"]))
     return out
 
 

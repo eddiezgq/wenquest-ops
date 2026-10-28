@@ -20,10 +20,12 @@ import secrets
 import psycopg
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.quality import cal_rules as CALR
 from wqops.hub.quality import iqc as I
 from wqops.hub.quality import production as PRD
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 SCOPES = {"measurements:send": "Send measurements for incoming inspections in progress",
           "production:send": "Send results of production steps",
@@ -35,6 +37,10 @@ MAX_PENDING = 500                 # waiting items per token: a machine sending i
 
 class IntegrationError(ValueError):
     pass
+
+
+def _semi() -> str:
+    return "；" if I18N.current() == "zh" else "; "
 
 
 def _hash(token: str) -> str:
@@ -53,19 +59,19 @@ def new_token(conn, email: str, name: str, scopes: list[str]) -> tuple[dict, str
     """A new access token; the token itself is returned once and never stored."""
     name = str(name or "").strip()[:100]
     if not name:
-        raise IntegrationError("name the machine or system the token is for")
+        raise IntegrationError(say("name the machine or system the token is for"))
     if not isinstance(scopes, list) or not scopes or not set(scopes) <= set(SCOPES):
-        raise IntegrationError("choose what it may do: " + ", ".join(SCOPES))
+        raise IntegrationError(say("choose what it may do: {scopes}", scopes=", ".join(SCOPES)))
     if conn.execute("select 1 from integration_tokens where lower(name) = lower(%s) and revoked_at is null",
                     (name,)).fetchone():
-        raise IntegrationError(f"{name} already has a token: revoke it first")
+        raise IntegrationError(say("{name} already has a token: revoke it first", name=name))
     token = PREFIX + secrets.token_urlsafe(32)
     try:
         row = conn.execute("insert into integration_tokens (name, scopes, token_hash, prefix, created_by) values "
                            "(%s, %s, %s, %s, %s) returning *",
                            (name, sorted(set(scopes)), _hash(token), token[:10], email)).fetchone()
     except psycopg.errors.UniqueViolation as exc:
-        raise IntegrationError(f"{name} already has a token: revoke it first") from exc
+        raise IntegrationError(say("{name} already has a token: revoke it first", name=name)) from exc
     return _public(row), token
 
 
@@ -89,7 +95,7 @@ def revoke(conn, email: str, tid: int, note: str = "") -> dict:
     if row is None:
         if conn.execute("select 1 from integration_tokens where id = %s", (tid,)).fetchone() is None:
             raise KeyError(tid)
-        raise IntegrationError("the token is already revoked")
+        raise IntegrationError(say("the token is already revoked"))
     return _public(row)
 
 
@@ -116,13 +122,13 @@ def calls(conn, tid: int, limit: int = 50) -> list[dict]:
 
 def _number(v, what: str) -> float:
     if isinstance(v, bool) or not isinstance(v, int | float | str):
-        raise IntegrationError(f"{what}: a number")
+        raise IntegrationError(say("{what}: a number", what=what))
     try:
         x = float(v)
     except ValueError as exc:
-        raise IntegrationError(f"{what}: {v!r} is not a number") from exc
+        raise IntegrationError(say("{what}: {v} is not a number", what=what, v=repr(v))) from exc
     if not math.isfinite(x):
-        raise IntegrationError(f"{what}: not a finite number")
+        raise IntegrationError(say("{what}: not a finite number", what=what))
     return x
 
 
@@ -131,7 +137,7 @@ def _gauge_code(conn, v) -> str | None:
         return None
     code = str(v).strip()
     if not conn.execute("select 1 from gauges where code = %s", (code,)).fetchone():
-        raise IntegrationError(f"no measuring equipment {code!r} is registered")
+        raise IntegrationError(say("no measuring equipment {code} is registered", code=repr(code)))
     return code
 
 
@@ -143,50 +149,52 @@ def _inbox(conn, tok: dict, kind: str, target: str, payload: dict) -> dict:
     waiting = conn.execute("select count(*) as n from integration_inbox where token_id = %s and status = 'pending'",
                            (tok["id"],)).fetchone()["n"]
     if waiting >= MAX_PENDING:
-        raise IntegrationError(f"{waiting} items from this machine are waiting for a person: no more until they are "
-                               "decided")
+        raise IntegrationError(say("{waiting} items from this machine are waiting for a person: no more until they "
+                                   "are decided",
+                                   waiting=waiting))
     row = conn.execute("insert into integration_inbox (token_id, kind, target, payload) values (%s, %s, %s, %s) "
                        "returning *", (tok["id"], kind, target, Jsonb(payload))).fetchone()
     return {"id": row["id"], "status": "pending", "received_at": row["received_at"].isoformat(),
-            "message": "received: it waits for a person to accept it"}
+            "message": say("received: it waits for a person to accept it")}
 
 
 def receive_measurements(conn, tok: dict, d: dict) -> dict:
     """{"inspection": "IQC-00005", "readings": [{"sample": 1, "characteristic": "Length", "value": 10.01}],
     "equipment": "CMM-01", "note": "..."}: checked now, written when a person accepts it."""
     if not isinstance(d, dict):
-        raise IntegrationError("send a JSON object")
+        raise IntegrationError(say("send a JSON object"))
     name = str(d.get("inspection") or "").strip()
     ins = conn.execute("select * from iqc_inspections where name = %s", (name,)).fetchone()
     if ins is None:
-        raise IntegrationError(f"there is no incoming inspection {name!r}")
+        raise IntegrationError(say("there is no incoming inspection {name}", name=repr(name)))
     if ins["status"] != "in_progress":
-        raise IntegrationError(f"{name} is {ins['status'].replace('_', ' ')}: it takes no more readings")
+        raise IntegrationError(say("{name} is {status}: it takes no more readings",
+                                   name=name, status=ins['status'].replace('_', ' ')))
     measured = {c["name"] for c in I.plan(conn, ins["plan_id"])["characteristics"] if c["kind"] == "measured"}
     rd = d.get("readings")
     if not isinstance(rd, list) or not rd:
-        raise IntegrationError("readings: a list of {sample, characteristic, value}")
+        raise IntegrationError(say("readings: a list of {sample, characteristic, value}"))
     if len(rd) > MAX_READINGS:
-        raise IntegrationError(f"at most {MAX_READINGS} readings at a time")
+        raise IntegrationError(say("at most {MAX_READINGS} readings at a time", MAX_READINGS=MAX_READINGS))
     out, seen, errors = [], set(), []
     for k, r in enumerate(rd, start=1):
         try:
             if not isinstance(r, dict):
-                raise IntegrationError("an object")
+                raise IntegrationError(say("an object"))
             s, ch = r.get("sample"), str(r.get("characteristic") or "")
             if type(s) is not int or not 1 <= s <= ins["n"]:
-                raise IntegrationError(f"sample is 1 to {ins['n']}")
+                raise IntegrationError(say("sample is 1 to {n}", n=ins['n']))
             if ch not in measured:
-                raise IntegrationError(f"{ch!r} is not a measured characteristic of the plan "
-                                       f"({', '.join(sorted(measured)) or 'none'})")
+                raise IntegrationError(say("{ch} is not a measured characteristic of the plan ({measured})",
+                                           ch=repr(ch), measured=', '.join(sorted(measured)) or 'none'))
             if (s, ch) in seen:
-                raise IntegrationError(f"sample {s} {ch} is sent twice")
+                raise IntegrationError(say("sample {s} {ch} is sent twice", s=s, ch=ch))
             seen.add((s, ch))
             out.append({"sample": s, "characteristic": ch, "value": _number(r.get("value"), "value")})
         except IntegrationError as exc:
-            errors.append(f"reading {k}: {exc}")
+            errors.append(say("reading {k}: {error}", k=k, error=exc))
     if errors:
-        raise IntegrationError("; ".join(errors[:20]))
+        raise IntegrationError(_semi().join(errors[:20]))
     payload = {"inspection": name, "readings": out, "equipment": _gauge_code(conn, d.get("equipment")),
                "note": _note(d)}
     return _inbox(conn, tok, "measurements", name, payload)
@@ -196,37 +204,39 @@ def receive_step(conn, tok: dict, d: dict) -> dict:
     """{"record": "DHR-00002", "step": 2, "value": 10.01 | "result": "pass" | "text": "...", "equipment": "CAL-01"}:
     the result of one step of a lot in production, recorded when a person accepts it."""
     if not isinstance(d, dict):
-        raise IntegrationError("send a JSON object")
+        raise IntegrationError(say("send a JSON object"))
     name = str(d.get("record") or "").strip()
     r = conn.execute("select * from prod_records where name = %s", (name,)).fetchone()
     if r is None:
-        raise IntegrationError(f"there is no production record {name!r}")
+        raise IntegrationError(say("there is no production record {name}", name=repr(name)))
     if r["status"] != "in_production":
-        raise IntegrationError(f"{name} is {r['status'].replace('_', ' ')}: it takes no more step results")
+        raise IntegrationError(say("{name} is {status}: it takes no more step results",
+                                   name=name, status=r['status'].replace('_', ' ')))
     seq = d.get("step")
     s = conn.execute("select * from prod_steps where record_id = %s and seq = %s", (r["id"], seq)).fetchone() \
         if type(seq) is int else None
     if s is None:
-        raise IntegrationError("step: the number of a step of this record")
+        raise IntegrationError(say("step: the number of a step of this record"))
     if s["done_by"] is not None:
-        raise IntegrationError(f"step {seq} is recorded already")
+        raise IntegrationError(say("step {seq} is recorded already", seq=seq))
     if conn.execute("select 1 from integration_inbox where kind = 'production_step' and target = %s and status = "
                     "'pending' and (payload->>'step')::int = %s", (name, seq)).fetchone():
-        raise IntegrationError(f"a result for step {seq} of {name} is already waiting for a person")
+        raise IntegrationError(say("a result for step {seq} of {name} is already waiting for a person",
+                                   seq=seq, name=name))
     payload: dict = {"record": name, "step": seq, "name": s["name"], "kind": s["kind"], "note": _note(d)}
     if s["kind"] == "measure":
         payload["value"] = _number(d.get("value"), "value")
         payload["equipment"] = _gauge_code(conn, d.get("equipment"))
         if s["gauge_required"] and not payload["equipment"]:
-            raise IntegrationError(f"step {seq} needs the equipment it was measured with")
+            raise IntegrationError(say("step {seq} needs the equipment it was measured with", seq=seq))
     elif s["kind"] == "check":
         if d.get("result") not in ("pass", "fail"):
-            raise IntegrationError("result: pass or fail")
+            raise IntegrationError(say("result: pass or fail"))
         payload["result"] = d["result"]
     else:
         text = str(d.get("text") or "").strip()
         if not text:
-            raise IntegrationError("text: what to record")
+            raise IntegrationError(say("text: what to record"))
         payload["text"] = text[:4000]
     return _inbox(conn, tok, "production_step", name, payload)
 
@@ -252,7 +262,7 @@ def item(conn, iid: int) -> dict:
     p = r["payload"]
     blocks = []
     if r["sender_revoked"] is not None and r["status"] == "pending":
-        blocks.append(f"the token of {r['sender']} was revoked: reject what it sent")
+        blocks.append(say("the token of {sender} was revoked: reject what it sent", sender=r["sender"]))
     if r["kind"] == "measurements":
         ins = conn.execute("select id, status from iqc_inspections where name = %s", (p["inspection"],)).fetchone()
         out["link"] = f"/quality/iqc/{ins['id']}"
@@ -267,15 +277,18 @@ def item(conn, iid: int) -> dict:
             "select characteristic, gauge_code from iqc_gauges where inspection_id = %s", (ins["id"],))}
         for c in sorted({x["characteristic"] for x in p["readings"]}):
             if c in named and named[c] != p.get("equipment"):
-                blocks.append(f"{c} is measured with {named[c]} in this inspection, the machine "
-                              + (f"says {p['equipment']}" if p.get("equipment") else "does not say with what"))
+                blocks.append(say("{c} is measured with {gauge} in this inspection, the machine says {equipment}",
+                                  c=c, gauge=named[c], equipment=p["equipment"]) if p.get("equipment") else
+                              say("{c} is measured with {gauge} in this inspection, the machine does not say with "
+                                  "what", c=c, gauge=named[c]))
     else:
         rec = conn.execute("select id, status from prod_records where name = %s", (p["record"],)).fetchone()
         out["link"] = f"/quality/production/{rec['id']}"
         out["target_status"] = rec["status"]
         out["replaces"] = []
     if r["status"] == "pending" and out["target_status"] != "in_progress" and out["target_status"] != "in_production":
-        blocks.append(f"{r['target']} is {out['target_status'].replace('_', ' ')} now")
+        blocks.append(say("{target} is {status} now", target=r["target"],
+                          status=I18N.label(out["target_status"].replace("_", " "))))
     out["blocks"] = blocks
     out["print"] = hashlib.sha256(json.dumps([iid, p, out["replaces"], out["target_status"], blocks],
                                              sort_keys=True, default=str).encode()).hexdigest()
@@ -287,7 +300,7 @@ def _pending(conn, iid: int) -> dict:
     if r is None:
         raise KeyError(iid)
     if r["status"] != "pending":
-        raise IntegrationError(f"it was {r['status']} by {r['decided_by']}")
+        raise IntegrationError(say("it was {status} by {decided_by}", status=r['status'], decided_by=r['decided_by']))
     return r
 
 
@@ -297,7 +310,7 @@ def _gauge(conn, code: str | None, today: dt.date) -> dict | None:
     g = conn.execute("select * from gauges where code = %s for share", (code,)).fetchone()
     ok, why = CALR.usable(g, today)
     if not ok:
-        raise IntegrationError(f"{why}: the readings cannot be accepted with it")
+        raise IntegrationError(say("{why}: the readings cannot be accepted with it", why=why))
     return g
 
 
@@ -312,10 +325,10 @@ def accept(conn, user: dict, iid: int, password: str, *, seen: str, today: dt.da
         conn.execute(f"select 1 from {target} where name = %s for update", (r["target"],))  # noqa: S608 - fixed
         now = item(conn, iid)
         if now["print"] != seen:
-            raise IntegrationError("it changed since you opened it (readings typed, equipment named or the record "
-                                   "moved on): open it again")
+            raise IntegrationError(say("it changed since you opened it (readings typed, equipment named or the "
+                                       "record moved on): open it again"))
         if now["blocks"]:
-            raise IntegrationError("; ".join(now["blocks"]))
+            raise IntegrationError(_semi().join(now["blocks"]))
         sender = conn.execute("select name from integration_tokens where id = %s", (r["token_id"],)).fetchone()["name"]
         if r["kind"] == "measurements":
             result = _accept_measurements(conn, user, r, p, sender, today)
@@ -329,8 +342,9 @@ def accept(conn, user: dict, iid: int, password: str, *, seen: str, today: dt.da
                 PRD.record_step(conn, user, rec["id"], p["step"], password, data, today=today)
             except (PRD.ProdError, Q.QualityError) as exc:
                 raise IntegrationError(str(exc)) from exc
-            PRD.log(conn, "record", rec["id"], user["email"], f"step {p['step']} from {sender}", f"inbox {iid}")
-            result = f"step {p['step']} of {p['record']} recorded"
+            PRD.log(conn, "record", rec["id"], user["email"], say("step {step} from {sender}", step=p["step"],
+                                                                     sender=sender), say("inbox {id}", id=iid))
+            result = say("step {step} of {record} recorded", step=p["step"], record=p["record"])
         conn.execute("update integration_inbox set status = 'accepted', decided_by = %s, decided_at = now(), "
                      "result = %s where id = %s", (user["email"], result, iid))
     return item(conn, iid)
@@ -339,7 +353,8 @@ def accept(conn, user: dict, iid: int, password: str, *, seen: str, today: dt.da
 def _accept_measurements(conn, user: dict, r: dict, p: dict, sender: str, today: dt.date) -> str:  # noqa: PLR0917
     ins = conn.execute("select * from iqc_inspections where name = %s for update", (p["inspection"],)).fetchone()
     if ins["status"] != "in_progress":
-        raise IntegrationError(f"{ins['name']} is {ins['status'].replace('_', ' ')}: it takes no more readings")
+        raise IntegrationError(say("{name} is {status}: it takes no more readings",
+                                   name=ins['name'], status=ins['status'].replace('_', ' ')))
     g = _gauge(conn, p.get("equipment"), today)
     chars = sorted({x["characteristic"] for x in p["readings"]})
     now = dt.datetime.now(dt.UTC)
@@ -354,16 +369,18 @@ def _accept_measurements(conn, user: dict, r: dict, p: dict, sender: str, today:
                 I.set_gauge(conn, user["email"], ins["id"], c, g["id"], today=today)
             except I.IqcError as exc:
                 raise IntegrationError(str(exc)) from exc
-    Q._sign(conn, user, f"Measurements from {sender} accepted ({len(p['readings'])} readings)", "integration_inbox",
-            r["id"], ins["name"])
-    I.log(conn, "inspection", ins["id"], user["email"], "accepted", f"{len(p['readings'])} readings from {sender}")
-    return f"{len(p['readings'])} readings into {ins['name']}"
+    n = len(p["readings"])
+    Q._sign(conn, user, say("Measurements from {sender} accepted ({n} readings)", sender=sender, n=n),
+            "integration_inbox", r["id"], ins["name"])
+    I.log(conn, "inspection", ins["id"], user["email"], "accepted", say("{n} readings from {sender}", n=n,
+                                                                         sender=sender))
+    return say("{n} readings into {name}", n=n, name=ins["name"])
 
 
 def reject(conn, email: str, iid: int, note: str) -> dict:
     note = str(note or "").strip()[:500]
     if not note:
-        raise IntegrationError("say why it is rejected")
+        raise IntegrationError(say("say why it is rejected"))
     with conn.transaction():
         _pending(conn, iid)
         conn.execute("update integration_inbox set status = 'rejected', decided_by = %s, decided_at = now(), note = %s "

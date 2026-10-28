@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from wqops.i18n import say
+
 KINDS = ("severity", "occurrence", "detection")
 PRIORITIES = ("high", "medium", "low")
 RANK_KEYS = {"severity": "severity", "occurrence": "occurrence", "detection": "detection",
@@ -33,33 +35,34 @@ def check_rule(cfg: dict) -> dict:
     if m == "rpn":
         t = cfg.get("rpn_action")
         if type(t) is not int or not 1 <= t <= 1000:
-            raise FmeaRuleError("the RPN threshold is a whole number from 1 to 1000")
+            raise FmeaRuleError(say("the RPN threshold is a whole number from 1 to 1000"))
         s = cfg.get("severity_action")
         if s not in (None, "") and (type(s) is not int or not 1 <= s <= 10):
-            raise FmeaRuleError("the severity threshold is a rank from 1 to 10, or empty")
+            raise FmeaRuleError(say("the severity threshold is a rank from 1 to 10, or empty"))
         return {"method": "rpn", "rpn_action": t, "severity_action": s or None, "rules": [], "needs_action": []}
     if m == "lookup":
         rules = cfg.get("rules")
         if not isinstance(rules, list) or not rules:
-            raise FmeaRuleError("a lookup rule needs at least one row of ranges")
+            raise FmeaRuleError(say("a lookup rule needs at least one row of ranges"))
         out = []
         for k, r in enumerate(rules, 1):
             if not isinstance(r, dict) or r.get("priority") not in PRIORITIES:
-                raise FmeaRuleError(f"row {k}: the priority is high, medium or low")
+                raise FmeaRuleError(say("row {k}: the priority is high, medium or low", k=k))
             row = {"priority": r["priority"]}
             for key in ("s", "o", "d"):
                 lo_hi = r.get(key)
                 if (not isinstance(lo_hi, list) or len(lo_hi) != 2 or any(type(x) is not int for x in lo_hi)
                         or not 1 <= lo_hi[0] <= lo_hi[1] <= 10):
-                    raise FmeaRuleError(f"row {k}: {key.upper()} is a range of ranks, low to high, within 1 to 10")
+                    raise FmeaRuleError(say("row {k}: {key} is a range of ranks, low to high, within 1 to 10",
+                                            k=k, key=key.upper()))
                 row[key] = list(lo_hi)
             out.append(row)
         need = cfg.get("needs_action") or ["high"]
         if not isinstance(need, list) or any(p not in PRIORITIES for p in need):
-            raise FmeaRuleError("the priorities that need action are among high, medium and low")
+            raise FmeaRuleError(say("the priorities that need action are among high, medium and low"))
         return {"method": "lookup", "rpn_action": None, "severity_action": None, "rules": out,
                 "needs_action": [p for p in PRIORITIES if p in need]}
-    raise FmeaRuleError("the rule is an RPN threshold (rpn) or a lookup table (lookup)")
+    raise FmeaRuleError(say("the rule is an RPN threshold (rpn) or a lookup table (lookup)"))
 
 
 def judge(cfg: dict | None, s: int | None, o: int | None, d: int | None) -> dict:
@@ -84,44 +87,61 @@ def lookup_gaps(cfg: dict) -> int:
                if judge(cfg, s, o, d)["priority"] is None)
 
 
+def _texts(kind: str) -> dict[str, str]:
+    """Whole sentences per field, so each language keeps its own word order."""
+    return {
+        "missing": {"step": say("row {n}: the step"), "failure_mode": say("row {n}: the failure mode"),
+                    "effect": say("row {n}: the effect"), "cause": say("row {n}: the cause")},
+        "rank": {"severity": say("row {n}: the severity rank"), "occurrence": say("row {n}: the occurrence rank"),
+                 "detection": say("row {n}: the detection rank")},
+        "off": {"severity": say("row {n}: severity {v} is not on the company's scale"),
+                "occurrence": say("row {n}: occurrence {v} is not on the company's scale"),
+                "detection": say("row {n}: detection {v} is not on the company's scale")},
+        "scale": {"severity": say("the company's severity scale"), "occurrence": say("the company's occurrence scale"),
+                  "detection": say("the company's detection scale")},
+    }[kind]
+
+
 def row_needs(r: dict, ranks: dict[str, set[int]], cfg: dict | None) -> list[str]:
     """What one row still needs before the PFMEA can be approved."""
-    n = f"row {r.get('seq')}"
+    n = r.get("seq")
     out = []
     if not r.get("confirmed", True):
-        out.append(f"{n}: drafted by the AI; confirm or remove it")
+        out.append(say("row {n}: drafted by the AI; confirm or remove it", n=n))
+    missing, rank, off = _texts("missing"), _texts("rank"), _texts("off")
     for k in ("step", "failure_mode", "effect", "cause"):
         if not (r.get(k) or "").strip():
-            out.append(f"{n}: the {k.replace('_', ' ')}")
+            out.append(missing[k].replace("{n}", str(n)))
     for k in ("severity", "occurrence", "detection"):
         v = r.get(k)
         if v is None:
-            out.append(f"{n}: the {k} rank")
+            out.append(rank[k].replace("{n}", str(n)))
         elif v not in ranks.get(k, set()):
-            out.append(f"{n}: {k} {v} is not on the company's scale")
+            out.append(off[k].replace("{n}", str(n)).replace("{v}", str(v)))
     if any(r.get(k) is not None for k in ("res_severity", "res_occurrence", "res_detection")):
         for k in ("res_severity", "res_occurrence", "res_detection"):
             v = r.get(k)
             if v is None or v not in ranks.get(RANK_KEYS[k], set()):
-                out.append(f"{n}: the ranks after action are given together, on the company's scales")
+                out.append(say("row {n}: the ranks after action are given together, on the company's scales", n=n))
                 break
     j = judge(cfg, r.get("severity"), r.get("occurrence"), r.get("detection"))
     if j["rpn"] is not None and j["action"] is None:
-        out.append(f"{n}: the company's rule does not decide whether it needs action")
+        out.append(say("row {n}: the company's rule does not decide whether it needs action", n=n))
     if j["action"] and not (r.get("action") or "").strip():
-        out.append(f"{n}: needs action under the company's rule: say what is recommended")
+        out.append(say("row {n}: needs action under the company's rule: say what is recommended", n=n))
     return out
 
 
 def to_approve(f: dict, rows: list[dict], ranks: dict[str, set[int]], cfg: dict | None) -> list[str]:
     out = []
     if cfg is None:
-        out.append("the company's rule for when a row needs action (Process FMEA, criteria)")
+        out.append(say("the company's rule for when a row needs action (Process FMEA, criteria)"))
+    scale = _texts("scale")
     for k in KINDS:
         if not ranks.get(k):
-            out.append(f"the company's {k} scale")
+            out.append(scale[k])
     if not rows:
-        out.append("at least one failure mode")
+        out.append(say("at least one failure mode"))
     for r in rows:
         out += row_needs(r, ranks, cfg)
     return out
@@ -158,7 +178,7 @@ def verify(proposals: list[dict], shown: set[str]) -> tuple[list[dict], list[dic
         good = [x for x in refs if x in shown]
         if not good:
             dropped.append({"failure_mode": str(p.get("failure_mode") or "")[:200], "refs": refs,
-                            "reason": "cites no record it was shown" if refs else "cites no record"})
+                            "reason": say("cites no record it was shown") if refs else say("cites no record")})
         else:
             kept.append(p | {"refs": good})
     return kept, dropped

@@ -16,8 +16,10 @@ import io
 import re
 from dataclasses import dataclass, field
 
+from wqops import i18n as I18N
 from wqops.hub.docs import classify as K
 from wqops.hub.docs import extract as X
+from wqops.i18n import say
 
 MAX_ROWS = 5000
 MAX_COLS = 100
@@ -191,10 +193,32 @@ def add_registers(regs: dict[str, dict]) -> None:
     """The quality registers of a process pack as ledger kinds "reg_<name>" (ADR-0016, 16b): an old spreadsheet of
     training, calibration, audits and so on comes in the same way as a nonconformance log."""
     for name, r in regs.items():
-        TARGETS[f"reg_{name}"] = {"label": f"Register: {r['label']}", "perm": "quality:edit", "fields": {
+        TARGETS[f"reg_{name}"] = {"label": f"Register: {r['label']}", "register": r["label"], "perm": "quality:edit",
+                                  "fields": {
             f: Field(x["label"], REGISTER_KINDS.get(x.get("type"), "text"), bool(x.get("required")),
                      tuple(x.get("choices") or ()),
                      tuple(x.get("synonyms") or ())) for f, x in r["fields"].items()}}
+
+
+def target_label(target: str) -> str:
+    """A ledger kind as the reader sees it ("Nonconformance log", "Register: Training records")."""
+    t = TARGETS.get(target)
+    if t is None:
+        return target
+    if "register" in t:
+        return say("Register: {name}", name=I18N.label(t["register"]))
+    return I18N.label(t["label"])
+
+
+def field_name(spec: Field, lower: bool = False) -> str:
+    """A field's name as the reader sees it; ``lower`` for the middle of an English sentence."""
+    if I18N.current() == "en":
+        return spec.label.lower() if lower else spec.label
+    return I18N.label(spec.label)
+
+
+def join_names(items) -> str:
+    return ("、" if I18N.current() == "zh" else ", ").join(items)
 
 
 def fields(target: str, dispositions: dict[str, str] | None = None) -> dict[str, Field]:
@@ -274,7 +298,7 @@ def sheets_of(name: str, data: bytes) -> dict[str, list[list[str]]]:
             out[ws.title] = [r[:max((i + 1 for i, c in enumerate(r) if c), default=0)] for r in rows]
         wb.close()
         return out
-    raise ValueError("a ledger is an Excel (.xlsx) or CSV file")
+    raise ValueError(say("a ledger is an Excel (.xlsx) or CSV file"))
 
 
 def guess_header(rows: list[list[str]]) -> int:
@@ -293,15 +317,15 @@ def table(name: str, data: bytes, sheet: str = "", header_row: int = 0) -> Table
     books = sheets_of(name, data)
     names = list(books)
     if not names:
-        raise ValueError("the file has no sheets")
+        raise ValueError(say("the file has no sheets"))
     if not sheet:                               # the sheet with the most filled rows
         sheet = max(names, key=lambda s: sum(any(c for c in r) for r in books[s]))
     if sheet not in books:
-        raise ValueError(f"no sheet {sheet!r}; sheets: {', '.join(names)}")
+        raise ValueError(say("no sheet {sheet}; sheets: {names}", sheet=repr(sheet), names=', '.join(names)))
     rows = books[sheet]
     hr = header_row or guess_header(rows)
     if not 1 <= hr <= len(rows):
-        raise ValueError("the header row is outside the sheet")
+        raise ValueError(say("the header row is outside the sheet"))
     seen: dict[str, int] = {}
     headers = []
     width = max((len(r) for r in rows), default=0)
@@ -375,7 +399,7 @@ def rules_mapping(target: str, t: Table, flds: dict[str, Field]) -> dict:
             if hit:
                 vm[v] = hit
         values[f] = vm
-    return {"mapping": mapping, "values": values, "confidence": "low", "notes": "Matched by column names."}
+    return {"mapping": mapping, "values": values, "confidence": "low", "notes": say("Matched by column names.")}
 
 
 def check_mapping(target: str, t: Table, flds: dict[str, Field], proposal: dict) -> dict:
@@ -385,14 +409,15 @@ def check_mapping(target: str, t: Table, flds: dict[str, Field], proposal: dict)
     mapping, values, dropped = {}, {}, []
     for f, m in (proposal.get("mapping") or {}).items():
         if f not in flds or not isinstance(m, dict):
-            dropped.append(f"{f}: not a field of this ledger")
+            dropped.append(say("{field}: not a field of this ledger", field=f))
             continue
         if m.get("column") in headers:
             mapping[f] = {"column": m["column"]}
         elif m.get("value") and flds[f].kind == "choice" and m["value"] in flds[f].choices:
             mapping[f] = {"value": m["value"]}
         else:
-            dropped.append(f"{f}: {m.get('column') or m.get('value')!r} is not a column or allowed value")
+            dropped.append(say("{field}: {value} is not a column or allowed value", field=f,
+                               value=repr(m.get("column") or m.get("value"))))
     rows = t.data()
     for f, vm in (proposal.get("values") or {}).items():
         if f not in mapping or "column" not in mapping[f] or not isinstance(vm, dict):
@@ -457,14 +482,17 @@ def rows(t: Table, flds: dict[str, Field], mapping: dict, values: dict) -> list[
             if spec.kind == "date":
                 d = parse_date(raw)
                 if d is None:
-                    problems.append(f"{spec.label}: {raw!r} is not a date that can be read one way only")
+                    problems.append(say("{field}: {value} is not a date that can be read one way only",
+                                        field=field_name(spec), value=repr(raw)))
                 else:
                     vals[f] = d.isoformat()
             elif spec.kind == "number":
                 x = parse_number(raw)
                 if x is None or x < 0 or (x == 0 and not spec.zero):
-                    problems.append(f"{spec.label}: {raw!r} is not " + ("a number of 0 or more" if spec.zero
-                                                                         else "a quantity above 0"))
+                    problems.append(say("{field}: {value} is not a number of 0 or more", field=field_name(spec),
+                                        value=repr(raw)) if spec.zero else
+                                    say("{field}: {value} is not a quantity above 0", field=field_name(spec),
+                                        value=repr(raw)))
                 else:
                     vals[f] = x
             elif spec.kind == "choice":
@@ -473,13 +501,14 @@ def rows(t: Table, flds: dict[str, Field], mapping: dict, values: dict) -> list[
                 elif raw in values.get(f, {}):
                     vals[f] = values[f][raw]
                 else:
-                    problems.append(f"{spec.label}: {raw!r} is not matched to one of ours, left unknown")
+                    problems.append(say("{field}: {value} is not matched to one of ours, left unknown",
+                                        field=field_name(spec), value=repr(raw)))
             else:
                 vals[f] = raw[:4000]
                 if len(raw) > 4000:
-                    problems.append(f"{spec.label}: cut to its first 4000 characters")
-        missing = [spec.label for f, spec in flds.items() if spec.required and f not in vals]
+                    problems.append(say("{field}: cut to its first 4000 characters", field=field_name(spec)))
+        missing = [field_name(spec) for f, spec in flds.items() if spec.required and f not in vals]
         if missing:
-            problems.append("missing " + ", ".join(missing))
+            problems.append(say("missing {fields}", fields=join_names(missing)))
         out.append({"row": n, "values": vals, "raw": raws, "problems": problems, "ok": not missing})
     return out

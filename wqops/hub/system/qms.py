@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 import yaml
 from psycopg.types.json import Json, Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.docs import control as CTL
 from wqops.hub.docs import library as LIB
 from wqops.hub.ont import metrics as M
@@ -26,6 +27,7 @@ from wqops.hub.quality import records as Q
 from wqops.hub.quality import review as MR
 from wqops.hub.quality import risk as RK
 from wqops.hub.system import rules as R
+from wqops.i18n import say
 
 PACKS = Path(__file__).resolve().parent / "packs"
 STANDARDS = ("iso9001", "iso13485")
@@ -62,6 +64,28 @@ def name_of(standard: str) -> str:
     return load(standard).get("name") or standard
 
 
+SHOWN_KEYS = I18N.LABEL_KEYS | {"our_rule", "short"}
+
+
+def shown(v: dict) -> dict:
+    """The page in the reader's language: the pack's names, labels, summaries and hints translated on the way out
+    (ADR-0023). The pack as adopted, its fingerprint and the results of the checks stay as they are."""
+    if I18N.current() == "en":
+        return v
+    out = {**v, "name": I18N.label(v.get("name")), "label": I18N.label(v.get("label"))}
+    if "editions" in v:
+        out["editions"] = I18N.localize(v["editions"])
+    if v.get("edition_label"):
+        out["edition_label"] = I18N.label(v["edition_label"])
+    if "setting_specs" in v:
+        out["setting_specs"] = I18N.localize(v["setting_specs"])
+    if "processes" in v:
+        out["processes"] = [{**p, "label": I18N.label(p["label"]), "controls": [
+            {**I18N.localize({k: x for k, x in c.items() if k != "result"}, SHOWN_KEYS), "result": c.get("result")}
+            for c in p["controls"]]} for p in v["processes"]]
+    return out
+
+
 def fingerprint(pack: dict) -> str:
     return hashlib.sha256(json.dumps(pack, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -80,25 +104,30 @@ def enable(conn, user: dict, standard: str, edition: str, password: str, today: 
     pack = load(standard)
     bad = R.check_pack(pack)
     if bad:
-        raise QmsError("the pack is wrong: " + "; ".join(bad))
+        raise QmsError(say("the pack is wrong: {problems}", problems="; ".join(bad)))
     ed = (pack.get("editions") or {}).get(edition)
     if not ed:
-        raise QmsError(f"{pack['label']} has no edition {edition!r}")
+        raise QmsError(say("{label} has no edition {edition}", label=I18N.label(pack['label']), edition=repr(edition)))
     if not ed.get("ready"):
-        raise QmsError(f"{ed['label']} is not ready yet: {ed.get('note', '')}".rstrip(": "))
+        if ed.get("note"):
+            raise QmsError(say("{edition} is not ready yet: {note}", edition=I18N.label(ed["label"]),
+                               note=I18N.label(ed["note"])))
+        raise QmsError(say("{edition} is not ready yet", edition=I18N.label(ed["label"])))
     fp = fingerprint(pack)
     Q.check_signer(conn, user, password)
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-qms:{standard}",))
         old = enabled(conn, standard)
         if old and old["fingerprint"] == fp and old["edition"] == edition:
-            raise QmsError(f"{ed['label']} is already in use with this version of the pack")
+            raise QmsError(say("{label} is already in use with this version of the pack",
+                               label=I18N.label(ed['label'])))
         if old:
             conn.execute("update qms_packs set status = 'retired', retired_at = now() where id = %s", (old["id"],))
         row = conn.execute("insert into qms_packs (standard, edition, version, content, fingerprint, enabled_by) "
                            "values (%s, %s, %s, %s, %s, %s) returning *",
                            (standard, edition, pack["version"], Json(pack), fp, user["email"])).fetchone()
-        Q._sign(conn, user, f"{ed['label']} adopted", "qms", row["id"], f"{pack['label']} v{pack['version']}")
+        Q._sign(conn, user, say("{edition} adopted", edition=I18N.label(ed["label"])), "qms", row["id"],
+                f"{I18N.label(pack['label'])} v{pack['version']}")
     evaluate(conn, standard, today, "enabled", user["email"], tz=tz)
     return row
 
@@ -114,20 +143,20 @@ def declare(conn, user: dict, standard: str, control: str, applies: bool, reason
     """Say, with a signature and a reason, whether a control point that may be excluded applies."""
     row = enabled(conn, standard)
     if row is None:
-        raise QmsError("adopt the standard first")
+        raise QmsError(say("adopt the standard first"))
     c = controls(row["content"]).get(control)
     if c is None:
         raise KeyError(control)
     if not c.get("may_exclude"):
-        raise QmsError("this requirement always applies")
+        raise QmsError(say("this requirement always applies"))
     if not reason.strip():
-        raise QmsError("give the reason")
+        raise QmsError(say("give the reason"))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         out = conn.execute("insert into qms_applicability (standard, control, applies, reason, email) values "
                            "(%s, %s, %s, %s, %s) returning *",
                            (standard, control, applies, reason.strip()[:1000], user["email"])).fetchone()
-        Q._sign(conn, user, "Applies" if applies else "Does not apply", "qms_applicability", out["id"],
+        Q._sign(conn, user, say("Applies") if applies else say("Does not apply"), "qms_applicability", out["id"],
                 f"{standard} {control}")
     evaluate(conn, standard, today, "changed", user["email"], tz=tz)
     return out
@@ -145,15 +174,16 @@ def set_setting(conn, email: str, standard: str, key: str, value, today: dt.date
     """Change one setting; the next check uses it."""
     row = enabled(conn, standard)
     if row is None:
-        raise QmsError("adopt the standard first")
+        raise QmsError(say("adopt the standard first"))
     spec = (row["content"].get("settings") or {}).get(key)
     if spec is None:
         raise KeyError(key)
     if type(spec["value"]) is bool:
         if type(value) is not bool:
-            raise QmsError(f"{spec['label']}: yes or no")
+            raise QmsError(say("{label}: yes or no", label=I18N.label(spec['label'])))
     elif type(value) is not int or not spec.get("min", 0) <= value <= spec.get("max", 3650):
-        raise QmsError(f"{spec['label']}: a whole number from {spec.get('min', 0)} to {spec.get('max', 3650)}")
+        raise QmsError(say("{label}: a whole number from {spec} to {spec2}",
+                           label=I18N.label(spec['label']), spec=spec.get('min', 0), spec2=spec.get('max', 3650)))
     out = conn.execute("insert into qms_settings (standard, key, value, email) values (%s, %s, %s, %s) returning *",
                        (standard, key, Jsonb(value), email)).fetchone()
     evaluate(conn, standard, today, "changed", email, tz=tz)
@@ -181,20 +211,20 @@ def link(conn, email: str, standard: str, control: str, document_id: int, linked
          note: str = "", tz: str = "UTC") -> dict:
     row = enabled(conn, standard)
     if row is None:
-        raise QmsError("adopt the standard first")
+        raise QmsError(say("adopt the standard first"))
     c = controls(row["content"]).get(control)
     if c is None:
         raise KeyError(control)
     if c["rule"] not in R.LINKED and not c.get("switch"):
-        raise QmsError("this requirement is judged from the records, not from a linked document")
+        raise QmsError(say("this requirement is judged from the records, not from a linked document"))
     doc = LIB.get(conn, document_id)
     if linked and doc["status"] in ("rejected", "to_classify", "to_review"):
-        raise QmsError("link a document that is confirmed in the library")
+        raise QmsError(say("link a document that is confirmed in the library"))
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-qms-evidence:{standard}:{control}",))
         current = {d["id"] for d in evidence(conn, standard).get(control, [])}
         if linked == (document_id in current):
-            raise QmsError("it is already linked" if linked else "it is not linked")
+            raise QmsError(say("it is already linked") if linked else say("it is not linked"))
         out = conn.execute("insert into qms_evidence (standard, control, document_id, linked, email, note) values "
                            "(%s, %s, %s, %s, %s, %s) returning *",
                            (standard, control, document_id, linked, email, note.strip()[:1000])).fetchone()
@@ -309,7 +339,7 @@ def evaluate(conn, standard: str, today: dt.date, trigger: str, email: str | Non
                           "where standard = %s and status = 'open' and control = any(%s) returning id",
                           (standard, ok)).fetchall():
         conn.execute("insert into qms_todo_log (todo_id, email, action, note) values (%s, 'WenQuest Ops', 'done', "
-                     "%s)", (t["id"], f"met in the check of {today}"))
+                     "%s)", (t["id"], say("met in the check of {day}", day=today)))
     return ev
 
 

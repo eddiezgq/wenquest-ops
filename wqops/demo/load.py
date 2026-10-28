@@ -23,6 +23,7 @@ from wqops import company as C
 from wqops.demo import scenario as S
 from wqops.erp import ErpClient
 from wqops.erp_setup import fiscal_year, warehouse_name
+from wqops.i18n import say as _say
 
 UOM = "Nos"
 
@@ -34,19 +35,19 @@ class DemoError(RuntimeError):
 def _leaf(erp: ErpClient, doctype: str) -> str:
     rows = erp.list(doctype, filters=[["is_group", "=", 0]], order_by="name asc", limit=1)
     if not rows:
-        raise DemoError(f"ERPNext has no {doctype} to use")
+        raise DemoError(_say("ERPNext has no {doctype} to use", doctype=doctype))
     return rows[0]["name"]
 
 
 class Loader:
     def __init__(self, erp: ErpClient, manifest: dict, today: dt.date, say: Callable[[str], None] = print):
         if not manifest.get("demo"):
-            raise DemoError("demo data is only loaded into a company manifest marked demo: true")
+            raise DemoError(_say("demo data is only loaded into a company manifest marked demo: true"))
         self.erp, self.m, self.today, self.say = erp, manifest, today, say
         self.company = manifest["company"]["name"]
         whs = {w["kind"]: warehouse_name(manifest, w) for w in manifest["warehouses"]}
         if "stores" not in whs or "quarantine" not in whs:
-            raise DemoError("the demo manifest needs a stores and a quarantine warehouse")
+            raise DemoError(_say("the demo manifest needs a stores and a quarantine warehouse"))
         self.main, self.hold = whs["stores"], whs["quarantine"]
         self.names: dict[str, dict] = {}          # local ref -> {"name": ERPNext name, "rows": [row names]}
 
@@ -64,7 +65,7 @@ class Loader:
     # ---------------------------------------------------------------- master data
     def masters(self, start: dt.date) -> None:
         if self.erp.find("Customer", {"customer_name": S.CUSTOMERS[0]}):
-            raise DemoError("demo data is already loaded (the demo customers exist)")
+            raise DemoError(_say("demo data is already loaded (the demo customers exist)"))
         fy_start, fy_end = fiscal_year(self.m["company"]["fiscal_year_start"], start)
         if not self.erp.list("Fiscal Year", filters=[["year_start_date", "<=", str(start)],
                                                      ["year_end_date", ">=", str(start)]], limit=1):
@@ -167,7 +168,7 @@ class Loader:
             pe.update({"posting_date": day, "reference_no": f"DEMO-{d.ref}", "reference_date": day})
             self.make(pe, d.ref)
         else:
-            raise DemoError(f"unknown document kind {d.kind}")
+            raise DemoError(_say("unknown document kind {kind}", kind=d.kind))
 
     def run(self) -> dict:
         docs = S.build(self.today)
@@ -176,7 +177,8 @@ class Loader:
             try:
                 self.apply(d)
             except Exception as exc:
-                raise DemoError(f"{d.kind} {d.ref} on {d.day}: {exc}") from exc
+                raise DemoError(_say("{kind} {ref} on {day}: {exc}",
+                                    kind=d.kind, ref=d.ref, day=d.day, exc=exc)) from exc
             if i % 50 == 0:
                 self.say(f"{i} of {len(docs)} documents")
         return {"documents": S.summary(docs), "rejected_inspection": next(
@@ -193,7 +195,7 @@ def quality_records(conn, manifest: dict, rejected_qi: str | None, today: dt.dat
     qi = conn.execute("select props from ont_objects where type = 'QualityInspection' and key = %s",
                       (rejected_qi,)).fetchone()
     if qi is None:
-        raise DemoError(f"{rejected_qi} has not been synced yet")
+        raise DemoError(_say("{rejected_qi} has not been synced yet", rejected_qi=rejected_qi))
     p = qi["props"]
     day = M._d(p.get("report_date")) or today
     people = {x["roles"][0]: x["email"] for x in manifest["people"]}

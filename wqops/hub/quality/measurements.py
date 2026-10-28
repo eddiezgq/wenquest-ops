@@ -23,6 +23,7 @@ from wqops.hub.quality import iqc as I
 from wqops.hub.quality import meas_rules as MR
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import spc
+from wqops.i18n import say
 
 
 class MeasurementError(ValueError):
@@ -35,8 +36,8 @@ def _open(conn, ins_id: int, lock: bool = False) -> tuple[dict, list[dict]]:
     if ins is None:
         raise KeyError(ins_id)
     if ins["status"] != "in_progress":
-        raise MeasurementError(f"{ins['name']} is {ins['status'].replace('_', ' ')}: readings can no longer be "
-                               "imported")
+        raise MeasurementError(say("{name} is {status}: readings can no longer be imported",
+                                   name=ins['name'], status=ins['status'].replace('_', ' ')))
     return ins, I.plan(conn, ins["plan_id"])["characteristics"]
 
 
@@ -73,15 +74,16 @@ def preview(conn, ins_id: int, file_name: str, raw: bytes, *, mapping: dict | No
     blocks = []
     other = [p for p in parsed.get("part_nos", []) if p.strip().lower() != ins["item_code"].strip().lower()]
     if other:
-        blocks.append(f"the file is for part {', '.join(other)}, the inspection for {ins['item_code']}")
+        blocks.append(say("the file is for part {parts}, the inspection for {item}", parts=", ".join(other),
+                          item=ins["item_code"]))
     gauge = None
     if gauge_id is not None:
         gauge = CAL.get(conn, gauge_id)
         named = {r["characteristic"]: r["gauge_code"] for r in conn.execute(
             "select characteristic, gauge_code from iqc_gauges where inspection_id = %s and gauge_id <> %s",
             (ins_id, gauge_id))}
-        blocks += [f"{c} is measured with {named[c]} in this inspection; {gauge['code']} cannot be named for it too"
-                   for c in measured if c in named]
+        blocks += [say("{c} is measured with {named} in this inspection; {gauge} cannot be named for it too",
+                       c=c, named=named[c], gauge=gauge["code"]) for c in measured if c in named]
     out = {"inspection": ins["name"], "file_name": file_name, "sha256": sha, "format": parsed["format"],
            "shape": parsed.get("shape"), "part_no": parsed.get("part_no"), "features": parsed["features"],
            "mapping": m, "first_sample": start, "n": ins["n"],
@@ -111,11 +113,13 @@ def import_file(conn, user: dict, ins_id: int, file_name: str, raw: bytes, passw
         ins, _ = _open(conn, ins_id, lock=True)
         p = preview(conn, ins_id, file_name, raw, mapping=mapping, first_sample=first_sample, gauge_id=gauge_id)
         if p["print"] != seen:
-            raise MeasurementError("the file, the matching or the readings changed since the preview: preview again")
+            raise MeasurementError(say("the file, the matching or the readings changed since the preview: preview "
+                                       "again"))
         if p["already"]:
-            raise MeasurementError(f"this file was imported into {ins['name']} before, by {p['already']['by']}")
+            raise MeasurementError(say("this file was imported into {name} before, by {by}",
+                                       name=ins['name'], by=p['already']['by']))
         if not p["readings"]:
-            raise MeasurementError("no reading in the file goes to a measured characteristic of the plan")
+            raise MeasurementError(say("no reading in the file goes to a measured characteristic of the plan"))
         if p["blocks"]:
             raise MeasurementError("; ".join(p["blocks"]))
         g = None
@@ -123,7 +127,8 @@ def import_file(conn, user: dict, ins_id: int, file_name: str, raw: bytes, passw
             g = CAL.get(conn, gauge_id)
             ok, why = CALR.usable(g, today)
             if not ok:
-                raise MeasurementError(f"{g['code']}: {why}; measure with equipment in calibration")
+                raise MeasurementError(say("{code}: {why}; measure with equipment in calibration",
+                                           code=g['code'], why=why))
         left = p["problems"] + p["notes"]
         row = conn.execute(
             "insert into measurement_imports (inspection_id, file_name, sha256, format, content, mapping, samples, "
@@ -141,10 +146,12 @@ def import_file(conn, user: dict, ins_id: int, file_name: str, raw: bytes, passw
         if g:
             for ch in p["measured"]:                     # only what the file gave values for
                 I.set_gauge(conn, user["email"], ins_id, ch, g["id"], today=today)
-        Q._sign(conn, user, f"Measurements imported from {file_name[:120]} ({len(p['readings'])} readings)",
+        Q._sign(conn, user, say("Measurements imported from {file} ({n} readings)", file=file_name[:120],
+                                n=len(p["readings"])),
                 "measurement_import", row["id"], ins["name"])
         I.log(conn, "inspection", ins_id, user["email"], "imported",
-              f"{file_name[:120]}: {len(p['readings'])} readings, samples {min(p['samples'])}-{max(p['samples'])}")
+              say("{file}: {n} readings, samples {first}-{last}", file=file_name[:120], n=len(p["readings"]),
+                  first=min(p["samples"]), last=max(p["samples"])))
     return imported(conn, row["id"])
 
 
@@ -212,7 +219,7 @@ def subgroups(conn, source: str, item_code: str, parameter: str, limit: int = 10
                    "min": float(r["low"]) if r["low"] is not None else None,
                    "max": float(r["high"]) if r["high"] is not None else None} for r in rows]
     else:
-        raise MeasurementError("the source is incoming or production")
+        raise MeasurementError(say("the source is incoming or production"))
     for g in groups:
         g["min"] = float(g["min"]) if g["min"] is not None else None
         g["max"] = float(g["max"]) if g["max"] is not None else None
@@ -225,16 +232,17 @@ def spc_for(conn, source: str, item_code: str, parameter: str, limit: int = 100)
     out = {"source": source, "item_code": item_code, "parameter": parameter,
            "inspections": [g["inspection"] for g in groups]}
     if not groups:
-        return out | {"enough_data": False, "note": "No measured values for this item and characteristic.",
+        return out | {"enough_data": False, "note": say("No measured values for this item and characteristic."),
                       "subgroups": 0}
     res = out | spc.chart(groups)
     values = [v for g in groups for v in g["values"]]
     if res.get("enough_data") and res.get("capability") is None:
-        res["capability_note"] = ("unknown: the plan has no lower and upper limit for it" if groups[-1]["min"] is None
-                                  or groups[-1]["max"] is None else "unknown: too few values, or no spread")
+        res["capability_note"] = (say("unknown: the plan has no lower and upper limit for it")
+                                  if groups[-1]["min"] is None or groups[-1]["max"] is None
+                                  else say("unknown: too few values, or no spread"))
     cap = res.get("capability")
     if res.get("enough_data") and cap and cap["n"] < 25:
-        res["capability_note"] = f"only {cap['n']} values: capability this early is a rough guide"
+        res["capability_note"] = say("only {n} values: capability this early is a rough guide", n=cap["n"])
     if res.get("limits_note") and cap:
         res["capability_note"] = "; ".join(x for x in (res.get("capability_note"), res["limits_note"]) if x)
     res["values"] = len(values)

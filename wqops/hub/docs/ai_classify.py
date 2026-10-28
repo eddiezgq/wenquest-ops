@@ -14,6 +14,7 @@ from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
 from wqops.hub.docs import classify as K
 from wqops.hub.docs import library as LIB
+from wqops.i18n import say
 
 
 def _field(desc: str, enum: list[str] | None = None) -> dict:
@@ -91,7 +92,7 @@ def classify_one(model: L.Anthropic, sys_prompt: str, tool_def: dict, doc: dict,
                         1200, tool_choice={"type": "tool", "name": tool_def["name"]})
     use = next((b for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
     if use is None:
-        raise L.LlmError("the model did not record a classification")
+        raise L.LlmError(say("the model did not record a classification"))
     return _proposal(use.get("input") or {}), resp.get("usage", {})
 
 
@@ -115,7 +116,7 @@ def run(conn, user: dict, import_id: int, model: L.Anthropic | None, *, today: d
                  ("ai" if ai else "rules", import_id))
     ctx = T.Ctx(conn=conn, user=user, today=today)
     if ai:
-        AG.start(ctx, "classify", f"classify import {import_id}: {len(docs)} files")
+        AG.start(ctx, "classify", say("classify import {id}: {n} files", id=import_id, n=len(docs)))
         sys_prompt, tool_def = system(procs, LIB.hints(conn), company), tool(procs)
     calls, usage, failed, counts = [], {"input_tokens": 0, "output_tokens": 0}, [], {"ai": 0, "rules": 0}
     crash = None
@@ -144,15 +145,17 @@ def run(conn, user: dict, import_id: int, model: L.Anthropic | None, *, today: d
                           "summary": json.dumps({k: checked.get(k) for k in ("doc_type", "process", "number", "title",
                                                                               "confidence")})[:300]})
     except Exception as exc:
-        crash = f"stopped: {type(exc).__name__}: {exc}"
+        crash = say("stopped: {error}", error=f"{type(exc).__name__}: {exc}")
         failed.append(crash)
         raise
     finally:
         if ai:                                       # the run record is completed even when the run stops early
-            low = [f"document {c['args']['document']}" for c in calls if '"confidence": "low"' in c["summary"]]
+            low = [say("document {id}", id=c["args"]["document"]) for c in calls
+                   if '"confidence": "low"' in c["summary"]]
             AG.finish(ctx, {"engine": "model" if counts["ai"] else "rules (model unavailable)", "model": model.model,
-                            "tool_calls": calls, "answer": f"classified {len(calls)} of {len(docs)} files: "
-                            f"{counts['ai']} by the model, {counts['rules']} by rules", "verified": not failed,
+                            "tool_calls": calls, "answer": say(
+                                "classified {done} of {n} files: {ai} by the model, {rules} by rules", done=len(calls),
+                                n=len(docs), ai=counts["ai"], rules=counts["rules"]), "verified": not failed,
                             "unverified": low[:50], "usage": usage, "error": "; ".join(failed)[:2000] or None})
     conn.execute("update doc_imports set status = 'done', error = %s where id = %s",
                  ("; ".join(failed)[:2000] or None, import_id))

@@ -14,6 +14,8 @@ import os
 import sys
 import zipfile
 
+from wqops.i18n import say
+
 ROOT = "Harbor Lane QMS"
 LABEL = "Demo: Harbor Lane QMS folder"
 UPLOADER = "dana@demo.example"
@@ -329,7 +331,7 @@ def load(conn, manifest: dict, today, model=None) -> dict:
     from wqops.hub.docs import library as LIB  # noqa: PLC0415
 
     if not manifest.get("demo"):
-        raise ValueError("demo documents are only loaded into a company manifest marked demo: true")
+        raise ValueError(say("demo documents are only loaded into a company manifest marked demo: true"))
     done = conn.execute("select id from doc_imports where label = %s", (LABEL,)).fetchone()
     if done:
         return {"import": done["id"], "loaded": False}

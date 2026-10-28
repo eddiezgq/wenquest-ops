@@ -96,7 +96,7 @@ const assess = (i) => call(`/api/gauge-impacts/${i.id}/assess`, 'POST', { passwo
     </section>
     <section class="wq-panel p-5 text-sm">
       <h2 class="wq-h2">{{ t('History') }}</h2>
-      <ul><li v-for="(x, k) in g.history" :key="k" class="text-ink-gray-7">{{ ago(x.at) }} · {{ x.email }} · {{ x.action }}{{ x.note ? `: ${x.note}` : '' }}</li></ul>
+      <ul><li v-for="(x, k) in g.history" :key="k" class="text-ink-gray-7">{{ ago(x.at) }} · {{ x.email }} · {{ t(x.action) }}{{ x.note ? `: ${x.note}` : '' }}</li></ul>
     </section>
   </template>
 </template>

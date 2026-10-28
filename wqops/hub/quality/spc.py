@@ -14,6 +14,8 @@ from __future__ import annotations
 import itertools
 import statistics as st
 
+from wqops.i18n import say
+
 D2 = {2: 1.128, 3: 1.693, 4: 2.059, 5: 2.326, 6: 2.534, 7: 2.704, 8: 2.847, 9: 2.970, 10: 3.078}
 A2 = {2: 1.880, 3: 1.023, 4: 0.729, 5: 0.577, 6: 0.483, 7: 0.419, 8: 0.373, 9: 0.337, 10: 0.308}
 D3 = {2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0.076, 8: 0.136, 9: 0.184, 10: 0.223}
@@ -27,9 +29,9 @@ class SpcError(ValueError):
 def xbar_r(groups: list[list[float]]) -> dict:
     n = len(groups[0]) if groups else 0
     if n not in D2 or any(len(g) != n for g in groups):
-        raise SpcError("X-bar and R needs subgroups of the same size, 2 to 10")
+        raise SpcError(say("X-bar and R needs subgroups of the same size, 2 to 10"))
     if len(groups) < 2:
-        raise SpcError("at least 2 subgroups are needed")
+        raise SpcError(say("at least 2 subgroups are needed"))
     xb = [st.fmean(g) for g in groups]
     rr = [max(g) - min(g) for g in groups]
     xbb, rb = st.fmean(xb), st.fmean(rr)
@@ -40,7 +42,7 @@ def xbar_r(groups: list[list[float]]) -> dict:
 
 def i_mr(values: list[float]) -> dict:
     if len(values) < 3:
-        raise SpcError("at least 3 values are needed")
+        raise SpcError(say("at least 3 values are needed"))
     mr = [abs(b - a) for a, b in itertools.pairwise(values)]
     xb, mrb = st.fmean(values), st.fmean(mr)
     s = mrb / D2[2]
@@ -64,16 +66,23 @@ def special_causes(points: list[float], center: float, sigma: float) -> list[dic
         w = z[i - m + 1:i + 1]
         return any(sum(1 for x in w if sg * x > lim) >= k and sg * z[i] > lim for sg in (1, -1))
 
-    text = {1: "point {} is beyond the 3-sigma limits", 2: "2 of 3 points beyond 2 sigma on one side (to point {})",
-            3: "4 of 5 points beyond 1 sigma on one side (to point {})",
-            4: "8 points in a row on one side of the center line (to point {}): the process mean may have shifted"}
+    def text(rule: int, n: int) -> str:
+        if rule == 1:
+            return say("point {n} is beyond the 3-sigma limits", n=n)
+        if rule == 2:
+            return say("2 of 3 points beyond 2 sigma on one side (to point {n})", n=n)
+        if rule == 3:
+            return say("4 of 5 points beyond 1 sigma on one side (to point {n})", n=n)
+        return say("8 points in a row on one side of the center line (to point {n}): the process mean may have shifted",
+                   n=n)
+
     out = []
     for rule in (1, 2, 3, 4):
         prev = False
         for i in range(len(z)):
             h = hit(rule, i)
             if h and not prev:
-                out.append({"rule": rule, "index": i, "text": text[rule].format(i + 1)})
+                out.append({"rule": rule, "index": i, "text": text(rule, i + 1)})
             prev = h
     return sorted(out, key=lambda o: (o["index"], o["rule"]))
 
@@ -111,7 +120,7 @@ def chart(subgroups: list[dict]) -> dict:
             # the moving range of means is the spread of means, not of single values: pool within the subgroups
             within = ch["sigma_within"] if max(sizes) == 1 else pooled_sigma(groups)
     except SpcError as exc:
-        return {"enough_data": False, "note": f"Not enough data for a control chart: {exc}.",
+        return {"enough_data": False, "note": say("Not enough data for a control chart: {exc}.", exc=exc),
                 "subgroups": len(groups)}
     lo, hi = subgroups[-1].get("min"), subgroups[-1].get("max")
     same = [s for s in subgroups if (s.get("min"), s.get("max")) == (lo, hi)]
@@ -124,6 +133,6 @@ def chart(subgroups: list[dict]) -> dict:
                               if (s.get("min") is not None and v < s["min"]) or (s.get("max") is not None
                                                                                  and v > s["max"]))}
     if len(same) < len(subgroups):
-        out["limits_note"] = (f"the limits changed: capability is from the {len(same)} latest subgroups with the "
-                              "current limits")
+        out["limits_note"] = say("the limits changed: capability is from the {n} latest subgroups with the current "
+                                 "limits", n=len(same))
     return out

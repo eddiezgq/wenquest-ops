@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.erp import ErpClient
 from wqops.hub import permissions as P
+from wqops.i18n import say
 
 # doctype -> (permission needed to propose and confirm, fields that must be present)
 DRAFTABLE: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -40,35 +41,37 @@ class Conflict(DraftError):
 
 def permission(doctype: str) -> str:
     if doctype not in DRAFTABLE:
-        raise DraftError(f"WenQuest Ops does not draft {doctype!r}; allowed: {', '.join(DRAFTABLE)}")
+        raise DraftError(say("WenQuest Ops does not draft {doctype}; allowed: {DRAFTABLE}",
+                             doctype=repr(doctype), DRAFTABLE=', '.join(DRAFTABLE)))
     return DRAFTABLE[doctype][0]
 
 
 def check_allowed(user: dict, doctype: str) -> None:
     perm = permission(doctype)
     if not P.allows(user["roles"], perm):
-        raise NotAllowed(f"your role does not allow: {P.PERMISSIONS[perm]}")
+        raise NotAllowed(say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.describe(perm)))
 
 
 def clean(doctype: str, payload) -> dict:
     """The fields of the draft, checked: right doctype, required fields present, nothing ERPNext sets itself."""
     if not isinstance(payload, dict):
-        raise DraftError("the draft must be an object of ERPNext fields")
+        raise DraftError(say("the draft must be an object of ERPNext fields"))
     if payload.get("doctype", doctype) != doctype:
-        raise DraftError(f"the draft says doctype {payload['doctype']!r}, not {doctype!r}")
+        raise DraftError(say("the draft says doctype {doctype}, not {doctype2}",
+                             doctype=repr(payload['doctype']), doctype2=repr(doctype)))
     bad = sorted(k for k in payload if k in _NOT_ALLOWED or k.startswith("_"))
     if bad:
-        raise DraftError(f"these fields are set by ERPNext, not by a draft: {', '.join(bad)}")
+        raise DraftError(say("these fields are set by ERPNext, not by a draft: {bad}", bad=', '.join(bad)))
     missing = [f for f in DRAFTABLE[doctype][1] if payload.get(f) in (None, "", [])]
     if missing:
-        raise DraftError(f"missing: {', '.join(missing)}")
+        raise DraftError(say("missing: {missing}", missing=', '.join(missing)))
     if "items" in payload:
         items = payload["items"]
         if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
-            raise DraftError("items must be a list of rows")
+            raise DraftError(say("items must be a list of rows"))
         for n, row in enumerate(items, start=1):
             if not row.get("item_code") or not isinstance(row.get("qty"), (int, float)) or row["qty"] <= 0:
-                raise DraftError(f"items row {n}: needs item_code and a quantity above 0")
+                raise DraftError(say("items row {n}: needs item_code and a quantity above 0", n=n))
     return {k: v for k, v in payload.items() if k != "doctype"}
 
 
@@ -89,9 +92,9 @@ def propose(conn, user: dict, doctype: str, payload, *, summary: str = "", sourc
             ai_run: str | None = None) -> dict:
     check_allowed(user, doctype)
     if source == "ai" and not P.allows(user["roles"], "ai:use"):
-        raise NotAllowed(f"your role does not allow: {P.PERMISSIONS['ai:use']}")
+        raise NotAllowed(say("your role does not allow: {ai_use}", ai_use=P.describe('ai:use')))
     if source not in ("person", "ai"):
-        raise DraftError("source must be person or ai")
+        raise DraftError(say("source must be person or ai"))
     fields = clean(doctype, payload)
     with conn.transaction():
         row = conn.execute("insert into erp_drafts (doctype, summary, payload, source, ai_run, proposed_by, target) "
@@ -125,13 +128,14 @@ def confirm(conn, user: dict, draft_id: int, erp: ErpClient) -> dict:
     claimed = conn.execute("update erp_drafts set status = 'confirming' where id = %s and status in "
                            "('pending', 'failed') returning *", (draft_id,)).fetchone()
     if claimed is None:
-        raise Conflict(f"this draft is already {row['status']}")
+        raise Conflict(say("this draft is already {status}", status=row['status']))
     if row["doctype"] in HUB_KINDS:
         return _confirm_hub(conn, user, row)
     try:
         doc = erp.insert({"doctype": row["doctype"], **row["payload"], **_erp_fields(erp, user, row), "docstatus": 0})
         if int(doc.get("docstatus") or 0) != 0:  # never expected; would mean ERPNext submitted it
-            raise DraftError(f"ERPNext returned {doc['name']} with docstatus {doc['docstatus']}")
+            raise DraftError(say("ERPNext returned {name} with docstatus {docstatus}",
+                                 name=doc['name'], docstatus=doc['docstatus']))
     except Exception as exc:
         msg = f"{type(exc).__name__}: {exc}"[:1000]
         with conn.transaction():
@@ -163,7 +167,7 @@ def _erp_fields(erp: ErpClient, user: dict, row: dict) -> dict:
 def _confirm_hub(conn, user: dict, row: dict) -> dict:
     p = row["payload"]
     with conn.transaction():
-        record, note = None, "ready to send"
+        record, note = None, say("ready to send")
         if row["doctype"] == "Nonconformance Report":
             from wqops.hub.quality import records as Q  # noqa: PLC0415
 
@@ -188,7 +192,7 @@ def reject(conn, user: dict, draft_id: int, reason: str = "") -> dict:
                            "where id = %s and status in ('pending', 'failed') returning *",
                            (user["email"], draft_id)).fetchone()
         if row is None:
-            raise Conflict("only a pending or failed draft can be rejected")
+            raise Conflict(say("only a pending or failed draft can be rejected"))
         _log(conn, draft_id, user["email"], "rejected", reason[:500])
     return public(row)
 

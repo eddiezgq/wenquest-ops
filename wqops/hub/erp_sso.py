@@ -17,6 +17,7 @@ import hmac
 import secrets
 
 from wqops.erp import ErpClient
+from wqops.i18n import say
 
 CLIENT_ID = "wenquest-ops-erp"
 PROVIDER = "wenquest_ops"                      # ERPNext names the Social Login Key frappe.scrub("WenQuest Ops")
@@ -66,7 +67,7 @@ def social_login_key(public_url: str, secret: str) -> dict:
 
 def check_redirect(redirect_uri: str, erp_public_url: str) -> None:
     if redirect_uri != erp_public_url.rstrip("/") + CALLBACK_PATH:
-        raise SsoError("unknown redirect address")
+        raise SsoError(say("unknown redirect address"))
 
 
 def ensure_erp_user(erp: ErpClient, user: dict) -> str:
@@ -110,12 +111,12 @@ def exchange(conn, code: str, *, client_id: str, client_secret: str, redirect_ur
     """Trade a one-time code for a short-lived access token."""
     now = now or dt.datetime.now(dt.UTC)
     if client_id != CLIENT_ID or not secret or not hmac.compare_digest(client_secret or "", secret):
-        raise SsoError("invalid client")
+        raise SsoError(say("invalid client"))
     row = conn.execute("delete from oauth_codes where code_hash=%s returning *", (_h(code or ""),)).fetchone()
     if row is None or row["created_at"] < now - dt.timedelta(seconds=CODE_SECONDS):
-        raise SsoError("invalid or expired code")
+        raise SsoError(say("invalid or expired code"))
     if row["redirect_uri"] != redirect_uri:
-        raise SsoError("redirect address does not match")
+        raise SsoError(say("redirect address does not match"))
     token = secrets.token_urlsafe(32)
     conn.execute("insert into oauth_tokens (token_hash, user_id, expires_at) values (%s, %s, %s)",
                  (_h(token), row["user_id"], now + dt.timedelta(seconds=TOKEN_SECONDS)))
@@ -127,7 +128,7 @@ def userinfo(conn, token: str, now: dt.datetime | None = None) -> dict:
     u = conn.execute("select u.* from oauth_tokens t join users u on u.id = t.user_id "
                      "where t.token_hash=%s and t.expires_at > %s and u.active", (_h(token or ""), now)).fetchone()
     if u is None:
-        raise SsoError("invalid or expired token")
+        raise SsoError(say("invalid or expired token"))
     first, _, last = u["name"].partition(" ")
     return {"sub": u["email"], "email": u["email"], "email_verified": True, "name": u["name"],
             "given_name": first, "family_name": last}

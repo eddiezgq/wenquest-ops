@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub import drafts as D
 from wqops.hub import permissions as P
 from wqops.hub.ai import agent as AG
@@ -20,6 +21,7 @@ from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
 from wqops.hub.ont import anomaly as AN
 from wqops.hub.ont import metrics as M
+from wqops.i18n import say
 
 AT = dt.time(7, 30)
 SYSTEM = "brief@wenquest-ops"
@@ -65,33 +67,38 @@ def for_roles(f: dict, roles) -> dict:
 def _fmt(m: dict) -> str:
     v, u = m["value"], m["unit"]
     if v is None:
-        return "unknown"
-    return {"%": f"{v:g}%", "currency": f"{v:,.2f}", "days": f"{v:g} days"}.get(u, f"{v:g}")
+        return say("unknown")
+    if u == "days":
+        return say("{n} days", n=format(v, "g"))
+    return {"%": f"{v:g}%", "currency": f"{v:,.2f}"}.get(u, f"{v:g}")
 
 
 def text(f: dict, company: str) -> str:
-    lines = [f"Good morning. Brief for {company}, {f['day']}."]
+    zh = I18N.current() == "zh"
+    lines = [say("Good morning. Brief for {company}, {day}.", company=company, day=f["day"])]
     if f["metrics"]:
-        lines.append("Last 30 days: " + "; ".join(f"{f['metrics'][n]['label']} {_fmt(f['metrics'][n])}"
-                                            for n in M.LABELS if n in f["metrics"]) + ".")
+        lines.append(say("Last 30 days: {metrics}.", metrics=("；" if zh else "; ").join(
+            f"{I18N.label(f['metrics'][n]['label'])} {_fmt(f['metrics'][n])}" for n in M.LABELS if n in f["metrics"])))
     new = [a for a in f["anomalies"] if a["new"]]
     crit = [a for a in f["anomalies"] if a["severity"] == "critical"]
     if f["anomalies"]:
-        lines.append(f"Open problems: {len(f['anomalies'])}, of which {len(new)} new since yesterday and "
-                     f"{len(crit)} critical.")
-        lines += [f"- {a['severity']}: {a['title']}" for a in (crit + [a for a in new if a not in crit])[:8]]
+        lines.append(say("Open problems: {n}, of which {new} new since yesterday and {critical} critical.",
+                         n=len(f["anomalies"]), new=len(new), critical=len(crit)))
+        lines += [say("- {severity}: {title}", severity=I18N.label(a["severity"]), title=a["title"])
+                  for a in (crit + [a for a in new if a not in crit])[:8]]
     else:
-        lines.append("No open problems.")
+        lines.append(say("No open problems."))
     if f["due_today"]:
-        lines.append("Due today: " + ", ".join(d["title"] for d in f["due_today"]) + ".")
+        titles = ("、" if zh else ", ").join(d["title"] for d in f["due_today"])
+        lines.append(say("Due today: {titles}.", titles=titles))
     if f["drafts"]:
-        lines.append(f"Drafts waiting for confirmation: {len(f['drafts'])}.")
+        lines.append(say("Drafts waiting for confirmation: {n}.", n=len(f["drafts"])))
     return "\n".join(lines)
 
 
 def generate(conn, today: dt.date, manifest: dict | None, model: L.Anthropic | None = None) -> dict:
     """Make (or remake) the brief for ``today``."""
-    company = (manifest or {}).get("company", {}).get("name", "the company")
+    company = (manifest or {}).get("company", {}).get("name") or say("the company")
     f = facts(conn, today)
     rule_text = text(f, company)
     ctx = T.Ctx(conn=conn, user={"email": SYSTEM, "roles": ["owner"]}, today=today, manifest=manifest)

@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from wqops.i18n import say
+
 TEXT = {".txt", ".md", ".csv"}
 IMAGES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".webp"}
 OLD = {".doc", ".xls"}                                  # kept, but their text cannot be read here
@@ -84,14 +86,14 @@ def _image(data: bytes) -> Text:
     from PIL import Image  # noqa: PLC0415
 
     if not _ocr_ready():
-        return Text("", "no_text", "OCR (Tesseract) is not installed on this server")
+        return Text("", "no_text", say("OCR (Tesseract) is not installed on this server"))
     with Image.open(io.BytesIO(data)) as img:
         pages = []
         for i in range(getattr(img, "n_frames", 1)):
             img.seek(i)
             pages.append(ocr_image(img.copy()))
     body = clean("\n\n".join(pages))
-    return Text(body, "ocr" if body else "no_text", "" if body else "OCR found no text")
+    return Text(body, "ocr" if body else "no_text", "" if body else say("OCR found no text"))
 
 
 def _pdf(data: bytes) -> Text:
@@ -103,7 +105,7 @@ def _pdf(data: bytes) -> Text:
     if len(body) >= MIN_PDF_CHARS * max(1, len(pages)):
         return Text(body, "ok")
     if not _ocr_ready():
-        return Text(body, "ok" if body else "no_text", "" if body else "scanned PDF; OCR is not installed")
+        return Text(body, "ok" if body else "no_text", "" if body else say("scanned PDF; OCR is not installed"))
     from PIL import Image  # noqa: PLC0415
 
     scanned = []
@@ -114,7 +116,7 @@ def _pdf(data: bytes) -> Text:
     ocr = clean("\n\n".join(scanned))
     if len(ocr) > len(body):
         return Text(ocr, "ocr")
-    return Text(body, "ok" if body else "no_text", "" if body else "no text found in the PDF")
+    return Text(body, "ok" if body else "no_text", "" if body else say("no text found in the PDF"))
 
 
 def _docx(data: bytes) -> Text:
@@ -173,11 +175,11 @@ def text_of(name: str, data: bytes) -> Text:
     """The text of one file, by its extension. Never raises: a broken file is ``error`` with a note."""
     ext = suffix(name)
     if ext in OLD:
-        return Text("", "no_text", f"old {ext} format: save it as {ext}x to get its text")
+        return Text("", "no_text", say("old {ext} format: save it as {ext}x to get its text", ext=ext))
     reader = READERS.get(ext) or (_image if ext in IMAGES else None)
     if reader is None:
-        return Text("", "no_text", "format not read")
+        return Text("", "no_text", say("format not read"))
     try:
         return reader(data)
     except Exception as exc:  # a damaged or unusual file must not stop the import
-        return Text("", "error", f"could not read the file: {type(exc).__name__}")
+        return Text("", "error", say("could not read the file: {error}", error=type(exc).__name__))

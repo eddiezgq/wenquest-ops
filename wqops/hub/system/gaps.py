@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import datetime as dt
 
+from wqops import i18n as I18N
 from wqops.hub.system import qms as QMS
 from wqops.hub.system import rules as R
+from wqops.i18n import say
 
 SAMPLE = 5                                      # records shown per control point on the audit checklist
 
@@ -36,7 +38,7 @@ def report(conn, standard: str) -> dict:
     """Every control point not met or unknown, by process, with its open to-do."""
     v = QMS.view(conn, standard)
     if not v["enabled"]:
-        raise QMS.QmsError("adopt the standard first")
+        raise QMS.QmsError(say("adopt the standard first"))
     open_ = {t["control"]: t for t in todos(conn, standard, open_only=True)}
     procs, n = [], {"not_met": 0, "unknown": 0, "with_todo": 0}
     for p in v["processes"]:
@@ -47,29 +49,30 @@ def report(conn, standard: str) -> dict:
                 continue
             n[r["status"]] += 1
             n["with_todo"] += c["id"] in open_
-            rows.append({"id": c["id"], "summary": c["summary"], "clauses": c["clauses"], "status": r["status"],
-                         "detail": r.get("detail"), "problems": r.get("problems", []),
+            rows.append({"id": c["id"], "summary": I18N.label(c["summary"]), "clauses": c["clauses"],
+                         "status": r["status"], "detail": r.get("detail"), "problems": r.get("problems", []),
                          "problem_count": r.get("problem_count", 0), "rule": r.get("rule") or c["rule"],
-                         "register": c.get("register"), "hint": c.get("hint"), "todo": open_.get(c["id"])})
+                         "register": c.get("register"), "hint": I18N.label(c.get("hint")), "todo": open_.get(c["id"])})
         if rows:
             rows.sort(key=lambda x: x["status"] != R.NOT_MET)
-            procs.append({"id": p["id"], "label": p["label"], "gaps": rows})
-    return {"name": v["name"], "edition_label": v["edition_label"], "evaluation": v["evaluation"], "counts": n,
+            procs.append({"id": p["id"], "label": I18N.label(p["label"]), "gaps": rows})
+    return {"name": I18N.label(v["name"]), "edition_label": I18N.label(v["edition_label"]),
+            "evaluation": v["evaluation"], "counts": n,
             "processes": procs,
             "todos": todos(conn, standard)}
 
 
 def _title(c: dict, r: dict) -> str:
     if r.get("status") == R.NOT_MET:
-        return f"{c['summary']} Now: {r.get('detail', '')}"[:300]
-    return f"Show: {c['summary']}"[:300]
+        return say("{summary} Now: {detail}", summary=I18N.label(c["summary"]), detail=r.get("detail", ""))[:300]
+    return say("Show: {summary}", summary=I18N.label(c["summary"]))[:300]
 
 
 def add(conn, email: str, standard: str, control: str, *, title: str = "", owner: str = "",
         due: dt.date | None = None) -> dict:
     v = QMS.view(conn, standard)
     if not v["enabled"]:
-        raise QMS.QmsError("adopt the standard first")
+        raise QMS.QmsError(say("adopt the standard first"))
     c = next((x for p in v["processes"] for x in p["controls"] if x["id"] == control), None)
     if c is None:
         raise KeyError(control)
@@ -77,7 +80,7 @@ def add(conn, email: str, standard: str, control: str, *, title: str = "", owner
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-qms-todo:{standard}:{control}",))
         if conn.execute("select 1 from qms_todos where standard = %s and control = %s and status = 'open'",
                         (standard, control)).fetchone():
-            raise TodoError("there is already an open to-do for this; change that one")
+            raise TodoError(say("there is already an open to-do for this; change that one"))
         row = conn.execute("insert into qms_todos (standard, control, title, owner, due, created_by) values "
                            "(%s, %s, %s, %s, %s, %s) returning *",
                            (standard, control, (title.strip() or _title(c, c.get("result") or {}))[:300],
@@ -104,11 +107,12 @@ def change(conn, email: str, todo_id: int, *, owner: str | None = None, due: dt.
         if row is None:
             raise KeyError(todo_id)
         if row["status"] != "open":
-            raise TodoError(f"this to-do is {row['status']}")
+            raise TodoError(say("this to-do is done") if row["status"] == "done" else say("this to-do is dropped")
+                            if row["status"] == "dropped" else say("this to-do is {status}", status=row["status"]))
         if status not in (None, "open", "done", "dropped"):
-            raise TodoError("a to-do is open, done or dropped")
+            raise TodoError(say("a to-do is open, done or dropped"))
         if status == "dropped" and not note.strip():
-            raise TodoError("say why it is dropped")
+            raise TodoError(say("say why it is dropped"))
         closing = status in ("done", "dropped")
         out = conn.execute(
             "update qms_todos set owner = %s, due = %s, status = %s, note = %s, closed_by = %s, closed_at = %s "
@@ -119,10 +123,11 @@ def change(conn, email: str, todo_id: int, *, owner: str | None = None, due: dt.
              dt.datetime.now(dt.UTC) if closing else None, todo_id)).fetchone()
         what = []
         if out["owner"] != row["owner"]:
-            what.append(f"owner {out['owner']}")
+            what.append(say("owner {owner}", owner=out["owner"]))
         if out["due"] != row["due"]:
-            what.append(f"due {out['due']}")
-        _log(conn, todo_id, email, status if closing else "changed", "; ".join(what + ([note] if note else [])))
+            what.append(say("due {date}", date=out["due"]))
+        sep = "；" if I18N.current() == "zh" else "; "
+        _log(conn, todo_id, email, status if closing else "changed", sep.join(what + ([note] if note else [])))
     return out
 
 
@@ -131,7 +136,7 @@ def checklist(conn, standard: str, process: str = "") -> dict:
     records show and a sample of them."""
     v = QMS.view(conn, standard)
     if not v["enabled"]:
-        raise QMS.QmsError("adopt the standard first")
+        raise QMS.QmsError(say("adopt the standard first"))
     procs = [p for p in v["processes"] if not process or p["id"] == process]
     if process and not procs:
         raise KeyError(process)
@@ -140,11 +145,14 @@ def checklist(conn, standard: str, process: str = "") -> dict:
         items = []
         for c in p["controls"]:
             r = c.get("result") or {}
-            items.append({"id": c["id"], "question": f"Can the company show that: {c['summary'][0].lower()}"
-                                                     f"{c['summary'][1:]}", "clauses": c["clauses"],
+            s = I18N.label(c["summary"])
+            items.append({"id": c["id"], "question": say("Can the company show that: {requirement}",
+                                                         requirement=s[0].lower() + s[1:]), "clauses": c["clauses"],
                           "status": r.get("status"), "detail": r.get("detail"),
                           "sample": (r.get("evidence") or [])[:SAMPLE], "gaps": (r.get("problems") or [])[:SAMPLE],
                           "register": c.get("register")})
-        out.append({"id": p["id"], "label": p["label"], "items": items})
-    return {"name": v["name"], "edition_label": v["edition_label"], "evaluation": v["evaluation"],
-            "processes_all": [{"id": p["id"], "label": p["label"]} for p in v["processes"]], "processes": out}
+        out.append({"id": p["id"], "label": I18N.label(p["label"]), "items": items})
+    return {"name": I18N.label(v["name"]), "edition_label": I18N.label(v["edition_label"]),
+            "evaluation": v["evaluation"],
+            "processes_all": [{"id": p["id"], "label": I18N.label(p["label"])} for p in v["processes"]],
+            "processes": out}

@@ -15,7 +15,9 @@ import datetime as dt
 import re
 from collections import Counter, defaultdict
 
+from wqops import i18n as I18N
 from wqops.hub.docs import classify as K
+from wqops.i18n import say
 
 NUMBERED = K.CONTROLLED | {"spec"}            # one number = one document with revisions
 LIVE = ("to_classify", "to_review", "draft", "in_review", "approved", "effective", "confirmed")
@@ -167,6 +169,16 @@ def _issue(kind: str, severity: str, title: str, detail: str, docs: list[int], p
             **extra}
 
 
+def _list(items) -> str:
+    """Names in a sentence: "a, b" in English, "a、b" in Chinese."""
+    return ("、" if I18N.current() == "zh" else ", ").join(items)
+
+
+def _types(t: str) -> str:
+    """A document type in the plural, as in "your other procedures"."""
+    return f"{K.TYPES[t].lower()}s" if I18N.current() == "en" else I18N.label(K.TYPES[t])
+
+
 def _words(s: str | None) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9]{3,}", (s or "").lower()) if w not in {"the", "and", "for", "rev"}}
 
@@ -191,9 +203,10 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
     for group in by_sha.values():
         if len(group) > 1:
             keep = min(group, key=lambda d: (d["status"] not in ("effective", "confirmed"), d["id"]))  # = keeper
-            names = ", ".join(f"{d['path']}/{d['original_name']}".strip("/") for d in group)
-            out.append(_issue("duplicate", "medium", f"Same file {len(group)} times: {group[0]['original_name']}",
-                              f"Identical content: {names}. Keep one; mark the others as not kept.",
+            names = _list(f"{d['path']}/{d['original_name']}".strip("/") for d in group)
+            out.append(_issue("duplicate", "medium", say("Same file {n} times: {name}", n=len(group),
+                                                         name=group[0]["original_name"]),
+                              say("Identical content: {names}. Keep one; mark the others as not kept.", names=names),
                               [d["id"] for d in group], keep["process"], keep=keep["id"]))
     def keeper(g):
         return min(g, key=lambda d: (d["status"] not in ("effective", "confirmed"), d["id"]))
@@ -217,15 +230,17 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
         titles = [_words(d.get("title")) for d in group]
         unlike = any(a and b and len(a & b) / len(a | b) < 0.34 for i, a in enumerate(titles) for b in titles[i + 1:])
         if len(types) > 1 or unlike:
-            out.append(_issue("number_conflict", "high", f"{no} is used for different documents",
-                              "; ".join(f"{label(d)} ({K.TYPES.get(d['doc_type'], d['doc_type'])})" for d in group)
-                              + ". Give one of them a new number.", [d["id"] for d in group], group[0]["process"]))
+            which = ("；" if I18N.current() == "zh" else "; ").join(
+                f"{label(d)} ({I18N.label(K.TYPES.get(d['doc_type'], d['doc_type']))})" for d in group)
+            out.append(_issue("number_conflict", "high", say("{no} is used for different documents", no=no),
+                              say("{docs}. Give one of them a new number.", docs=which),
+                              [d["id"] for d in group], group[0]["process"]))
             continue
         revs = [norm_rev(d.get("revision")) for d in group if d.get("revision")]
         if len(set(revs)) < len(revs):
-            out.append(_issue("same_revision", "high", f"{no}: the same revision more than once",
-                              ", ".join(f"{label(d)} ({d['original_name']})" for d in group)
-                              + ". If the files differ, one of them needs another revision.",
+            out.append(_issue("same_revision", "high", say("{no}: the same revision more than once", no=no),
+                              say("{docs}. If the files differ, one of them needs another revision.",
+                                  docs=_list(f"{label(d)} ({d['original_name']})" for d in group)),
                               [d["id"] for d in group], group[0]["process"]))
             continue
         if len(revs) < len(group):                  # without revisions the order is unknown; no_revision says so
@@ -233,12 +248,12 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
         cur = newest(group)
         older = [d for d in group if d is not cur and d["status"] != "obsolete"]
         if older:
-            out.append(_issue("revisions", "medium", f"{no}: {len(group)} revisions, rev {cur.get('revision')} is "
-                                                     "current",
-                              f"Current: {label(cur)}. Older: " + ", ".join(label(d) for d in older)
-                              + ". Keep the older ones as obsolete so their history stays.",
+            out.append(_issue("revisions", "medium", say("{no}: {n} revisions, rev {rev} is current", no=no,
+                                                         n=len(group), rev=cur.get("revision")),
+                              say("Current: {current}. Older: {older}. Keep the older ones as obsolete so their "
+                                  "history stays.", current=label(cur), older=_list(label(d) for d in older)),
                               [cur["id"]] + [d["id"] for d in older], cur["process"], keep=cur["id"],
-                              older=[d["id"] for d in older]))
+                              older=[d["id"] for d in older], current_revision=cur.get("revision")))
 
     # missing fields and numbers off the convention
     for d in live:
@@ -246,27 +261,29 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
             continue
         if not d.get("number"):
             sug = suggest_number(d, docs, convs, codes, taken)
-            out.append(_issue("no_number", "medium", f"No number: {d.get('title') or d['original_name']}",
-                              f"Suggested number: {sug}." if sug else "Give it a number.", [d["id"]], d.get("process"),
-                              suggest=sug))
+            out.append(_issue("no_number", "medium",
+                              say("No number: {name}", name=d.get("title") or d["original_name"]),
+                              say("Suggested number: {number}.", number=sug) if sug else say("Give it a number."),
+                              [d["id"]], d.get("process"), suggest=sug))
         elif convs.get(d["doc_type"], {}).get("source") != "default" and \
                 not matches(d["number"], convs[d["doc_type"]]):
             sug = suggest_number(d, docs, convs, codes, taken)
             conv = convs[d["doc_type"]]
             example = render(conv["template"], conv["digits"], codes.get(d.get("process") or "", "XX"), 1)
-            out.append(_issue("odd_number", "info", f"{d['number']} differs from your other "
-                                                    f"{K.TYPES[d['doc_type']].lower()}s",
-                              f"Convention: {example}"
-                              + (f"; suggested {sug}" if sug else "") + ".", [d["id"]], d.get("process"), suggest=sug))
+            out.append(_issue("odd_number", "info", say("{number} differs from your other {types}",
+                                                        number=d["number"], types=_types(d["doc_type"])),
+                              say("Convention: {example}; suggested {number}.", example=example, number=sug) if sug
+                              else say("Convention: {example}.", example=example),
+                              [d["id"]], d.get("process"), suggest=sug))
         if d["doc_type"] in K.CONTROLLED and not d.get("revision"):
-            out.append(_issue("no_revision", "medium", f"No revision: {label(d)}",
-                              "Give it a revision before it is sent for approval.", [d["id"]], d.get("process")))
+            out.append(_issue("no_revision", "medium", say("No revision: {name}", name=label(d)),
+                              say("Give it a revision before it is sent for approval."), [d["id"]], d.get("process")))
     undated = [d for d in live if d["id"] not in dup_ids and d.get("doc_type") in K.CONTROLLED
                and not d.get("effective_date") and d["status"] != "effective"]
     if undated:
-        out.append(_issue("no_date", "info", f"{len(undated)} document(s) show no effective date",
-                          ", ".join(label(d) for d in undated) + ". Add the date if it is known; otherwise the "
-                          "approval date will be used.", [d["id"] for d in undated]))
+        out.append(_issue("no_date", "info", say("{n} document(s) show no effective date", n=len(undated)),
+                          say("{docs}. Add the date if it is known; otherwise the approval date will be used.",
+                              docs=_list(label(d) for d in undated)), [d["id"] for d in undated]))
 
     # what procedures name, and what records rest on
     known = {norm_no(d["number"]) for d in live if d.get("number")}
@@ -278,9 +295,10 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
         missing = sorted({norm_no(r) for r in d.get("refs") or []} - known - {own})
         missing = [m for m in missing if not m.startswith(own + "-") and (_prefix(m) or ("",))[0] in prefixes]
         if missing:
-            out.append(_issue("missing_ref", "medium", f"{label(d)} names documents that are not in the library",
-                              "Missing: " + ", ".join(missing) + ". Import them, or correct the procedure.",
-                              [d["id"]], d.get("process"), missing=missing))
+            out.append(_issue("missing_ref", "medium",
+                              say("{name} names documents that are not in the library", name=label(d)),
+                              say("Missing: {numbers}. Import them, or correct the procedure.",
+                                  numbers=_list(missing)), [d["id"]], d.get("process"), missing=missing))
     forms = [d for d in live if d.get("doc_type") == "form" and d.get("number") and d["id"] not in dup_ids]
     records = [d for d in live if d.get("doc_type") == "record"]
     unused = []
@@ -290,23 +308,23 @@ def issues(docs: list[dict], processes: dict[str, dict], convs: dict[str, dict],
                    for r in records):
             unused.append(f)
     if unused:
-        out.append(_issue("form_unused", "info", f"{len(unused)} form(s) without any record in the library",
-                          ", ".join(label(f) for f in unused) + ". Import their filled-in records, or check whether "
-                          "the forms are still used.", [f["id"] for f in unused]))
+        out.append(_issue("form_unused", "info", say("{n} form(s) without any record in the library", n=len(unused)),
+                          say("{forms}. Import their filled-in records, or check whether the forms are still used.",
+                              forms=_list(label(f) for f in unused)), [f["id"] for f in unused]))
     procs_with_procedure = {d.get("process") for d in live if d.get("doc_type") in ("procedure", "work_instruction")}
     by_proc = defaultdict(list)
     for r in records:
         by_proc[r.get("process")].append(r)
     for p, rs in by_proc.items():
         if p and p != "other" and p not in procs_with_procedure:
-            name = processes.get(p, {}).get("name", p)
-            out.append(_issue("no_procedure", "medium", f"{name}: records but no procedure",
-                              f"{len(rs)} record(s) and no procedure or work instruction saying how the work is done.",
-                              [r["id"] for r in rs], p))
+            name = I18N.label(processes.get(p, {}).get("name", p))
+            out.append(_issue("no_procedure", "medium", say("{name}: records but no procedure", name=name),
+                              say("{n} record(s) and no procedure or work instruction saying how the work is done.",
+                                  n=len(rs)), [r["id"] for r in rs], p))
     present = {d.get("process") for d in live}
     for p, info in processes.items():
         if p != "other" and p not in present:
-            out.append(_issue("empty_process", "info", f"{info['name']}: no documents",
-                              "Nothing for this process yet.", [], p))
+            out.append(_issue("empty_process", "info", say("{name}: no documents", name=I18N.label(info["name"])),
+                              say("Nothing for this process yet."), [], p))
     out.sort(key=lambda i: (SEVERITY[i["severity"]], i["kind"], i["title"]))
     return out

@@ -11,6 +11,9 @@ import json
 import math
 from decimal import Decimal
 
+from wqops import i18n as I18N
+from wqops.i18n import say
+
 KINDS = ("check", "measure", "record")
 PLACES = 6
 LIMIT = Decimal(10) ** 15     # readings and quantities are below this
@@ -35,16 +38,17 @@ def judge(step: dict, *, value=None, result: str | None = None, text: str | None
     if kind == "measure":
         v = stored(value)
         if v is None:
-            return None, "the reading is a number"
+            return None, say("the reading is a number")
         low, high = step.get("low"), step.get("high")
         ok = (low is None or Decimal(str(low)) <= v) and (high is None or v <= Decimal(str(high)))
-        return ("pass" if ok else "fail"), ("" if ok else f"{v} is outside {fmt_limits(step)}")
+        return ("pass" if ok else "fail"), ("" if ok else say("{value} is outside {limits}", value=v,
+                                                               limits=fmt_limits(step)))
     if kind == "check":
         if result not in ("pass", "fail"):
-            return None, "choose pass or fail"
+            return None, say("choose pass or fail")
         return result, ""
     if not isinstance(text, str) or not text.strip():
-        return None, "write what was done"
+        return None, say("write what was done")
     return "pass", ""
 
 
@@ -61,17 +65,17 @@ def fmt_limits(step: dict) -> str:
     elif high is not None:
         s = f"<= {high}"
     else:
-        s = "no limits"
+        s = say("no limits")
     return f"{s} {unit}".strip()
 
 
 def template_needs(t: dict, steps: list[dict]) -> list[str]:
     out = []
     if not steps:
-        out.append("at least one step")
+        out.append(say("at least one step"))
     for s in steps:
         if s["kind"] == "measure" and s.get("low") is None and s.get("high") is None:
-            out.append(f"step {s['seq']}: a lower or upper limit")
+            out.append(say("step {seq}: a lower or upper limit", seq=s["seq"]))
     return out
 
 
@@ -89,18 +93,19 @@ def to_submit(rec: dict, steps: list[dict], materials: list[dict], required: lis
     out = []
     left = [s["seq"] for s in steps if s.get("done_by") is None]
     if left:
-        out.append("steps " + ", ".join(map(str, left)) + " recorded")
+        sep = "、" if I18N.current() == "zh" else ", "
+        out.append(say("steps {list} recorded", list=sep.join(map(str, left))))
     if rec["good_qty"] <= 0:
-        out.append("the good quantity")
+        out.append(say("the good quantity"))
     if rec["good_qty"] + rec["scrap_qty"] > rec["planned_qty"]:
-        out.append("good and scrapped together at most the quantity planned")
+        out.append(say("good and scrapped together at most the quantity planned"))
     for s in steps:
         if s.get("verdict") == "fail" and (s.get("ncr_id") is None or open_ncrs.get(s["ncr_id"]) == "cancelled"):
-            out.append(f"a nonconformance report for step {s['seq']}")
+            out.append(say("a nonconformance report for step {seq}", seq=s["seq"]))
     used = {m["item_code"] for m in materials}
     for code in required:
         if code not in used:
-            out.append(f"the material lot of {code} used")
+            out.append(say("the material lot of {code} used", code=code))
     return out
 
 
@@ -109,8 +114,8 @@ def to_release(steps: list[dict], ncr_status: dict[int, str], on_hold: list[str]
     out = []
     for s in steps:
         if s.get("verdict") == "fail" and ncr_status.get(s.get("ncr_id")) != "closed":
-            out.append(f"the nonconformance report for step {s['seq']} closed")
-    out += [f"the out-of-tolerance assessment of {g} signed" for g in on_hold]
+            out.append(say("the nonconformance report for step {seq} closed", seq=s["seq"]))
+    out += [say("the out-of-tolerance assessment of {code} signed", code=g) for g in on_hold]
     return out
 
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from wqops.hub import permissions as P
 from wqops.hub.ai import tools as T
+from wqops.i18n import say
 
 # kind: (permission, the app page of one record)
 KINDS = {
@@ -74,15 +75,15 @@ def _clean(v):
 
 def get_record(ctx: T.Ctx, kind: str, id: int) -> dict:
     if kind not in KINDS:
-        raise T.ToolError(f"no record kind {kind}; kinds: {', '.join(KINDS)}")
+        raise T.ToolError(say("no record kind {kind}; kinds: {KINDS}", kind=kind, KINDS=', '.join(KINDS)))
     perm = KINDS[kind][0]
     if not P.allows(ctx.roles, perm):
-        raise T.ToolError(f"this person's role cannot see {kind.replace('_', ' ')} records")
+        raise T.ToolError(say("this person's role cannot see {kind} records", kind=kind.replace('_', ' ')))
     try:
         rid = int(id)
         row = _load(ctx, kind, rid)
     except (KeyError, ValueError, TypeError, OverflowError) as exc:
-        raise T.ToolError(f"no {kind} {id}") from exc
+        raise T.ToolError(say("no {kind} {id}", kind=kind, id=id)) from exc
     name = row.get("name") or row.get("code") or row.get("number") or str(rid)
     return {"ref": ctx.ref("Record", f"{kind}/{rid}/{name}"), "kind": kind, "record": _clean(row)}
 

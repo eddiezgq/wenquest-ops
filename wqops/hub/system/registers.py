@@ -12,9 +12,11 @@ import math
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.quality import records as Q
 from wqops.hub.system import qms as QMS
 from wqops.hub.system import rules as R
+from wqops.i18n import say
 
 TYPES = R.REGISTER_TYPES
 YES = {"yes", "y", "true", "1", "done", "closed", "x"}
@@ -37,6 +39,16 @@ def spec(name: str) -> dict:
     return s
 
 
+def shown(s: dict) -> dict:
+    """A register's definition in the reader's language: its name, field names and signature text, on the way out
+    (ADR-0023). The choices stay as they are: they are the values people pick and that are saved."""
+    return I18N.localize(s, I18N.LABEL_KEYS | {"sign"})
+
+
+def _sep() -> str:
+    return "、" if I18N.current() == "zh" else ", "
+
+
 def check_specs(regs: dict) -> list[str]:
     return R.check_registers(regs)
 
@@ -52,12 +64,12 @@ def _date(v) -> str:
 def clean(s: dict, values: dict, *, partial: bool = False) -> dict:  # noqa: PLR0912 - one branch per field type
     """Values checked against the register's fields; an empty value leaves the field out (unknown)."""
     if not isinstance(values, dict):
-        raise RegisterError("values are given by field")
+        raise RegisterError(say("values are given by field"))
     fields = s["fields"]
     out = {}
     for f, raw in values.items():
         if f not in fields:
-            raise RegisterError(f"{s['label']} has no field {f!r}")
+            raise RegisterError(say("{label} has no field {f}", label=I18N.label(s['label']), f=repr(f)))
         x = fields[f]
         if raw is None or (isinstance(raw, str) and not raw.strip()):
             continue
@@ -86,13 +98,15 @@ def clean(s: dict, values: dict, *, partial: bool = False) -> dict:  # noqa: PLR
             else:
                 out[f] = str(raw).strip()[:4000 if x["type"] == "longtext" else 300]
         except (ValueError, TypeError) as exc:
-            kind = {"number": "a number", "date": "a date like 2026-10-31", "yesno": "yes or no",
-                    "choice": "one of " + ", ".join(x.get("choices") or [])}.get(x["type"], "text")
-            raise RegisterError(f"{x['label']}: {kind}") from exc
+            t = x["type"]
+            kind = say("a number") if t == "number" else say("a date like 2026-10-31") if t == "date" else \
+                say("yes or no") if t == "yesno" else \
+                say("one of {list}", list=", ".join(x.get("choices") or [])) if t == "choice" else say("kind::text")
+            raise RegisterError(say("{label}: {kind}", label=I18N.label(x['label']), kind=kind)) from exc
     if not partial:
-        missing = [x["label"] for f, x in fields.items() if x.get("required") and f not in out]
+        missing = [I18N.label(x["label"]) for f, x in fields.items() if x.get("required") and f not in out]
         if missing:
-            raise RegisterError("still needed: " + ", ".join(missing))
+            raise RegisterError(say("still needed: {list}", list=_sep().join(missing)))
     return out
 
 
@@ -123,7 +137,7 @@ def create(conn, email: str, name: str, values: dict, *, source_doc: int | None 
                             email if approved else None, approved)).fetchone()
         log(conn, row["id"], email, "recorded", note)
         if approved:
-            log(conn, row["id"], email, "approved", "by the signed import of the old records")
+            log(conn, row["id"], email, "approved", say("by the signed import of the old records"))
     return row
 
 
@@ -133,16 +147,17 @@ def update(conn, email: str, entry_id: int, values: dict) -> dict:
         if row is None:
             raise KeyError(entry_id)
         if row["status"] != "open":
-            raise RegisterError(f"this entry is {'approved' if row['status'] == 'signed' else 'void'}; "
-                                "void it with a reason and record a new one")
+            raise RegisterError(say("this entry is approved; void it with a reason and record a new one")
+                                if row["status"] == "signed" else
+                                say("this entry is void; void it with a reason and record a new one"))
         s = spec(row["register"])
         merged = clean(s, {**row["values"], **values})
-        changed = [s["fields"][f]["label"] for f in s["fields"] if merged.get(f) != row["values"].get(f)]
+        changed = [I18N.label(s["fields"][f]["label"]) for f in s["fields"] if merged.get(f) != row["values"].get(f)]
         if not changed:
             return row
         out = conn.execute("update qms_register_entries set \"values\" = %s, updated_at = now() where id = %s "
                            "returning *", (Jsonb(merged), entry_id)).fetchone()
-        log(conn, entry_id, email, "changed", ", ".join(changed))
+        log(conn, entry_id, email, "changed", _sep().join(changed))
     return out
 
 
@@ -150,17 +165,18 @@ def sign(conn, user: dict, entry_id: int, password: str) -> dict:
     row = get(conn, entry_id)
     s = spec(row["register"])
     if not s.get("sign"):
-        raise RegisterError(f"{s['label']} entries are not approved with a signature")
+        raise RegisterError(say("{label} entries are not approved with a signature", label=I18N.label(s['label'])))
     if row["status"] != "open":
-        raise RegisterError(f"this entry is already {'approved' if row['status'] == 'signed' else 'void'}")
+        raise RegisterError(say("this entry is already approved") if row["status"] == "signed"
+                            else say("this entry is already void"))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         out = conn.execute("update qms_register_entries set status = 'signed', signed_by = %s, signed_at = now() "
                            "where id = %s and status = 'open' returning *", (user["email"], entry_id)).fetchone()
         if out is None:
-            raise RegisterError("this entry changed meanwhile; look at it again")
-        Q._sign(conn, user, s["sign"], "register", entry_id, f"{s['label']} #{entry_id}")
-        log(conn, entry_id, user["email"], "approved", s["sign"])
+            raise RegisterError(say("this entry changed meanwhile; look at it again"))
+        Q._sign(conn, user, I18N.label(s["sign"]), "register", entry_id, f"{I18N.label(s['label'])} #{entry_id}")
+        log(conn, entry_id, user["email"], "approved", I18N.label(s["sign"]))
     return out
 
 
@@ -168,7 +184,7 @@ def void(conn, user: dict, entry_id: int, reason: str, password: str = "") -> di
     """Void an entry with a reason; an approved one also needs the person's password."""
     email = user["email"]
     if not reason.strip():
-        raise RegisterError("say why the entry is void")
+        raise RegisterError(say("say why the entry is void"))
     if get(conn, entry_id)["status"] == "signed":
         Q.check_signer(conn, user, password)
     with conn.transaction():
@@ -176,7 +192,7 @@ def void(conn, user: dict, entry_id: int, reason: str, password: str = "") -> di
         if row is None:
             raise KeyError(entry_id)
         if row["status"] == "void":
-            raise RegisterError("this entry is already void")
+            raise RegisterError(say("this entry is already void"))
         out = conn.execute("update qms_register_entries set status = 'void', void_reason = %s, updated_at = now() "
                            "where id = %s returning *", (reason.strip()[:1000], entry_id)).fetchone()
         log(conn, entry_id, email, "void", reason.strip())

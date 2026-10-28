@@ -9,6 +9,7 @@ import asyncio
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import db as DB
 from wqops.hub import permissions as P
 from wqops.hub.ai import llm as L
@@ -17,13 +18,15 @@ from wqops.hub.quality import fmea as F
 from wqops.hub.quality import fmea_ai as FAI
 from wqops.hub.quality import fmea_rules as FR
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR0915, PLR0917 - one route per action
           db_url: str | None = None) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, f"your role does not allow: {P.PERMISSIONS[perm]}")
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                         PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def run(fn):
         try:
@@ -31,7 +34,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         except (F.FmeaError, Q.QualityError) as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(404, "not found") from exc
+            raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
 
@@ -40,12 +43,12 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         try:
             d = (await request.json()) if raw else {}
         except ValueError as exc:
-            raise HTTPException(400, "the request is not JSON") from exc
+            raise HTTPException(400, say("the request is not JSON")) from exc
         return d if isinstance(d, dict) else {}
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return v
 
     def ai_ready() -> bool:
@@ -159,7 +162,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         for perm in ("quality:edit", "ai:use"):
             need(u, perm)
         if not ai_ready():
-            raise HTTPException(409, "there is no model key; write the rows yourself")
+            raise HTTPException(409, say("there is no model key; write the rows yourself"))
 
         def work():
             with DB.connect(db_url) as c:
@@ -167,7 +170,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
                     out = run(lambda: FAI.suggest(c, {"email": u["email"], "roles": u["roles"]}, ident(fid), model,
                                                   today=OA.today(company()[0])))
                 except L.LlmError as exc:
-                    raise HTTPException(502, f"the model could not draft rows: {exc}") from exc
+                    raise HTTPException(502, say("the model could not draft rows: {exc}", exc=exc)) from exc
                 return {"suggested": {k: out[k] for k in ("run", "dropped", "unusable", "note", "shown")}
                         | {"kept": len(out["rows"])}} | page(c, u, fid)
 
@@ -188,5 +191,5 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
             row = run(lambda: F.revise(c, u["email"], fid))
             return page(c, u, row["id"])
         else:
-            raise HTTPException(404, "not found")
+            raise HTTPException(404, say("not found"))
         return page(c, u, fid)
