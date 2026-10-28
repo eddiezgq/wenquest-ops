@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from wqops import i18n as I18N
 from wqops.i18n import say
 
 METHODS = {"fishbone": "Fishbone", "five_why": "5 Why"}
@@ -23,7 +24,8 @@ class CauseError(ValueError):
     pass
 
 
-def text(v, what: str = "the cause", n: int = MAX_TEXT) -> str:
+def text(v, what: str | None = None, n: int = MAX_TEXT) -> str:
+    what = what or say("the cause")
     s = re.sub(r"\s+", " ", CONTROL.sub(" ", str(v if v is not None else ""))).strip()
     if not s:
         raise CauseError(say("write {what}", what=what))
@@ -40,7 +42,7 @@ def categories(v) -> list[str]:
         raise CauseError(say("the categories are a list"))
     out: list[str] = []
     for raw in v:
-        c = text(raw, "a category", 40)
+        c = text(raw, say("a category"), 40)
         if c.lower() not in {x.lower() for x in out}:
             out.append(c)
     if not 2 <= len(out) <= 10:
@@ -115,7 +117,7 @@ def verify(proposals: list[dict], shown: set[str]) -> tuple[list[dict], list[dic
         bad = [r for r in cited if r not in shown]
         if not good:
             dropped.append({"text": str(p.get("text") or "")[:200], "refs": cited,
-                            "reason": "cites no record it was shown" if cited else "cites no record"})
+                            "reason": say("cites no record it was shown") if cited else say("cites no record")})
             continue
         kept.append(p | {"refs": good, "unshown": bad})
     return kept, dropped
@@ -125,15 +127,17 @@ def ready(analysis: dict, items: list[dict]) -> list[str]:
     """What still stands between the analysis and its conclusion (empty when ready)."""
     out = []
     if analysis["status"] != "open":
-        out.append(f"{analysis['name']} is {analysis['status']}")
+        out.append(say("{name} is {status}", name=analysis["name"], status=analysis["status"]))
     if any(i["status"] == "proposed" for i in items):
-        out.append("accept, edit or remove every suggestion first")
+        out.append(say("accept, edit or remove every suggestion first"))
     if not any(i["status"] == "accepted" for i in items):
-        out.append("accept at least one cause" if analysis["method"] == "fishbone" else "accept an answer to why 1")
+        out.append(say("accept at least one cause") if analysis["method"] == "fishbone"
+                   else say("accept an answer to why 1"))
     return out
 
 
 def write_back(existing: str | None, conclusion: str, name: str, method: str) -> str:
     """The root cause text with the conclusion added; what was there is kept."""
-    line = f"{conclusion} (from {METHODS[method]} {name})"
+    line = say("{conclusion} (from {method} {name})", conclusion=conclusion, method=I18N.label(METHODS[method]),
+               name=name)
     return f"{existing.strip()}\n\n{line}" if (existing or "").strip() else line

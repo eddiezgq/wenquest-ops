@@ -12,11 +12,23 @@ from __future__ import annotations
 
 import datetime as dt
 
+from wqops import i18n as I18N
 from wqops.hub.ont import anomaly as AN
 from wqops.hub.ont import metrics as M
+from wqops.i18n import say
 
 MAX_DEPTH = 6
 MAX_NODES = 200
+
+
+def _word(v) -> str:
+    """A status or kind stored as a code ("use_as_is"), as a word in the reader's language."""
+    return I18N.label(str(v).replace("_", " "))
+
+
+def _code(v) -> str:
+    """A status shown as stored in English ("in_progress"), as a word in other languages."""
+    return str(v) if I18N.current() == "en" else _word(v)
 
 
 class Walk:
@@ -79,7 +91,9 @@ class Walk:
                     ("SalesOrder", key),
                     ("Item", code),
                     "waits for",
-                    f"{code} is short by {s['short']:g}: {s['on_hand']:g} on hand, open orders need {s['demand']:g}.",
+                    say("{code} is short by {short}: {on_hand} on hand, open orders need {demand}.", code=code,
+                        short=format(s["short"], "g"), on_hand=format(s["on_hand"], "g"),
+                        demand=format(s["demand"], "g")),
                     depth,
                     on_hand=s["on_hand"],
                     demand=s["demand"],
@@ -98,21 +112,26 @@ class Walk:
                 if ln.get("item_code") == code and left > 0:
                     open_pos.append((o, ln, left, M._d(ln.get("schedule_date") or p.get("schedule_date"))))
         if not open_pos:
-            self.step(("Item", code), None, "no supply", f"No open purchase order brings more {code}.", depth)
+            self.step(("Item", code), None, "no supply", say("No open purchase order brings more {code}.", code=code),
+                      depth)
             return
         for o, _ln, left, due in open_pos:
-            notes = []
+            left_s = format(left, "g")
             if due and due < self.today:
-                notes.append(f"{M.days((self.today - due).days)} past its required-by date {due}")
+                why = say("{key}: {left} still to receive, {days} past its required-by date {due}.", key=o["key"],
+                          left=left_s, days=M.days((self.today - due).days), due=due)
             elif due and need_by and due > need_by:
-                notes.append(f"arrives {due}, after the order needs it ({need_by})")
+                why = say("{key}: {left} still to receive, arrives {due}, after the order needs it ({need_by}).",
+                          key=o["key"], left=left_s, due=due, need_by=need_by)
             elif due:
-                notes.append(f"required by {due}")
+                why = say("{key}: {left} still to receive, required by {due}.", key=o["key"], left=left_s, due=due)
+            else:
+                why = say("{key}: {left} still to receive, .", key=o["key"], left=left_s)
             if self.step(
                 ("Item", code),
                 ("PurchaseOrder", o["key"]),
                 "expected from",
-                f"{o['key']}: {left:g} still to receive, {'; '.join(notes)}.",
+                why,
                 depth,
                 still_to_receive=left,
                 required_by=str(due) if due else None,
@@ -129,9 +148,10 @@ class Walk:
             return
         s = self.suppliers.get(sup)
         why = (
-            f"{sup} delivered {s['on_time']} of {s['total']} receipt lines on time in 90 days ({s['value']:g}%)."
+            say("{sup} delivered {on_time} of {total} receipt lines on time in 90 days ({pct}%).", sup=sup,
+                on_time=s["on_time"], total=s["total"], pct=format(s["value"], "g"))
             if s
-            else f"{sup}: no receipts in the last 90 days to rate on-time delivery (unknown)."
+            else say("{sup}: no receipts in the last 90 days to rate on-time delivery (unknown).", sup=sup)
         )
         self.step(
             ("PurchaseOrder", o["key"]),
@@ -156,7 +176,8 @@ class Walk:
                 ("QualityInspection", key),
                 ("PurchaseReceipt", pr),
                 "inspected",
-                f"{p.get('item_code')} from receipt {pr} was {p.get('status', 'inspected').lower()}.",
+                say("{item} from receipt {receipt} was {status}.", item=p.get("item_code"), receipt=pr,
+                    status=_word(p.get("status", "inspected").lower())),
                 depth,
             ):
                 sup = self.conn.execute(
@@ -169,7 +190,7 @@ class Walk:
                         ("PurchaseReceipt", pr),
                         ("Supplier", sup["dst_key"]),
                         "received from",
-                        f"Supplied by {self.title('Supplier', sup['dst_key'])}.",
+                        say("Supplied by {name}.", name=self.title("Supplier", sup["dst_key"])),
                         depth + 1,
                     )
 
@@ -180,7 +201,8 @@ class Walk:
                 ("Item", code),
                 ("SalesOrder", d["order"]),
                 "needed by",
-                f"{d['order']} still needs {d['qty']:g} of {code}, due {d['due']}.",
+                say("{order} still needs {qty} of {code}, due {due}.", order=d["order"], qty=format(d["qty"], "g"),
+                    code=code, due=d["due"]),
                 depth,
                 qty=d["qty"],
                 due=d["due"],
@@ -195,7 +217,7 @@ class Walk:
                         ("SalesOrder", d["order"]),
                         ("Customer", cust["dst_key"]),
                         "for customer",
-                        f"Ordered by {self.title('Customer', cust['dst_key'])}.",
+                        say("Ordered by {name}.", name=self.title("Customer", cust["dst_key"])),
                         depth + 1,
                     )
 
@@ -216,7 +238,7 @@ def explain(conn, type_: str, key: str, today: dt.date) -> dict:  # noqa: PLR091
                 ("SalesOrder", key),
                 ("Customer", o["dst_key"]),
                 "for customer",
-                f"Ordered by {w.title('Customer', o['dst_key'])}.",
+                say("Ordered by {name}.", name=w.title("Customer", o["dst_key"])),
                 1,
             )
     elif type_ == "Item":
@@ -239,7 +261,7 @@ def explain(conn, type_: str, key: str, today: dt.date) -> dict:  # noqa: PLR091
                         ("PurchaseOrder", key),
                         ("Item", code),
                         "brings",
-                        f"{code} is short by {w.short[code]['short']:g}.",
+                        say("{code} is short by {short}.", code=code, short=format(w.short[code]["short"], "g")),
                         1,
                     )
                 ):
@@ -261,12 +283,10 @@ def explain(conn, type_: str, key: str, today: dt.date) -> dict:  # noqa: PLR091
                 ("QualityInspection", key),
                 ("Nonconformance", n["key"]),
                 "reported in",
-                f"{n['key']} is {n['props'].get('status')}"
-                + (
-                    f", disposition {n['props']['disposition'].replace('_', ' ')}."
-                    if n["props"].get("disposition")
-                    else "."
-                ),
+                say("{key} is {status}, disposition {disposition}.", key=n["key"],
+                    status=_code(n["props"].get("status")), disposition=_word(n["props"]["disposition"]))
+                if n["props"].get("disposition")
+                else say("{key} is {status}.", key=n["key"], status=_code(n["props"].get("status"))),
                 1,
             ):
                 for cp in conn.execute(
@@ -279,11 +299,12 @@ def explain(conn, type_: str, key: str, today: dt.date) -> dict:  # noqa: PLR091
                         ("Nonconformance", n["key"]),
                         ("Capa", cp["key"]),
                         "corrected by",
-                        f"{cp['key']} ({cp['props'].get('kind')}) is "
-                        f"{cp['props'].get('status', '').replace('_', ' ')}.",
+                        say("{key} ({kind}) is {status}.", key=cp["key"], kind=_code(cp["props"].get("kind")),
+                            status=_word(cp["props"].get("status", ""))),
                         2,
                     )
-        if code and w.step(("QualityInspection", key), ("Item", code), "affects", f"Rejected lot of {code}.", 1):
+        if code and w.step(("QualityInspection", key), ("Item", code), "affects",
+                                say("Rejected lot of {code}.", code=code), 1):
             w.item_impact(code, 2)
     elif type_ == "Supplier":
         for o in M._objs(conn, "PurchaseOrder"):
@@ -297,7 +318,7 @@ def explain(conn, type_: str, key: str, today: dt.date) -> dict:  # noqa: PLR091
                 ("Supplier", key),
                 ("PurchaseOrder", o["key"]),
                 "late order",
-                f"{o['key']} is {M.days(max(x['days_late'] for x in late))} late.",
+                say("{key} is {days} late.", key=o["key"], days=M.days(max(x["days_late"] for x in late))),
                 1,
             ):
                 for x in late:
@@ -305,7 +326,8 @@ def explain(conn, type_: str, key: str, today: dt.date) -> dict:  # noqa: PLR091
                         ("PurchaseOrder", o["key"]),
                         ("Item", x["item"]),
                         "brings",
-                        f"{x['item']} is short by {w.short[x['item']]['short']:g}.",
+                        say("{code} is short by {short}.", code=x["item"],
+                            short=format(w.short[x["item"]]["short"], "g")),
                         2,
                     ):
                         w.item_impact(x["item"], 3)

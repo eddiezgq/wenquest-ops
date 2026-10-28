@@ -24,7 +24,7 @@ def _run(r: dict) -> dict:
 def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0915, PLR0917
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.describe(perm)))
 
     def ctx(c, u) -> T.Ctx:
         m = company()[0]
@@ -174,11 +174,11 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         if row is None:
             raise HTTPException(404, say("no brief yet; the first one is made at 7:30 company time"))
         m = company()[0]
-        return BR.view(row, u["roles"], (m or {}).get("company", {}).get("name", "the company"))
+        return BR.view(row, u["roles"], (m or {}).get("company", {}).get("name") or say("the company"))
 
     @app.post("/api/brief/generate")
     def make_brief(u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "ai:configure")
         m = company()[0]
         row = BR.generate(c, OA.today(m), m, model)
-        return BR.view(row, u["roles"], (m or {}).get("company", {}).get("name", "the company"))
+        return BR.view(row, u["roles"], (m or {}).get("company", {}).get("name") or say("the company"))

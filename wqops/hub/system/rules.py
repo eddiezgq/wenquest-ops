@@ -11,6 +11,8 @@ are history: counted, not judged, because they were not made under these rules; 
 worked in WenQuest Ops and judged from the day they were imported. Dates are the company's days, prepared by
 system/qms.py (``opened``, ``closed_on``, ``contained_on``, ``when``). Plain code: no AI, no network, no database
 (tests/test_isolation.py).
+
+The explanations are written in the reader's language when the check runs (ADR-0023); they are kept with the check.
 """
 
 from __future__ import annotations
@@ -18,7 +20,9 @@ from __future__ import annotations
 import datetime as dt
 import re
 
+from wqops import i18n as I18N
 from wqops.hub.quality import approval as AP
+from wqops.i18n import say
 
 MET, NOT_MET, UNKNOWN, NA = "met", "not_met", "unknown", "not_applicable"
 SHOW = 25                                       # records listed per answer; the count says how many there are
@@ -34,8 +38,34 @@ def ref(kind: str, row: dict, why: str = "") -> dict:
     return {"kind": kind, "id": row["id"], "label": row.get("name") or row.get("label") or str(row["id"]), "why": why}
 
 
-def _plural(n: int, word: str) -> str:
-    return f"{n} {word}{'' if n == 1 else 's'}"
+def _zh() -> bool:
+    return I18N.current() == "zh"
+
+
+def _pick(n: int, one: str, many: str) -> str:
+    """The singular or the plural sentence (each a whole text in the catalog)."""
+    return one if n == 1 else many
+
+
+def _list(items) -> str:
+    return ("、" if _zh() else ", ").join(str(x) for x in items)
+
+
+def _semi(items) -> str:
+    return ("；" if _zh() else "; ").join(items)
+
+
+def _sp() -> str:
+    """The space before a following sentence: none between Chinese sentences."""
+    return "" if _zh() else " "
+
+
+def _cat(a: str, b: str) -> str:
+    return a + _sp() + b
+
+
+def _end(s: str) -> str:
+    return s + ("。" if _zh() else ".")
 
 
 def judged(rows: list[dict], facts: dict) -> tuple[list[dict], list[dict]]:
@@ -54,7 +84,16 @@ def judged(rows: list[dict], facts: dict) -> tuple[list[dict], list[dict]]:
 
 
 def _history(rows: list[dict], what: str = "report") -> str:
-    return f" {_plural(len(rows), 'imported ' + what)} counted as history, not judged." if rows else ""
+    if not rows:
+        return ""
+    n = len(rows)
+    if what == "action":
+        t = _pick(n, say("{n} imported action counted as history, not judged.", n=n),
+                  say("{n} imported actions counted as history, not judged.", n=n))
+    else:
+        t = _pick(n, say("{n} imported report counted as history, not judged.", n=n),
+                  say("{n} imported reports counted as history, not judged.", n=n))
+    return _sp() + t
 
 
 # ---------------------------------------------------------------- documents
@@ -66,18 +105,26 @@ def documents_approved(facts: dict, settings: dict) -> dict:
     docs = [d for d in facts["documents"] if d["doc_type"] in CONTROLLED and d["status"] not in ("rejected",
                                                                                                     "obsolete")]
     if not docs:
-        return result(UNKNOWN, "No procedures, work instructions or forms in the document library yet.")
+        return result(UNKNOWN, say("No procedures, work instructions or forms in the document library yet."))
     effective = [d for d in docs if d["status"] == "effective"]
     waiting = [d for d in docs if d["status"] != "effective"]
-    unsigned = [ref("document", d, "in effect without a recorded approval") for d in effective
+    unsigned = [ref("document", d, say("in effect without a recorded approval")) for d in effective
                 if d["id"] not in facts["document_approvals"]]
     if unsigned:
-        return result(NOT_MET, f"{_plural(len(unsigned), 'document')} in effect without a recorded approval.", unsigned)
+        n = len(unsigned)
+        return result(NOT_MET, _pick(n, say("{n} document in effect without a recorded approval.", n=n),
+                                     say("{n} documents in effect without a recorded approval.", n=n)), unsigned)
     if not effective:
-        return result(NOT_MET, f"None of the {_plural(len(docs), 'controlled document')} has been approved yet.",
-                      [ref("document", d, "not approved yet") for d in waiting])
-    note = f" {_plural(len(waiting), 'other')} not approved yet, so not in use." if waiting else ""
-    return result(MET, f"{_plural(len(effective), 'document')} in effect, each approved with a signature.{note}",
+        n = len(docs)
+        return result(NOT_MET, _pick(n, say("None of the {n} controlled document has been approved yet.", n=n),
+                                     say("None of the {n} controlled documents has been approved yet.", n=n)),
+                      [ref("document", d, say("not approved yet")) for d in waiting])
+    w = len(waiting)
+    note = _sp() + _pick(w, say("{n} other not approved yet, so not in use.", n=w),
+                         say("{n} others not approved yet, so not in use.", n=w)) if waiting else ""
+    n = len(effective)
+    return result(MET, _pick(n, say("{n} document in effect, each approved with a signature.", n=n),
+                             say("{n} documents in effect, each approved with a signature.", n=n)) + note,
                   evidence=[ref("document", d) for d in effective])
 
 
@@ -92,31 +139,40 @@ def _controlled(facts: dict) -> list[dict]:
 def documents_current(facts: dict, settings: dict) -> dict:
     live = _controlled(facts)
     if not live:
-        return result(UNKNOWN, "No procedures, work instructions or forms in the library yet.")
+        return result(UNKNOWN, say("No procedures, work instructions or forms in the library yet."))
     ids = {d["id"] for d in live}
     bad = [i for i in facts["document_issues"] if i["kind"] in CLASHES and ids & set(i["docs"])]
     late = [d for d in facts.get("doc_reviews_overdue") or [] if d["id"] in ids]    # periodic review (17d)
     if bad or late:
-        what = [f"{_plural(len(bad), 'problem')} with revisions, numbers or copies"] if bad else []
-        what += [f"{_plural(len(late), 'periodic review')} overdue"] if late else []
-        return result(NOT_MET, "; ".join(what).capitalize() + ".",
+        b, n = len(bad), len(late)
+        what = [_pick(b, say("{n} problem with revisions, numbers or copies", n=b),
+                      say("{n} problems with revisions, numbers or copies", n=b))] if bad else []
+        what += [_pick(n, say("{n} periodic review overdue", n=n), say("{n} periodic reviews overdue", n=n))] \
+            if late else []
+        return result(NOT_MET, _end(_semi(what).capitalize()),
                       [{"kind": "document", "id": i["docs"][0], "label": i["title"], "why": i["detail"]} for i in bad]
                       + [{"kind": "document", "id": d["id"], "label": d["number"] or d["title"],
-                          "why": f"periodic review due {d['due']}"} for d in late])
-    return result(MET, f"{_plural(len(live), 'controlled document')} checked: one current revision each, no clashing "
-                       "numbers or copies.")
+                          "why": say("periodic review due {date}", date=d["due"])} for d in late])
+    n = len(live)
+    return result(MET, _pick(
+        n, say("{n} controlled document checked: one current revision each, no clashing numbers or copies.", n=n),
+        say("{n} controlled documents checked: one current revision each, no clashing numbers or copies.", n=n)))
 
 
 def documents_referenced(facts: dict, settings: dict) -> dict:
     procs = [d for d in facts["documents"] if d["doc_type"] in ("procedure", "work_instruction")
              and d["status"] not in ("rejected", "obsolete")]
     if not procs:
-        return result(UNKNOWN, "No procedures or work instructions in the library yet.")
+        return result(UNKNOWN, say("No procedures or work instructions in the library yet."))
     bad = [i for i in facts["document_issues"] if i["kind"] == "missing_ref"]
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'procedure')} name documents that are not in the library.",
+        n = len(bad)
+        return result(NOT_MET, _pick(n, say("{n} procedure name documents that are not in the library.", n=n),
+                                     say("{n} procedures name documents that are not in the library.", n=n)),
                       [{"kind": "document", "id": i["docs"][0], "label": i["title"], "why": i["detail"]} for i in bad])
-    return result(MET, f"Every form and record the {_plural(len(procs), 'procedure')} name is in the library.")
+    n = len(procs)
+    return result(MET, _pick(n, say("Every form and record the {n} procedure name is in the library.", n=n),
+                             say("Every form and record the {n} procedures name is in the library.", n=n)))
 
 
 # ---------------------------------------------------------------- nonconformances
@@ -130,19 +186,23 @@ def ncr_contained(facts: dict, settings: dict) -> dict:
             seen += 1
             age = (facts["today"] - n["opened"]).days
             if age > limit:
-                late.append(ref("ncr", n, f"open for {age} days without containment"))
+                late.append(ref("ncr", n, say("open for {n} days without containment", n=age)))
         elif n.get("contained_on"):
             seen += 1
             took = (n["contained_on"] - n["opened"]).days
             if took > limit:
-                late.append(ref("ncr", n, f"contained after {took} days"))
+                late.append(ref("ncr", n, say("contained after {n} days", n=took)))
     if not seen:
-        return result(UNKNOWN, f"No nonconformance reports of the last {settings['window_days']} days to judge."
-                      + _history(history))
+        return result(UNKNOWN, say("No nonconformance reports of the last {days} days to judge.",
+                                   days=settings["window_days"]) + _history(history))
     if late:
-        return result(NOT_MET, f"{_plural(len(late), 'report')} not contained within {limit} days.", late)
-    return result(MET, f"{_plural(seen, 'report')}: each contained within {limit} days, or still within them."
-                  + _history(history))
+        k = len(late)
+        return result(NOT_MET, _pick(k, say("{n} report not contained within {days} days.", n=k, days=limit),
+                                     say("{n} reports not contained within {days} days.", n=k, days=limit)), late)
+    return result(MET, _pick(seen, say("{n} report: each contained within {days} days, or still within them.",
+                                       n=seen, days=limit),
+                             say("{n} reports: each contained within {days} days, or still within them.",
+                                 n=seen, days=limit)) + _history(history))
 
 
 def ncr_concession_approved(facts: dict, settings: dict) -> dict:
@@ -150,20 +210,24 @@ def ncr_concession_approved(facts: dict, settings: dict) -> dict:
     conc = [n for n in own if n.get("disposition") in facts["approval_dispositions"]
             and n["status"] in ("dispositioned", "closed")]
     if not conc:
-        return result(UNKNOWN, f"No dispositions needing approval in the last {settings['window_days']} days."
-                      + _history(history))
+        return result(UNKNOWN, say("No dispositions needing approval in the last {days} days.",
+                                   days=settings["window_days"]) + _history(history))
     bad = []
     for n in conc:
         signed = facts["signatures"].get(("ncr", n["id"]), set())
         if not n.get("approved_by"):
-            bad.append(ref("ncr", n, "no approval recorded"))
+            bad.append(ref("ncr", n, say("no approval recorded")))
         elif n["approved_by"] == n.get("disposition_by"):
-            bad.append(ref("ncr", n, "approved by the person who proposed it"))
+            bad.append(ref("ncr", n, say("approved by the person who proposed it")))
         elif n["approved_by"] not in signed:
-            bad.append(ref("ncr", n, "the approval has no signature"))
+            bad.append(ref("ncr", n, say("the approval has no signature")))
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'concession')} without a proper approval.", bad)
-    return result(MET, f"{_plural(len(conc), 'disposition')} needing approval, each signed by someone else.",
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} concession without a proper approval.", n=k),
+                                     say("{n} concessions without a proper approval.", n=k)), bad)
+    k = len(conc)
+    return result(MET, _pick(k, say("{n} disposition needing approval, each signed by someone else.", n=k),
+                             say("{n} dispositions needing approval, each signed by someone else.", n=k)),
                   evidence=[ref("ncr", n) for n in conc])
 
 
@@ -171,37 +235,49 @@ def ncr_recorded(facts: dict, settings: dict) -> dict:
     own, history = judged(facts["ncrs"], facts)
     closed = [n for n in own if n["status"] == "closed"]
     if not closed:
-        return result(UNKNOWN, f"No reports closed in WenQuest Ops in the last {settings['window_days']} days."
-                      + _history(history))
+        return result(UNKNOWN, say("No reports closed in WenQuest Ops in the last {days} days.",
+                                   days=settings["window_days"]) + _history(history))
     bad = []
     for n in closed:
-        gaps = [w for w, ok in (("description", n.get("description")), ("disposition", n.get("disposition")),
-                                ("reason for the disposition", n.get("disposition_reason")),
-                                ("who decided the disposition", n.get("disposition_by")),
-                                ("who closed it", n.get("closed_by"))) if not (ok or "").strip()]
+        gaps = [w for w, ok in ((say("description"), n.get("description")),
+                                (say("disposition"), n.get("disposition")),
+                                (say("reason for the disposition"), n.get("disposition_reason")),
+                                (say("who decided the disposition"), n.get("disposition_by")),
+                                (say("who closed it"), n.get("closed_by"))) if not (ok or "").strip()]
         if n.get("closed_by") and n["closed_by"] not in facts["signatures"].get(("ncr", n["id"]), set()):
-            gaps.append("the closing signature")
+            gaps.append(say("the closing signature"))
         if gaps:
-            bad.append(ref("ncr", n, "missing: " + ", ".join(gaps)))
+            bad.append(ref("ncr", n, say("missing: {list}", list=_list(gaps))))
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'closed report')} with something missing.", bad)
-    return result(MET, f"{_plural(len(closed), 'closed report')}, each with description, disposition, reason, who "
-                       "decided and the closing signature." + _history(history),
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} closed report with something missing.", n=k),
+                                     say("{n} closed reports with something missing.", n=k)), bad)
+    k = len(closed)
+    return result(MET, _pick(k, say("{n} closed report, each with description, disposition, reason, who decided and "
+                                    "the closing signature.", n=k),
+                             say("{n} closed reports, each with description, disposition, reason, who decided and "
+                                 "the closing signature.", n=k)) + _history(history),
                   evidence=[ref("ncr", n) for n in closed])
 
 
 def rejected_lots_have_ncr(facts: dict, settings: dict) -> dict:
     lots = facts["incoming_inspections"]
     if not lots:
-        return result(UNKNOWN, f"No incoming inspections in the last {settings['window_days']} days.")
+        return result(UNKNOWN, say("No incoming inspections in the last {days} days.", days=settings["window_days"]))
     rejected = [q for q in lots if q["rejected"]]
     missing = [{"kind": "inspection", "id": q["key"], "label": q["key"],
-                "why": " ".join(x for x in ("rejected", q.get("item_code"), "without a nonconformance report") if x)}
+                "why": say("rejected {item} without a nonconformance report", item=q["item_code"])
+                if q.get("item_code") else say("rejected without a nonconformance report")}
                for q in rejected if q["key"] not in facts["ncr_inspections"]]
     if missing:
-        return result(NOT_MET, f"{_plural(len(missing), 'rejected lot')} without a nonconformance report.", missing)
-    return result(MET, f"{_plural(len(lots), 'incoming inspection')}, {len(rejected)} rejected; every rejected lot has "
-                       "a nonconformance report.")
+        k = len(missing)
+        return result(NOT_MET, _pick(k, say("{n} rejected lot without a nonconformance report.", n=k),
+                                     say("{n} rejected lots without a nonconformance report.", n=k)), missing)
+    k, r = len(lots), len(rejected)
+    return result(MET, _pick(k, say("{n} incoming inspection, {rejected} rejected; every rejected lot has a "
+                                    "nonconformance report.", n=k, rejected=r),
+                             say("{n} incoming inspections, {rejected} rejected; every rejected lot has a "
+                                 "nonconformance report.", n=k, rejected=r)))
 
 
 # ---------------------------------------------------------------- corrective actions
@@ -211,15 +287,22 @@ def capa_for_major(facts: dict, settings: dict) -> dict:
     within = int(settings["capa_within_days"])
     major = [n for n in own if n["severity"] == "major"]
     if not major:
-        return result(UNKNOWN, f"No major nonconformance reports of the last {settings['window_days']} days."
-                      + _history(history))
-    bad = [ref("ncr", n, "major, no corrective action") for n in major
+        return result(UNKNOWN, say("No major nonconformance reports of the last {days} days.",
+                                   days=settings["window_days"]) + _history(history))
+    bad = [ref("ncr", n, say("major, no corrective action")) for n in major
            if n["id"] not in facts["ncr_capas"] and (facts["today"] - n["opened"]).days > within]
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'major report')} without a corrective action after {within} "
-                               "days.", bad)
-    return result(MET, f"{_plural(len(major), 'major report')}: each has a corrective action (or was opened in the "
-                       f"last {within} days)." + _history(history), evidence=[ref("ncr", n) for n in major])
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} major report without a corrective action after {days} days.",
+                                            n=k, days=within),
+                                     say("{n} major reports without a corrective action after {days} days.",
+                                         n=k, days=within)), bad)
+    k = len(major)
+    return result(MET, _pick(k, say("{n} major report: each has a corrective action (or was opened in the last "
+                                    "{days} days).", n=k, days=within),
+                             say("{n} major reports: each has a corrective action (or was opened in the last "
+                                 "{days} days).", n=k, days=within)) + _history(history),
+                  evidence=[ref("ncr", n) for n in major])
 
 
 def capa_on_time(facts: dict, settings: dict) -> dict:
@@ -234,38 +317,45 @@ def capa_on_time(facts: dict, settings: dict) -> dict:
         seen += 1
         if (a["done"] and (a["done_on"] - due).days > grace) or (not a["done"] and (facts["today"] - due).days > grace):
             late.append({"kind": "capa", "id": c["id"], "label": c["name"],
-                         "why": f"{a['text'][:80]}: due {due}" + (f", done {a['done_on']}" if a["done"] else
-                                                                ", not done")})
+                         "why": say("{text}: due {due}, done {done}", text=a["text"][:80], due=due, done=a["done_on"])
+                         if a["done"] else say("{text}: due {due}, not done", text=a["text"][:80], due=due)})
     if not seen:
-        return result(UNKNOWN, "No actions with due dates to judge.")
+        return result(UNKNOWN, say("No actions with due dates to judge."))
     if late:
-        return result(NOT_MET, f"{_plural(len(late), 'action')} late.", late)
-    return result(MET, f"{_plural(seen, 'action')} with due dates: none late.")
+        k = len(late)
+        return result(NOT_MET, _pick(k, say("{n} action late.", n=k), say("{n} actions late.", n=k)), late)
+    return result(MET, _pick(seen, say("{n} action with due dates: none late.", n=seen),
+                             say("{n} actions with due dates: none late.", n=seen)))
 
 
 def capa_effective(facts: dict, settings: dict) -> dict:
     own, history = judged(facts["capas"], facts)
     closed = [c for c in own if c["status"] == "closed"]
     if not closed:
-        return result(UNKNOWN, f"No corrective actions closed in WenQuest Ops in the last {settings['window_days']} "
-                               "days." + _history(history, "action"))
+        return result(UNKNOWN, say("No corrective actions closed in WenQuest Ops in the last {days} days.",
+                                   days=settings["window_days"]) + _history(history, "action"))
     bad = []
     for c in closed:
         gaps = []
         if c.get("verification_result") != "effective":
-            gaps.append("an effective conclusion")
+            gaps.append(say("an effective conclusion"))
         if not (c.get("verification_method") or "").strip():
-            gaps.append("the evidence of effectiveness")
+            gaps.append(say("the evidence of effectiveness"))
         if not c.get("closed_by") or c["closed_by"] not in facts["signatures"].get(("capa", c["id"]), set()):
-            gaps.append("the closing signature")
+            gaps.append(say("the closing signature"))
         elif c["closed_by"] == c.get("owner"):
-            gaps.append("someone other than the owner to close it")
+            gaps.append(say("someone other than the owner to close it"))
         if gaps:
-            bad.append(ref("capa", c, "missing: " + ", ".join(gaps)))
+            bad.append(ref("capa", c, say("missing: {list}", list=_list(gaps))))
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'closed action')} without a recorded effectiveness review.", bad)
-    return result(MET, f"{_plural(len(closed), 'closed action')}, each with its effectiveness evidence, signed by "
-                       "someone other than the owner." + _history(history, "action"),
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} closed action without a recorded effectiveness review.", n=k),
+                                     say("{n} closed actions without a recorded effectiveness review.", n=k)), bad)
+    k = len(closed)
+    return result(MET, _pick(k, say("{n} closed action, each with its effectiveness evidence, signed by someone other "
+                                    "than the owner.", n=k),
+                             say("{n} closed actions, each with its effectiveness evidence, signed by someone other "
+                                 "than the owner.", n=k)) + _history(history, "action"),
                   evidence=[ref("capa", c) for c in closed])
 
 
@@ -315,7 +405,15 @@ def _entry(e: dict, label: str, why: str = "") -> dict:
 
 
 def _empty(name: str) -> dict:
-    return result(UNKNOWN, f"Nothing in the {name.replace('_', ' ')} register yet.")
+    text = {"training": lambda: say("Nothing in the training register yet."),
+            "calibration": lambda: say("Nothing in the calibration register yet."),
+            "audits": lambda: say("Nothing in the audits register yet."),
+            "management_reviews": lambda: say("Nothing in the management reviews register yet."),
+            "objectives": lambda: say("Nothing in the objectives register yet."),
+            "risks": lambda: say("Nothing in the risks register yet."),
+            "suppliers": lambda: say("Nothing in the suppliers register yet.")}.get(name)
+    return result(UNKNOWN, text() if text else say("Nothing in the {register} register yet.",
+                                                    register=name.replace("_", " ")))
 
 
 def training_current(facts: dict, settings: dict) -> dict:
@@ -331,24 +429,33 @@ def training_current(facts: dict, settings: dict) -> dict:
         v, label = e["values"], f"{e['values'].get('person')}: {e['values'].get('topic')}"
         until, on = _d(v.get("valid_until")), _d(v.get("trained_on"))
         if until and until < facts["today"]:
-            bad.append(_entry(e, label, f"expired on {until}"))
+            bad.append(_entry(e, label, say("expired on {date}", date=until)))
         elif v.get("result") == "needs follow-up" and on and (facts["today"] - on).days > follow:
-            bad.append(_entry(e, label, f"needs follow-up since {on}"))
+            bad.append(_entry(e, label, say("needs follow-up since {date}", date=on)))
     for r in reading:
         due = _d(r.get("due"))
         if r["status"] == "pending" and due and due < facts["today"]:
-            doc = " ".join(str(x) for x in (r.get("number"), r.get("title"), f"rev {r.get('revision')}") if x)
+            rev = say("rev {revision}", revision=r.get("revision"))
+            doc = " ".join(str(x) for x in (r.get("number"), r.get("title"), rev) if x)
             bad.append({"kind": "reading", "id": r["id"], "label": f"{r['email']}: {doc}",
-                        "why": f"reading was due on {due}"})
+                        "why": say("reading was due on {date}", date=due)})
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'training record')} out of date.", bad)
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} training record out of date.", n=k),
+                                     say("{n} training records out of date.", n=k)), bad)
     done = [r for r in reading if r["status"] == "acknowledged"]
+    d = len(done)
     if not latest:          # reading alone does not show people are competent: the register is still empty
-        return result(UNKNOWN, f"Nothing in the training register yet; {_plural(len(done), 'reading')} of "
-                               "controlled documents confirmed, none overdue.")
-    parts = ([f"{_plural(len(latest), 'person and skill')} with current training records"] if latest else []) + (
-        [f"{_plural(len(done), 'reading')} of controlled documents confirmed, none overdue"] if reading else [])
-    return result(MET, "; ".join(parts) + ".",
+        return result(UNKNOWN, _pick(d, say("Nothing in the training register yet; {n} reading of controlled documents "
+                                            "confirmed, none overdue.", n=d),
+                                     say("Nothing in the training register yet; {n} readings of controlled "
+                                         "documents confirmed, none overdue.", n=d)))
+    k = len(latest)
+    parts = [_pick(k, say("{n} person and skill with current training records", n=k),
+                   say("{n} person and skills with current training records", n=k))] + (
+        [_pick(d, say("{n} reading of controlled documents confirmed, none overdue", n=d),
+               say("{n} readings of controlled documents confirmed, none overdue", n=d))] if reading else [])
+    return result(MET, _end(_semi(parts)),
                   evidence=[_entry(e, f"{e['values'].get('person')}: {e['values'].get('topic')}") for e in latest])
 
 
@@ -362,51 +469,74 @@ def calibration_current(facts: dict, settings: dict) -> dict:
         v = e["values"]
         due = _d(v.get("next_due")) or ((_d(v.get("calibrated_on")) or facts["today"]) + dt.timedelta(days=every))
         if v.get("result") == "fail":
-            bad.append(_entry(e, v.get("equipment"), "failed its last calibration"))
+            bad.append(_entry(e, v.get("equipment"), say("failed its last calibration")))
         elif due < facts["today"]:
-            bad.append(_entry(e, v.get("equipment"), f"calibration was due on {due}"))
+            bad.append(_entry(e, v.get("equipment"), say("calibration was due on {date}", date=due)))
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'piece')} of equipment not fit for use.", bad)
-    return result(MET, f"{_plural(len(latest), 'piece')} of equipment, each calibrated and not due.",
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} piece of equipment not fit for use.", n=k),
+                                     say("{n} pieces of equipment not fit for use.", n=k)), bad)
+    k = len(latest)
+    return result(MET, _pick(k, say("{n} piece of equipment, each calibrated and not due.", n=k),
+                             say("{n} pieces of equipment, each calibrated and not due.", n=k)),
                   evidence=[_entry(e, e["values"].get("equipment")) for e in latest])
 
 
-def _done_within(facts: dict, name: str, when: str, days: int, what: str) -> tuple[dict | None, list[dict]]:
+# the texts of the registers done at set intervals, each a whole sentence
+DONE_TEXTS = {
+    "audits": {"unapproved": lambda: say("The internal audit recorded are not approved yet."),
+               "item": lambda i: say("internal audit #{id}", id=i),
+               "last": lambda d, n: say("The last internal audit was on {date}; one is due every {days} days.",
+                                        date=d, days=n),
+               "of": lambda d: say("internal audit of {date}", date=d)},
+    "management_reviews": {
+        "unapproved": lambda: say("The management review recorded are not approved yet."),
+        "item": lambda i: say("management review #{id}", id=i),
+        "last": lambda d, n: say("The last management review was on {date}; one is due every {days} days.",
+                                 date=d, days=n),
+        "of": lambda d: say("management review of {date}", date=d)},
+}
+
+
+def _done_within(facts: dict, name: str, when: str, days: int) -> tuple[dict | None, list[dict]]:
     rows = _entries(facts, name)
     if not rows:
         return _empty(name), []
+    t = DONE_TEXTS[name]
     ok = _entries(facts, name, signed_only=True)
     if not ok:
-        return result(NOT_MET, f"The {what} recorded are not approved yet.",
-                      [_entry(e, f"{what} #{e['id']}", "not approved") for e in rows]), []
+        return result(NOT_MET, t["unapproved"](), [_entry(e, t["item"](e["id"]), say("not approved"))
+                                                    for e in rows]), []
     last = max(ok, key=lambda e: _d(e["values"].get(when)) or dt.date.min)
     d = _d(last["values"].get(when))
     if d is None or (facts["today"] - d).days > days:
-        return result(NOT_MET, f"The last {what} was on {d}; one is due every {days} days.",
-                      [_entry(last, f"{what} of {d}", "overdue")]), ok
+        return result(NOT_MET, t["last"](d, days), [_entry(last, t["of"](d), say("overdue"))]), ok
     return None, ok
 
 
 def audits_done(facts: dict, settings: dict) -> dict:
     days = int(settings["audit_interval_days"])
-    out, ok = _done_within(facts, "audits", "audit_date", days, "internal audit")
+    out, ok = _done_within(facts, "audits", "audit_date", days)
     if out:
         return out
-    open_ = [_entry(e, f"audit of {e['values'].get('area')} on {e['values'].get('audit_date')}",
-                    "findings not followed up") for e in ok
+    open_ = [_entry(e, say("audit of {area} on {date}", area=e["values"].get("area"),
+                           date=e["values"].get("audit_date")), say("findings not followed up")) for e in ok
              if _num(e["values"].get("nonconformities")) > 0 and e["values"].get("followed_up") is not True]
     if open_:
-        return result(NOT_MET, f"{_plural(len(open_), 'audit')} with findings not followed up.", open_)
-    return result(MET, f"Internal audits within every {days} days; findings followed up.",
-                  evidence=[_entry(e, f"audit of {e['values'].get('area')} on {e['values'].get('audit_date')}")
-                            for e in ok])
+        k = len(open_)
+        return result(NOT_MET, _pick(k, say("{n} audit with findings not followed up.", n=k),
+                                     say("{n} audits with findings not followed up.", n=k)), open_)
+    return result(MET, say("Internal audits within every {days} days; findings followed up.", days=days),
+                  evidence=[_entry(e, say("audit of {area} on {date}", area=e["values"].get("area"),
+                                          date=e["values"].get("audit_date"))) for e in ok])
 
 
 def reviews_done(facts: dict, settings: dict) -> dict:
     days = int(settings["review_interval_days"])
-    out, ok = _done_within(facts, "management_reviews", "review_date", days, "management review")
-    return out or result(MET, f"Management reviews within every {days} days, approved.",
-                         evidence=[_entry(e, f"review of {e['values'].get('review_date')}") for e in ok])
+    out, ok = _done_within(facts, "management_reviews", "review_date", days)
+    return out or result(MET, say("Management reviews within every {days} days, approved.", days=days),
+                         evidence=[_entry(e, say("review of {date}", date=e["values"].get("review_date")))
+                                   for e in ok])
 
 
 def _reviewed(facts: dict, name: str, key: str, days: int, extra=None) -> dict:
@@ -417,14 +547,18 @@ def _reviewed(facts: dict, name: str, key: str, days: int, extra=None) -> dict:
     for e in latest:
         d = _d(e["values"].get("reviewed_on"))
         if d is None or (facts["today"] - d).days > days:
-            bad.append(_entry(e, e["values"].get(key), f"last reviewed {d}; due every {days} days"))
+            bad.append(_entry(e, e["values"].get(key), say("last reviewed {date}; due every {days} days", date=d,
+                                                           days=days)))
         elif extra and extra(e):
             bad.append(_entry(e, e["values"].get(key), extra(e)))
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'entry')} not reviewed in time or incomplete.".replace(
-            "entrys", "entries"), bad)
-    return result(MET, f"{_plural(len(latest), 'entry').replace('entrys', 'entries')}, each reviewed within "
-                       f"{days} days.", evidence=[_entry(e, e["values"].get(key)) for e in latest])
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} entry not reviewed in time or incomplete.", n=k),
+                                     say("{n} entries not reviewed in time or incomplete.", n=k)), bad)
+    k = len(latest)
+    return result(MET, _pick(k, say("{n} entry, each reviewed within {days} days.", n=k, days=days),
+                             say("{n} entries, each reviewed within {days} days.", n=k, days=days)),
+                  evidence=[_entry(e, e["values"].get(key)) for e in latest])
 
 
 def objectives_reviewed(facts: dict, settings: dict) -> dict:
@@ -433,7 +567,8 @@ def objectives_reviewed(facts: dict, settings: dict) -> dict:
 
 def risks_reviewed(facts: dict, settings: dict) -> dict:
     def no_action(e):
-        return "no action planned" if e["values"].get("kind") == "risk" and not e["values"].get("action") else None
+        return say("no action planned") if e["values"].get("kind") == "risk" and not e["values"].get("action") \
+            else None
     return _reviewed(facts, "risks", "title", int(settings["risks_review_days"]), no_action)
 
 
@@ -441,7 +576,7 @@ def complaints_answered(facts: dict, settings: dict) -> dict:
     rows = [e for e in _entries(facts, "complaints") if e["values"].get("kind") == "complaint"
             and (_d(e["values"].get("received_on")) or facts["today"]) >= facts["since"]]
     if not rows:
-        return result(UNKNOWN, f"No complaints recorded in the last {settings['window_days']} days.")
+        return result(UNKNOWN, say("No complaints recorded in the last {days} days.", days=settings["window_days"]))
     days = int(settings["complaint_days"])
     bad = []
     for e in rows:
@@ -450,12 +585,18 @@ def complaints_answered(facts: dict, settings: dict) -> dict:
         label = f"{v.get('customer')}, {got}"
         if ans and v.get("response"):
             if got and (ans - got).days > days:
-                bad.append(_entry(e, label, f"answered after {(ans - got).days} days"))
+                bad.append(_entry(e, label, say("answered after {n} days", n=(ans - got).days)))
         elif got and (facts["today"] - got).days > days:
-            bad.append(_entry(e, label, f"not answered after {(facts['today'] - got).days} days"))
+            bad.append(_entry(e, label, say("not answered after {n} days", n=(facts["today"] - got).days)))
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'complaint')} not answered within {days} days.", bad)
-    return result(MET, f"{_plural(len(rows), 'complaint')}, each answered within {days} days (or still within them).",
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} complaint not answered within {days} days.", n=k, days=days),
+                                     say("{n} complaints not answered within {days} days.", n=k, days=days)), bad)
+    k = len(rows)
+    return result(MET, _pick(k, say("{n} complaint, each answered within {days} days (or still within them).",
+                                    n=k, days=days),
+                             say("{n} complaints, each answered within {days} days (or still within them).",
+                                 n=k, days=days)),
                   evidence=[_entry(e, f"{e['values'].get('customer')}, {e['values'].get('received_on')}")
                             for e in rows])
 
@@ -465,14 +606,14 @@ def _reporting(v: dict, late: bool, age: int) -> tuple[list[str], str]:
     while still within the days."""
     why = []
     if _d(v.get("answered_on")) and not str(v.get("investigation") or "").strip():
-        why.append("closed without an investigation or the reason none was needed")
+        why.append(say("closed without an investigation or the reason none was needed"))
     rep = v.get("reportable")
     if type(rep) is not bool:
-        return why + ([f"whether to report it is not decided after {age} days"] if late else []), "waiting"
+        return why + ([say("whether to report it is not decided after {n} days", n=age)] if late else []), "waiting"
     if not str(v.get("reportable_reason") or "").strip():
-        return [*why, "the reporting decision has no reason"], "decided"
+        return [*why, say("the reporting decision has no reason")], "decided"
     if rep and not _d(v.get("reported_on")):
-        return why + (["to be reported, but no report date recorded"] if late else []), "waiting"
+        return why + ([say("to be reported, but no report date recorded")] if late else []), "waiting"
     return why, "decided"
 
 
@@ -483,14 +624,14 @@ def complaints_assessed(facts: dict, settings: dict) -> dict:
     rows = [e for e in _entries(facts, "complaints") if e["values"].get("kind") == "complaint"
             and (_d(e["values"].get("received_on")) or facts["today"]) >= facts["since"]]
     if not rows:
-        return result(UNKNOWN, f"No complaints recorded in the last {settings['window_days']} days.")
+        return result(UNKNOWN, say("No complaints recorded in the last {days} days.", days=settings["window_days"]))
     days = int(settings["reportability_days"])
     bad, waiting, decided = [], 0, []
     for e in rows:
         v = e["values"]
         got = _d(v.get("received_on"))
         if got is None:
-            bad.append(_entry(e, f"{v.get('customer')}", "no date received, so the days cannot be counted"))
+            bad.append(_entry(e, f"{v.get('customer')}", say("no date received, so the days cannot be counted")))
             continue
         age = (facts["today"] - got).days
         why, state = _reporting(v, age > days, age)
@@ -500,14 +641,21 @@ def complaints_assessed(facts: dict, settings: dict) -> dict:
         elif not why:
             decided.append(e)
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'problem')} with investigating or deciding on reporting "
-                               "complaints.", bad)
-    more = f" {waiting} more still within the {days} days to decide or report." if waiting else ""
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} problem with investigating or deciding on reporting complaints.", n=k),
+                                     say("{n} problems with investigating or deciding on reporting complaints.",
+                                         n=k)), bad)
+    more = _sp() + say("{n} more still within the {days} days to decide or report.", n=waiting, days=days) \
+        if waiting else ""
     if not decided:              # nothing decided yet: nothing to judge, so not met either
-        return result(UNKNOWN, f"{_plural(waiting, 'complaint')} still within the {days} days to decide on "
-                               "reporting; none decided yet.")
-    return result(MET, f"{_plural(len(decided), 'complaint')} decided on reporting with reasons, and reported where "
-                       "needed." + more,
+        return result(UNKNOWN, _pick(waiting, say("{n} complaint still within the {days} days to decide on reporting; "
+                                                  "none decided yet.", n=waiting, days=days),
+                                     say("{n} complaints still within the {days} days to decide on reporting; "
+                                         "none decided yet.", n=waiting, days=days)))
+    k = len(decided)
+    return result(MET, _pick(k, say("{n} complaint decided on reporting with reasons, and reported where needed.", n=k),
+                             say("{n} complaints decided on reporting with reasons, and reported where needed.",
+                                 n=k)) + more,
                   evidence=[_entry(e, f"{e['values'].get('customer')}, {e['values'].get('received_on')}")
                             for e in decided])
 
@@ -516,15 +664,23 @@ def feedback_collected(facts: dict, settings: dict) -> dict:
     rows = [e for e in _entries(facts, "complaints") if e["values"].get("kind") in ("feedback", "survey")
             and (_d(e["values"].get("received_on")) or dt.date.min) >= facts["since"]]
     if not rows:
-        return result(UNKNOWN, f"No customer feedback or surveys recorded in the last {settings['window_days']} "
-                               "days.")
-    return result(MET, f"{_plural(len(rows), 'piece')} of customer feedback in the last {settings['window_days']} "
-                       "days.", evidence=[_entry(e, f"{e['values'].get('customer')}, {e['values'].get('received_on')}")
-                                          for e in rows])
+        return result(UNKNOWN, say("No customer feedback or surveys recorded in the last {days} days.",
+                                   days=settings["window_days"]))
+    k = len(rows)
+    return result(MET, _pick(k, say("{n} piece of customer feedback in the last {days} days.", n=k,
+                                    days=settings["window_days"]),
+                             say("{n} pieces of customer feedback in the last {days} days.", n=k,
+                                 days=settings["window_days"])),
+                  evidence=[_entry(e, f"{e['values'].get('customer')}, {e['values'].get('received_on')}")
+                            for e in rows])
 
 
 def _name(s) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
+
+
+def _asl_label(e: dict) -> str:
+    return f"{e['supplier']}, {e.get('item_code') or say('all items')}"
 
 
 def _asl_approved(facts: dict, settings: dict) -> dict:
@@ -539,25 +695,31 @@ def _asl_approved(facts: dict, settings: dict) -> dict:
         for item in sorted(items.get(key) or [None], key=lambda x: x or ""):
             s = AP.standing(asl, key, item, facts["today"])
             if s["outcome"] == "block":
-                bad.append({"kind": "supplier", "id": key, "label": name, "why": "bought from but " + s["why"]})
+                bad.append({"kind": "supplier", "id": key, "label": name,
+                            "why": say("bought from but {why}", why=s["why"])})
                 break
     for e in asl:
         due = _d(e.get("review_due"))
         if e["status"] in ok and due and due < facts["today"]:
-            bad.append({"kind": "asl", "id": e["id"], "label": f"{e['supplier']}, {e.get('item_code') or 'all items'}",
-                        "why": f"re-evaluation was due on {due}"})
+            bad.append({"kind": "asl", "id": e["id"], "label": _asl_label(e),
+                        "why": say("re-evaluation was due on {date}", date=due)})
     approved = [e for e in asl if e["status"] in ok]
-    evidence = [{"kind": "asl", "id": e["id"], "label": f"{e['supplier']}, {e.get('item_code') or 'all items'}",
-                 "why": ""} for e in approved]
+    evidence = [{"kind": "asl", "id": e["id"], "label": _asl_label(e), "why": ""} for e in approved]
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'supplier')} not approved or not re-evaluated in time "
-                               "(approved supplier list).", bad)
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} supplier not approved or not re-evaluated in time (approved supplier "
+                                            "list).", n=k),
+                                     say("{n} suppliers not approved or not re-evaluated in time (approved supplier "
+                                         "list).", n=k)), bad)
     if not used:
-        return result(UNKNOWN, f"No purchases in the last {settings['window_days']} days to check the approved "
-                               "supplier list against.", evidence=evidence)
-    return result(MET, f"{_plural(len(approved), 'entry').replace('entrys', 'entries')} on the approved supplier "
-                       f"list; every item bought in the last {settings['window_days']} days is from a supplier "
-                       "approved for it.", evidence=evidence)
+        return result(UNKNOWN, say("No purchases in the last {days} days to check the approved supplier list against.",
+                                   days=settings["window_days"]), evidence=evidence)
+    k = len(approved)
+    return result(MET, _pick(k, say("{n} entry on the approved supplier list; every item bought in the last {days} "
+                                    "days is from a supplier approved for it.", n=k, days=settings["window_days"]),
+                             say("{n} entries on the approved supplier list; every item bought in the last {days} "
+                                 "days is from a supplier approved for it.", n=k, days=settings["window_days"])),
+                  evidence=evidence)
 
 
 def suppliers_approved(facts: dict, settings: dict) -> dict:
@@ -572,20 +734,26 @@ def suppliers_approved(facts: dict, settings: dict) -> dict:
     for key, name in sorted(used.items()):
         e = latest.get(_name(key)) or latest.get(_name(name))
         if e is None:
-            bad.append({"kind": "supplier", "id": key, "label": name, "why": "bought from without an approval"})
+            bad.append({"kind": "supplier", "id": key, "label": name, "why": say("bought from without an approval")})
         elif e["values"].get("status") == "removed":
-            bad.append(_entry(e, name, "bought from but removed from the approved list"))
+            bad.append(_entry(e, name, say("bought from but removed from the approved list")))
     for e in latest.values():
         nxt = _d(e["values"].get("next_review"))
         if e["values"].get("status") != "removed" and nxt and nxt < facts["today"]:
-            bad.append(_entry(e, e["values"].get("supplier"), f"re-evaluation was due on {nxt}"))
+            bad.append(_entry(e, e["values"].get("supplier"), say("re-evaluation was due on {date}", date=nxt)))
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'supplier')} not approved or not re-evaluated in time.", bad)
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} supplier not approved or not re-evaluated in time.", n=k),
+                                     say("{n} suppliers not approved or not re-evaluated in time.", n=k)), bad)
     if not used:
-        return result(UNKNOWN, f"No purchases in the last {settings['window_days']} days to check the list against.",
+        return result(UNKNOWN, say("No purchases in the last {days} days to check the list against.",
+                                   days=settings["window_days"]),
                       evidence=[_entry(e, e["values"].get("supplier")) for e in latest.values()])
-    return result(MET, f"{_plural(len(latest), 'supplier')} on the list; every supplier bought from in the last "
-                       f"{settings['window_days']} days is approved.",
+    k = len(latest)
+    return result(MET, _pick(k, say("{n} supplier on the list; every supplier bought from in the last {days} days is "
+                                    "approved.", n=k, days=settings["window_days"]),
+                             say("{n} suppliers on the list; every supplier bought from in the last {days} days is "
+                                 "approved.", n=k, days=settings["window_days"])),
                   evidence=[_entry(e, e["values"].get("supplier")) for e in latest.values()])
 
 
@@ -597,33 +765,46 @@ def _usable(d: dict) -> bool:
     return d["status"] == "effective" or (d["status"] == "confirmed" and d.get("doc_type") not in CONTROLLED)
 
 
+def _doc_status(s: str) -> str:
+    """A document's status as a word (the status itself stays the stored code)."""
+    words = {"draft": lambda: say("docstatus::draft"), "in_review": lambda: say("docstatus::in review"),
+             "approved": lambda: say("docstatus::approved"), "rejected": lambda: say("docstatus::rejected"),
+             "obsolete": lambda: say("docstatus::obsolete"), "to_review": lambda: say("docstatus::to review"),
+             "to_classify": lambda: say("docstatus::to classify"), "confirmed": lambda: say("docstatus::confirmed"),
+             "effective": lambda: say("docstatus::effective")}
+    w = words.get(s)
+    return w() if w else str(s).replace("_", " ")
+
+
 def linked_document(facts: dict, settings: dict, control: str) -> dict:
     docs = facts["evidence"].get(control, [])
     if not docs:
-        return result(UNKNOWN, "No document linked as evidence yet.")
+        return result(UNKNOWN, say("No document linked as evidence yet."))
     live = [d for d in docs if _usable(d)]
-    gone = [ref("document", d, f"linked but {d['status'].replace('_', ' ')}") for d in docs if not _usable(d)]
+    gone = [ref("document", d, say("linked but {status}", status=_doc_status(d["status"]))) for d in docs
+            if not _usable(d)]
     if not live:
-        return result(NOT_MET, "The linked documents are not in effect.", gone)
-    return result(MET, "Evidence: " + ", ".join(d["name"] for d in live) + ".", gone,
+        return result(NOT_MET, say("The linked documents are not in effect."), gone)
+    return result(MET, say("Evidence: {list}.", list=_list(d["name"] for d in live)), gone,
                   [ref("document", d) for d in live])
 
 
 def scope_declared(facts: dict, settings: dict, control: str = "scope") -> dict:
     """The scope: a scope statement linked as evidence, and every control point that may be excluded declared."""
-    names = facts["excludable"]
+    names = {c: I18N.label(x) for c, x in facts["excludable"].items()}
     open_ = [names[c] for c in names if c not in facts["applicability"]]
     excluded = {c: a for c, a in facts["applicability"].items() if not a["applies"] and c in names}
     doc = linked_document(facts, settings, control)
     if doc["status"] == NOT_MET:
         return doc
     if doc["status"] == UNKNOWN or open_:
-        need = (["link the scope statement"] if doc["status"] == UNKNOWN else []) + \
-               ([f"say whether these apply: {', '.join(open_)}"] if open_ else [])
-        return result(UNKNOWN, "To do: " + "; ".join(need) + ".", evidence=doc["evidence"])
-    why = "Every requirement applies." if not excluded else \
-        "Excluded, with reasons: " + "; ".join(f"{names[c]} ({a['reason']})" for c, a in excluded.items()) + "."
-    return result(MET, doc["detail"] + " " + why, evidence=doc["evidence"])
+        need = ([say("link the scope statement")] if doc["status"] == UNKNOWN else []) + \
+               ([say("say whether these apply: {list}", list=_list(open_))] if open_ else [])
+        return result(UNKNOWN, say("To do: {items}.", items=_semi(need)), evidence=doc["evidence"])
+    why = say("Every requirement applies.") if not excluded else \
+        say("Excluded, with reasons: {list}.", list=_semi(say("{name} ({reason})", name=names[c], reason=a["reason"])
+                                                          for c, a in excluded.items()))
+    return result(MET, _cat(doc["detail"], why), evidence=doc["evidence"])
 
 
 # ---------------------------------------------------------------- records of the regulated modules (17k)
@@ -632,7 +813,7 @@ def scope_declared(facts: dict, settings: dict, control: str = "scope") -> dict:
 
 def _or_linked(facts: dict, settings: dict, control: str, none: str) -> dict:
     r = linked_document(facts, settings, control)
-    return result(UNKNOWN, f"{none} {r['detail']}") if r["status"] == UNKNOWN else r
+    return result(UNKNOWN, _cat(none, r["detail"])) if r["status"] == UNKNOWN else r
 
 
 def _decided(facts: dict, status: str) -> list[dict]:
@@ -645,45 +826,67 @@ def risk_managed(facts: dict, settings: dict, control: str = "risk_management") 
     files = facts.get("risk_files") or []
     approved = [f for f in files if f["status"] == "approved"]
     if not approved:
-        return _or_linked(facts, settings, control, "No approved risk file under Risk yet.")
-    broken = [ref("risk_file", f, "changed since it was approved") for f in approved if f["intact"] is False]
+        return _or_linked(facts, settings, control, say("No approved risk file under Risk yet."))
+    broken = [ref("risk_file", f, say("changed since it was approved")) for f in approved if f["intact"] is False]
     if broken:
-        return result(NOT_MET, f"{_plural(len(broken), 'approved risk file')} no longer match what was approved.",
-                      broken)
+        k = len(broken)
+        return result(NOT_MET, _pick(k, say("{n} approved risk file no longer match what was approved.", n=k),
+                                     say("{n} approved risk files no longer match what was approved.", n=k)), broken)
     drafts = [f for f in files if f["status"] == "draft"]
-    return result(MET, f"{_plural(len(approved), 'approved risk file')}, each as approved."
-                  + (f" {_plural(len(drafts), 'draft')} not approved yet." if drafts else ""),
+    k, d = len(approved), len(drafts)
+    return result(MET, _pick(k, say("{n} approved risk file, each as approved.", n=k),
+                             say("{n} approved risk files, each as approved.", n=k))
+                  + (_sp() + _pick(d, say("{n} draft not approved yet.", n=d), say("{n} drafts not approved yet.", n=d))
+                     if drafts else ""),
                   evidence=[ref("risk_file", f, f["product"]) for f in approved])
+
+
+def _lot_state(p: dict) -> str:
+    if p["status"] == "released":
+        return say("lot {lot}, released", lot=p["lot_no"])
+    if p["status"] == "rejected":
+        return say("lot {lot}, rejected", lot=p["lot_no"])
+    return f"lot {p['lot_no']}, {p['status']}"
 
 
 def production_recorded(facts: dict, settings: dict, control: str = "production") -> dict:
     """Lots decided in the period (17i): each with its record, released by someone who did not make it."""
     lots = _decided(facts, "released") + _decided(facts, "rejected")
     if not lots:
-        return _or_linked(facts, settings, control, "No production lot released or rejected in the period.")
-    bad = [ref("production", p, "decided by someone who recorded it") for p in lots
+        return _or_linked(facts, settings, control, say("No production lot released or rejected in the period."))
+    bad = [ref("production", p, say("decided by someone who recorded it")) for p in lots
            if p["decided_by"] in (p["involved"] or [])]
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'lot')} decided by someone who made it.", bad)
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} lot decided by someone who made it.", n=k),
+                                     say("{n} lots decided by someone who made it.", n=k)), bad)
     rel = [p for p in lots if p["status"] == "released"]
-    return result(MET, f"{_plural(len(lots), 'lot')} with a production record in the period, {len(rel)} released.",
-                  evidence=[ref("production", p, f"lot {p['lot_no']}, {p['status']}") for p in lots])
+    k = len(lots)
+    return result(MET, _pick(k, say("{n} lot with a production record in the period, {released} released.", n=k,
+                                    released=len(rel)),
+                             say("{n} lots with a production record in the period, {released} released.", n=k,
+                                 released=len(rel))),
+                  evidence=[ref("production", p, _lot_state(p)) for p in lots])
 
 
 def lots_traceable(facts: dict, settings: dict, control: str = "traceability") -> dict:
     """Each lot released in the period has a lot number and the incoming lots of every material it must use."""
     rel = _decided(facts, "released")
     if not rel:
-        return _or_linked(facts, settings, control, "No production lot released in the period.")
+        return _or_linked(facts, settings, control, say("No production lot released in the period."))
     bad = []
     for p in rel:
         missing = sorted(set(p["materials_needed"]) - set(p["materials_used"]))
         if missing:
-            bad.append(ref("production", p, "no incoming lot recorded for " + ", ".join(missing)))
+            bad.append(ref("production", p, say("no incoming lot recorded for {list}", list=_list(missing))))
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'released lot')} cannot be traced to every material.", bad)
-    return result(MET, f"{_plural(len(rel), 'released lot')}, each traced to the incoming lots of its materials.",
-                  evidence=[ref("production", p, f"lot {p['lot_no']}") for p in rel])
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} released lot cannot be traced to every material.", n=k),
+                                     say("{n} released lots cannot be traced to every material.", n=k)), bad)
+    k = len(rel)
+    return result(MET, _pick(k, say("{n} released lot, each traced to the incoming lots of its materials.", n=k),
+                             say("{n} released lots, each traced to the incoming lots of its materials.", n=k)),
+                  evidence=[ref("production", p, say("lot {lot}", lot=p["lot_no"])) for p in rel])
 
 
 def release_signed(facts: dict, settings: dict, control: str = "product_release") -> dict:
@@ -691,22 +894,35 @@ def release_signed(facts: dict, settings: dict, control: str = "product_release"
     lots = _decided(facts, "released")
     incoming = [i for i in facts.get("iqc_decided") or [] if i["decided_on"] and i["decided_on"] >= facts["since"]]
     if not lots and not incoming:
-        return _or_linked(facts, settings, control, "No lot released in the period.")
-    bad = [ref("production", p, "released by someone who made it") for p in lots
+        return _or_linked(facts, settings, control, say("No lot released in the period."))
+    bad = [ref("production", p, say("released by someone who made it")) for p in lots
            if not p["decided_by"] or p["decided_by"] in (p["involved"] or [])]
-    bad += [ref("iqc", i, "decided by the inspector who signed it") for i in incoming
+    bad += [ref("iqc", i, say("decided by the inspector who signed it")) for i in incoming
             if not i["decided_by"] or i["decided_by"] == i["signed_by"]]
     if bad:
-        return result(NOT_MET, f"{_plural(len(bad), 'release')} not made by a second person.", bad)
-    return result(MET, f"{_plural(len(lots) + len(incoming), 'release')} in the period, each signed by a named person "
-                       "who did not do the checks.",
-                  evidence=[ref("production", p, f"released by {p['decided_by']}") for p in lots]
-                  + [ref("iqc", i, f"{i['status']} by {i['decided_by']}") for i in incoming])
+        k = len(bad)
+        return result(NOT_MET, _pick(k, say("{n} release not made by a second person.", n=k),
+                                     say("{n} releases not made by a second person.", n=k)), bad)
+    k = len(lots) + len(incoming)
+
+    def by(i: dict) -> str:
+        if i["status"] == "released":
+            return say("released by {who}", who=i["decided_by"])
+        if i["status"] == "rejected":
+            return say("rejected by {who}", who=i["decided_by"])
+        return f"{i['status']} by {i['decided_by']}"
+
+    return result(MET, _pick(k, say("{n} release in the period, each signed by a named person who did not do the "
+                                    "checks.", n=k),
+                             say("{n} releases in the period, each signed by a named person who did not do the "
+                                 "checks.", n=k)),
+                  evidence=[ref("production", p, say("released by {who}", who=p["decided_by"])) for p in lots]
+                  + [ref("iqc", i, by(i)) for i in incoming])
 
 
 def register(facts: dict, settings: dict, name: str) -> dict:
-    return result(UNKNOWN, f"Evidence comes from the {name.replace('_', ' ')} register, which is not there yet "
-                           "(next step).")
+    return result(UNKNOWN, say("Evidence comes from the {register} register, which is not there yet (next step).",
+                               register=name.replace("_", " ")))
 
 
 CHECKS = {f.__name__: f for f in (documents_approved, documents_current, documents_referenced, ncr_contained,
@@ -743,7 +959,8 @@ def evaluate(pack: dict, edition: str, facts: dict, settings: dict | None = None
                 rule = "linked_document"            # our rule switched off: the company shows it its own way
             decl = facts["applicability"].get(c["id"])
             if c.get("may_exclude") and decl and not decl["applies"]:
-                r = result(NA, f"Does not apply: {decl['reason']} (declared by {decl['email']})")
+                r = result(NA, say("Does not apply: {reason} (declared by {email})", reason=decl["reason"],
+                                   email=decl["email"]))
             elif rule in ("linked_document", "scope_declared"):
                 r = (linked_document if rule == "linked_document" else scope_declared)(facts, settings, c["id"])
             elif rule.startswith("register:"):
@@ -753,7 +970,8 @@ def evaluate(pack: dict, edition: str, facts: dict, settings: dict | None = None
                     args = (c["id"],) if rule in WITH_DOCUMENTS else ()
                     r = CHECKS[rule](facts, settings, *args)
                 except (TypeError, ValueError, KeyError, AttributeError) as exc:     # odd data: say so, go on
-                    r = result(UNKNOWN, f"Could not be checked: a value is not as expected ({type(exc).__name__}).")
+                    r = result(UNKNOWN, say("Could not be checked: a value is not as expected ({error}).",
+                                               error=type(exc).__name__))
             out[c["id"]] = {**r, "process": pname, "summary": c["summary"], "clauses": (c.get("clauses") or {}).get(
                 edition, []), "rule": rule}
     return out

@@ -6,6 +6,7 @@ import datetime as dt
 
 from wqops.hub.ont import metrics as M
 from wqops.hub.quality import spc
+from wqops.i18n import say
 
 
 def _supplier_of_receipt(conn) -> dict[str, str]:
@@ -107,6 +108,6 @@ def spc_for(conn, item_code: str, parameter: str, limit: int = 100) -> dict:
     groups = groups[-limit:]
     out = {"item_code": item_code, "parameter": parameter, "inspections": [g["inspection"] for g in groups]}
     if not groups:
-        return out | {"enough_data": False, "note": "No numeric readings for this item and parameter.",
+        return out | {"enough_data": False, "note": say("No numeric readings for this item and parameter."),
                       "subgroups": 0}
     return out | spc.chart(groups)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from wqops import i18n as I18N
+
 PERMISSIONS = {
     "dashboard:view": "See the dashboard and the ops hub",
     "inventory:view": "See items, stock and warehouses",
@@ -52,3 +54,8 @@ def allows(roles, permission: str) -> bool:
     if permission not in PERMISSIONS:
         raise KeyError(f"unknown permission {permission!r}")
     return permission in of(roles)
+
+
+def describe(permission: str) -> str:
+    """What a permission allows, in the reader's language (ADR-0023)."""
+    return I18N.label(PERMISSIONS[permission])

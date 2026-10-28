@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 
+from wqops import i18n as I18N
 from wqops.hub import drafts as D
 from wqops.hub.ai import tools as T
 from wqops.hub.ont import chain as CH
@@ -37,7 +38,7 @@ def _propose(ctx: T.Ctx, doctype: str, payload: dict, summary: str) -> dict:
     except D.DraftError as exc:
         raise T.ToolError(str(exc)) from exc
     ctx.drafts.append(d["id"])
-    return {"draft_id": d["id"], "status": "pending - a person must confirm it", "kind": doctype,
+    return {"draft_id": d["id"], "status": say("pending - a person must confirm it"), "kind": doctype,
             "summary": summary, "payload": payload}
 
 
@@ -82,9 +83,15 @@ def purchase_order(ctx: T.Ctx, item_code: str) -> dict:
     payload = {"supplier": supplier, "transaction_date": str(ctx.today), "schedule_date": str(need_by), "items": [row]}
     if ctx.manifest:
         payload["company"] = ctx.manifest["company"]["name"]
-    summary = (f"Replenish {item['title']}: short {short['short']:g} for {', '.join(short['orders'])}; "
-               f"{qty} from {po['props'].get('supplier_name', supplier)} as on {po['key']}"
-               + (f" at {line['rate']:g}" if line.get("rate") is not None else "") + f", needed by {need_by}.")
+    with I18N.use(I18N.company_language()):          # the draft is the company's record: in its language
+        vals = {"title": item["title"], "short": format(short["short"], "g"), "orders": ", ".join(short["orders"]),
+                "qty": qty, "supplier": po["props"].get("supplier_name", supplier), "po": po["key"],
+                "need_by": need_by}
+        summary = (say("Replenish {title}: short {short} for {orders}; {qty} from {supplier} as on {po} at {rate}, "
+                       "needed by {need_by}.", rate=format(line["rate"], "g"), **vals)
+                   if line.get("rate") is not None else
+                   say("Replenish {title}: short {short} for {orders}; {qty} from {supplier} as on {po}, needed by "
+                       "{need_by}.", **vals))
     return _propose(ctx, "Purchase Order", payload, summary)
 
 
@@ -104,22 +111,34 @@ def delay_message(ctx: T.Ctx, sales_order: str) -> dict:
         if s["relation"] == "waits for" and s["to"]:
             line = next((ln for ln in p.get("lines", []) if ln.get("item_code") == s["to"][1]), {})
             left = (line.get("qty") or 0) - (line.get("delivered_qty") or 0)
-            waiting.append(f"{s['to'][1]} ({left:g} to ship)")
+            waiting.append((s["to"][1], format(left, "g")))
     if not waiting and not (due and dt.date.fromisoformat(due) < ctx.today):
         raise T.ToolError(say("{sales_order} is neither late nor waiting for stock; no delay message needed",
                               sales_order=sales_order))
-    company = (ctx.manifest or {}).get("company", {}).get("name", "our company")
     name = p.get("customer_name") or customer
-    status = f"was due on {due}" if due and dt.date.fromisoformat(due) < ctx.today else f"is due on {due}"
-    reason = (f"some items are not yet in stock: {', '.join(waiting)}" if waiting
-              else "it is taking longer than planned to prepare")
-    body = (f"Dear {name},\n\nYour order {sales_order} {status}. We are sorry: {reason}.\n\n"
-            "We will confirm a new delivery date as soon as we have it, and we will ship as soon as the goods "
-            "arrive. If a partial shipment would help you, please let us know.\n\n"
-            f"Best regards,\n{company}")
-    payload = {"customer": customer, "sales_order": sales_order, "subject": f"Update on your order {sales_order}",
-               "body": body}
-    return _propose(ctx, "Customer Message", payload, f"Delay message to {name} about {sales_order}.")
+    late = due and dt.date.fromisoformat(due) < ctx.today
+    with I18N.use(I18N.company_language()):          # the message goes out in the company's language
+        company = (ctx.manifest or {}).get("company", {}).get("name") or say("our company")
+        sep = "、" if I18N.current() == "zh" else ", "
+        items = sep.join(say("{code} ({left} to ship)", code=c, left=n) for c, n in waiting)
+        if waiting:
+            first = (say("Your order {order} was due on {due}. We are sorry: some items are not yet in stock: {items}.",
+                         order=sales_order, due=due, items=items) if late else
+                     say("Your order {order} is due on {due}. We are sorry: some items are not yet in stock: {items}.",
+                         order=sales_order, due=due, items=items))
+        else:
+            first = (say("Your order {order} was due on {due}. We are sorry: it is taking longer than planned to "
+                         "prepare.", order=sales_order, due=due) if late else
+                     say("Your order {order} is due on {due}. We are sorry: it is taking longer than planned to "
+                         "prepare.", order=sales_order, due=due))
+        body = (say("Dear {name},", name=name) + "\n\n" + first + "\n\n"
+                + say("We will confirm a new delivery date as soon as we have it, and we will ship as soon as the "
+                      "goods arrive. If a partial shipment would help you, please let us know.") + "\n\n"
+                + say("Best regards,") + "\n" + company)
+        payload = {"customer": customer, "sales_order": sales_order,
+                   "subject": say("Update on your order {order}", order=sales_order), "body": body}
+        summary = say("Delay message to {name} about {order}.", name=name, order=sales_order)
+    return _propose(ctx, "Customer Message", payload, summary)
 
 
 def nonconformance(ctx: T.Ctx, inspection: str) -> dict:
@@ -143,18 +162,28 @@ def nonconformance(ctx: T.Ctx, inspection: str) -> dict:
                               (receipt,)).fetchone()
         qty = sum(ln.get("qty") or 0 for ln in (pr["props"].get("lines", []) if pr else [])
                   if ln.get("item_code") == item) or None
-    facts = [f"Quality inspection {inspection} ({p.get('inspection_type', 'inspection')}) on "
-             f"{p.get('report_date', 'an unknown date')} rejected {item}."]
-    if receipt:
-        facts.append(f"Received on purchase receipt {receipt}" + (f" from {supplier}" if supplier else "") +
-                     (f", quantity {qty:g}." if qty else "."))
-    facts.append("Disposition, containment and root cause: to be decided by Quality.")
-    payload = {"inspection": inspection, "item_code": item, "title": f"Rejected {item} ({inspection})",
-               "description": " ".join(facts)}
+    with I18N.use(I18N.company_language()):          # the report is the company's record: in its language
+        facts = [say("Quality inspection {inspection} ({type}) on {date} rejected {item}.", inspection=inspection,
+                     type=I18N.label(p["inspection_type"]) if "inspection_type" in p else say("inspection"),
+                     date=p["report_date"] if "report_date" in p else say("an unknown date"), item=item)]
+        if receipt:
+            q = format(qty, "g") if qty else ""
+            facts.append(
+                (say("Received on purchase receipt {receipt} from {supplier}, quantity {qty}.", receipt=receipt,
+                     supplier=supplier, qty=q) if qty else
+                 say("Received on purchase receipt {receipt} from {supplier}.", receipt=receipt, supplier=supplier))
+                if supplier else
+                (say("Received on purchase receipt {receipt}, quantity {qty}.", receipt=receipt, qty=q) if qty else
+                 say("Received on purchase receipt {receipt}.", receipt=receipt)))
+        facts.append(say("Disposition, containment and root cause: to be decided by Quality."))
+        payload = {"inspection": inspection, "item_code": item,
+                   "title": say("Rejected {item} ({inspection})", item=item, inspection=inspection),
+                   "description": ("" if I18N.current() == "zh" else " ").join(facts)}
+        summary = say("NCR for {item} rejected on {inspection}.", item=item, inspection=inspection)
     for k, v in (("receipt", receipt), ("supplier", supplier), ("quantity", qty)):
         if v is not None:
             payload[k] = v
-    return _propose(ctx, "Nonconformance Report", payload, f"NCR for {item} rejected on {inspection}.")
+    return _propose(ctx, "Nonconformance Report", payload, summary)
 
 
 DRAFT_TOOLS = [

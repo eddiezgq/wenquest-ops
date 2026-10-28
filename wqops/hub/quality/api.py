@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import drafts as D
 from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
@@ -33,7 +34,8 @@ def _iso(row: dict) -> dict:
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per step
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                         PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def run(c, fn):
         try:
@@ -57,8 +59,10 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
                           "c.id = l.capa_id where l.ncr_id = %s order by c.id", (row["id"],)).fetchall()
         types = Q.disposition_types(c, active_only=False)
         return _iso(row) | {"history": Q.history(c, "ncr", row["id"]), "signatures": Q.signatures(c, "ncr", row["id"]),
-                            "capas": capas, "eightd": _iso(e) if e else None, "sections": Q.SECTIONS,
-                            "dispositions": {k: {"name": t["name"], "requires_approval": t["requires_approval"],
+                            "capas": capas, "eightd": _iso(e) if e else None,
+                            "sections": {k: I18N.label(v) for k, v in Q.SECTIONS.items()},
+                            "dispositions": {k: {"name": I18N.label(t["name"]),
+                                                 "requires_approval": t["requires_approval"],
                                                  "active": t["active"]} for k, t in types.items()},
                             "workflow": wf_brief(c, "ncr", row), **own(c, "ncr", row)}
 
@@ -71,10 +75,10 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     def wf_brief(c, kind: str, row: dict) -> dict:
         """The workflow version the record runs under and what can happen next (ADR-0015)."""
         v = W.version(c, kind, row.get("workflow_version"))
-        nxt = [{"step": k, "label": s.get("label", k), "to": s.get("to"), "signed": bool(s.get("sign"))}
+        nxt = [{"step": k, "label": I18N.label(s.get("label", k)), "to": s.get("to"), "signed": bool(s.get("sign"))}
                for k, s in v["config"]["steps"].items() if row["status"] in s["from"]]
         return {"version": v["version"], "id": v["id"], "next": nxt,
-                "state": v["config"]["states"].get(row["status"], {}).get("label", row["status"])}
+                "state": I18N.label(v["config"]["states"].get(row["status"], {}).get("label", row["status"]))}
 
     @app.get("/api/quality/ncrs")
     def ncrs(status: str = "active", u=Depends(user_dep), c=Depends(conn_dep)):
@@ -242,7 +246,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
                    "report_date": str(OA.today(company()[0]))}
         try:
             return D.propose(c, u, "Quality Inspection", payload,
-                             summary=f"Incoming inspection of {line['item_code']} from {line['receipt']}")
+                             summary=say("Incoming inspection of {item_code} from {receipt}",
+                                         item_code=line["item_code"], receipt=line["receipt"]))
         except D.DraftError as exc:
             raise HTTPException(400, str(exc)) from exc
 

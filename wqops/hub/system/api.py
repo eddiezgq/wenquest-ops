@@ -9,6 +9,7 @@ import datetime as dt
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import db as DB
 from wqops.hub import permissions as P
 from wqops.hub.ai import llm as L
@@ -30,7 +31,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
           db_url: str | None = None) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                         PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def run(fn):
         try:
@@ -56,7 +58,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         return m["company"]["timezone"] if m else "UTC"
 
     def page(c, u, standard: str, eval_id: int | None = None, day: dt.date | None = None) -> dict:
-        return {**run(lambda: QMS.view(c, standard, eval_id, day)),
+        return {**QMS.shown(run(lambda: QMS.view(c, standard, eval_id, day))),
                 "can_configure": P.allows(u["roles"], "qms:configure"),
                 "can_check": P.allows(u["roles"], "quality:edit")}
 
@@ -64,7 +66,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
     def standards(u=Depends(user_dep), c=Depends(conn_dep)):
         """The standards there is a pack for, and which ones the company uses."""
         need(u, "quality:view")
-        return QMS.standards(c)
+        return [{**s, "name": I18N.label(s["name"]), "label": I18N.label(s["label"])} for s in QMS.standards(c)]
 
     @app.get("/api/qms/{standard}")
     def show(standard: str, evaluation: int = 0, day: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
@@ -129,14 +131,14 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
 
     def register_page(c, u, name: str) -> dict:
         s = run(lambda: RG.spec(name))
-        return {"name": name, "spec": s, "can_edit": P.allows(u["roles"], "quality:edit"),
+        return {"name": name, "spec": RG.shown(s), "can_edit": P.allows(u["roles"], "quality:edit"),
                 "entries": [entry_view(c, e) for e in RG.entries(c, name)]}
 
     @app.get("/api/registers")
     def registers(u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "quality:view")
         counts = RG.counts(c)
-        return [{"name": k, "label": s["label"], "signed": bool(s.get("sign")), "counts": counts.get(k, {})}
+        return [{"name": k, "label": I18N.label(s["label"]), "signed": bool(s.get("sign")), "counts": counts.get(k, {})}
                 for k, s in RG.specs().items()]
 
     @app.get("/api/registers/{name}")
@@ -161,7 +163,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
     def entry(eid: int, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "quality:view")
         e = entry_of(c, eid)
-        return {**entry_view(c, e), "history": RG.history(c, eid), "spec": RG.spec(e["register"]),
+        return {**entry_view(c, e), "history": RG.history(c, eid), "spec": RG.shown(RG.spec(e["register"])),
                 "signatures": Q.signatures(c, "register", eid)}
 
     @app.put("/api/register-entries/{eid}")
@@ -275,7 +277,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
     def setup_page(c, u, standard: str) -> dict:
         can = P.allows(u["roles"], "qms:configure")
         can_ai = can and ai_ready() and all(P.allows(u["roles"], x) for x in ("documents:view", "ai:use"))
-        return {"name": QMS.name_of(standard), "questions": SU.questions(c, standard), **SU.answers(c, standard),
+        return {"name": I18N.label(QMS.name_of(standard)), "questions": I18N.localize(SU.questions(c, standard)),
+                **SU.answers(c, standard),
                 "proposed": run(lambda: SU.proposed_applicability(c, standard)) if QMS.enabled(c, standard) else [],
                 "adopted": QMS.enabled(c, standard) is not None, "can_configure": can, "ai": ai_ready(),
                 "can_write": can and P.allows(u["roles"], "documents:edit"),

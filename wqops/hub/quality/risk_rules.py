@@ -9,6 +9,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from wqops.i18n import say
+
 VERDICTS = {"acceptable": "Acceptable", "reduce": "Reduce as far as possible", "unacceptable": "Unacceptable"}
 KINDS = ("severity", "probability")
 
@@ -18,6 +20,26 @@ EXAMPLE_LEVELS = {
     "severity": ["Negligible", "Minor", "Serious", "Critical", "Catastrophic"],
     "probability": ["Improbable", "Remote", "Occasional", "Probable", "Frequent"],
 }
+
+
+def verdicts() -> dict[str, str]:
+    """The verdict names in the reader's language (the keys are what is stored)."""
+    return {k: say(v) for k, v in VERDICTS.items()}
+
+
+def shown_levels(levels: list[dict]) -> list[dict]:
+    """The levels as sent to the page: an example level nobody changed yet (its name and the example note as loaded)
+    is shown in the reader's language; every level a company named or described itself is sent as it is."""
+    out = []
+    for lv in levels:
+        names = EXAMPLE_LEVELS.get(lv.get("kind"), [])
+        x = dict(lv)
+        if 1 <= (lv.get("rank") or 0) <= len(names) and lv.get("name") == names[lv["rank"] - 1]:
+            x["name"] = say("risk level::" + lv["name"])
+        if lv.get("description") == EXAMPLE_NOTE:
+            x["description"] = say(EXAMPLE_NOTE)
+        out.append(x)
+    return out
 
 
 def example_matrix() -> dict[tuple[int, int], str]:
@@ -35,33 +57,34 @@ def verdict(matrix: dict[tuple[int, int], str], severity: int | None, probabilit
 
 def item_needs(item: dict, matrix: dict[tuple[int, int], str]) -> list[str]:
     """What one item still needs before its file can be approved."""
-    n = f"item {item.get('seq')}"
+    n = item.get("seq")
     out = []
     if not (item.get("hazard") or "").strip() or not (item.get("harm") or "").strip():
-        out.append(f"{n}: the hazard and the harm")
+        out.append(say("item {n}: the hazard and the harm", n=n))
     first = verdict(matrix, item.get("severity"), item.get("probability"))
     if first is None:
-        out.append(f"{n}: the initial risk is not determined (severity and probability, and a matrix cell for them)")
+        out.append(say("item {n}: the initial risk is not determined (severity and probability, and a matrix cell "
+                       "for them)", n=n))
     if first != "acceptable":
         if not (item.get("controls") or "").strip() or not (item.get("verification") or "").strip():
-            out.append(f"{n}: risk controls and how they were verified")
+            out.append(say("item {n}: risk controls and how they were verified", n=n))
         rest = verdict(matrix, item.get("res_severity"), item.get("res_probability"))
         if rest is None:
-            out.append(f"{n}: the residual risk is not determined")
+            out.append(say("item {n}: the residual risk is not determined", n=n))
         elif rest == "unacceptable" and not (item.get("benefit_risk") or "").strip():
-            out.append(f"{n}: the residual risk is unacceptable: say why the benefit outweighs it")
+            out.append(say("item {n}: the residual risk is unacceptable: say why the benefit outweighs it", n=n))
     elif item.get("res_severity") is not None and verdict(matrix, item.get("res_severity"),
                                                           item.get("res_probability")) is None:
-        out.append(f"{n}: the residual risk is not determined")
+        out.append(say("item {n}: the residual risk is not determined", n=n))
     return out
 
 
 def to_approve(f: dict, items: list[dict], matrix: dict[tuple[int, int], str]) -> list[str]:
     out = []
     if not items:
-        out.append("at least one hazard")
+        out.append(say("at least one hazard"))
     if not (f.get("conclusion") or "").strip():
-        out.append("the overall residual risk conclusion")
+        out.append(say("the overall residual risk conclusion"))
     for it in items:
         out += item_needs(it, matrix)
     return out

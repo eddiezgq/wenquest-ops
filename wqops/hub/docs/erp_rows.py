@@ -11,6 +11,7 @@ ERPNext's own defaults do not stand in for it. Order lines with the same order n
 from __future__ import annotations
 
 from wqops.hub.docs import ledger as LG
+from wqops.i18n import say
 
 KEYS = {"erp_item": ("Item", "item_code"), "erp_customer": ("Customer", "customer_name"),
         "erp_supplier": ("Supplier", "supplier_name")}
@@ -62,12 +63,12 @@ def group_key(r: dict) -> tuple[str, str]:
 
 
 def label(g: tuple[str, str]) -> str:
-    return g[1] if g[0] == "order" else f"on row {g[1]}"
+    return g[1] if g[0] == "order" else say("on row {n}", n=g[1])
 
 
 def _before(why: str | None) -> str:
-    return f"imported before as {why}" if why else ("an earlier import of it stopped half way: check ERPNext, then "
-                                                     "ask whoever runs the system to clear it")
+    return say("imported before as {ref}", ref=why) if why else say(
+        "an earlier import of it stopped half way: check ERPNext, then ask whoever runs the system to clear it")
 
 
 def annotate(conn, target: str, rows: list[dict]) -> list[dict]:  # noqa: PLR0912, PLR0915 - one branch per check
@@ -78,10 +79,10 @@ def annotate(conn, target: str, rows: list[dict]) -> list[dict]:  # noqa: PLR091
     spec = LG.TARGETS[target]["fields"]
     done = earlier(conn, target)
     for r in rows:                      # a mapped value that cannot be read is not left to ERPNext's defaults
-        bad = [spec[f].label.lower() for f in r.get("raw", {}) if f not in r["values"]]
+        bad = [LG.field_name(spec[f], lower=True) for f in r.get("raw", {}) if f not in r["values"]]
         if bad:
             r["ok"] = False
-            r["problems"].append("cannot be read, so not imported: " + ", ".join(bad))
+            r["problems"].append(say("cannot be read, so not imported: {fields}", fields=LG.join_names(bad)))
         k = key_of(target, r)
         if k and k in done:
             r["exists"] = _before(done[k])
@@ -94,9 +95,9 @@ def annotate(conn, target: str, rows: list[dict]) -> list[dict]:  # noqa: PLR091
             if not v or r.get("exists"):
                 continue
             if v in have:
-                r["exists"] = f"already in ERPNext as {have[v]}"
+                r["exists"] = say("already in ERPNext as {name}", name=have[v])
             elif v in seen:
-                r["exists"] = f"the same as row {seen[v]}"
+                r["exists"] = say("the same as row {n}", n=seen[v])
             else:
                 seen[v] = r["row"]
         return rows
@@ -112,21 +113,24 @@ def annotate(conn, target: str, rows: list[dict]) -> list[dict]:  # noqa: PLR091
             v = str(r["values"].get(f) or "").strip()
             if not v:
                 continue
-            what = spec[f].label.lower()
+            what = LG.field_name(spec[f], lower=True)
             if v.lower() in twice:
-                r["problems"].append(f"{what} {v!r} is the name of more than one record in ERPNext: use its code")
+                r["problems"].append(say("{field} {value} is the name of more than one record in ERPNext: use its code",
+                                         field=what, value=repr(v)))
                 r["ok"] = False
             elif v.lower() in have:
                 r["erp"][f] = have[v.lower()]
             else:
-                r["problems"].append(f"{what} {v!r} is not in ERPNext yet: import it first")
+                r["problems"].append(say("{field} {value} is not in ERPNext yet: import it first", field=what,
+                                         value=repr(v)))
                 r["ok"] = False
     if target == "erp_opening_stock":
         seen_pair: dict[str, int] = {}
         for r in rows:
             k = key_of(target, r)
             if k in seen_pair and not r.get("exists"):
-                r["problems"].append(f"the same item and warehouse as row {seen_pair[k]}: ERPNext takes one line each")
+                r["problems"].append(say("the same item and warehouse as row {n}: ERPNext takes one line each",
+                                         n=seen_pair[k]))
                 r["ok"] = False
             seen_pair.setdefault(k, r["row"])
         return rows
@@ -138,11 +142,13 @@ def annotate(conn, target: str, rows: list[dict]) -> list[dict]:  # noqa: PLR091
         for f in (party, "transaction_date", due):
             if len({str(x["values"].get(f) or "") for x in lines}) > 1:
                 for x in lines:
-                    x["problems"].append(f"the lines of order {label(g)} differ in {spec[f].label.lower()}")
+                    x["problems"].append(say("the lines of order {order} differ in {field}", order=label(g),
+                                             field=LG.field_name(spec[f], lower=True)))
                     x["ok"] = False
         for x in lines:
             start, end = x["values"].get("transaction_date"), x["values"].get(due)
             if start and end and end < start:
-                x["problems"].append(f"{spec[due].label.lower()} {end} is before the order date {start}")
+                x["problems"].append(say("{field} {end} is before the order date {start}",
+                                         field=LG.field_name(spec[due], lower=True), end=end, start=start))
                 x["ok"] = False
     return rows

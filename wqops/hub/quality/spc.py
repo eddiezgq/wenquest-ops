@@ -66,16 +66,23 @@ def special_causes(points: list[float], center: float, sigma: float) -> list[dic
         w = z[i - m + 1:i + 1]
         return any(sum(1 for x in w if sg * x > lim) >= k and sg * z[i] > lim for sg in (1, -1))
 
-    text = {1: "point {} is beyond the 3-sigma limits", 2: "2 of 3 points beyond 2 sigma on one side (to point {})",
-            3: "4 of 5 points beyond 1 sigma on one side (to point {})",
-            4: "8 points in a row on one side of the center line (to point {}): the process mean may have shifted"}
+    def text(rule: int, n: int) -> str:
+        if rule == 1:
+            return say("point {n} is beyond the 3-sigma limits", n=n)
+        if rule == 2:
+            return say("2 of 3 points beyond 2 sigma on one side (to point {n})", n=n)
+        if rule == 3:
+            return say("4 of 5 points beyond 1 sigma on one side (to point {n})", n=n)
+        return say("8 points in a row on one side of the center line (to point {n}): the process mean may have shifted",
+                   n=n)
+
     out = []
     for rule in (1, 2, 3, 4):
         prev = False
         for i in range(len(z)):
             h = hit(rule, i)
             if h and not prev:
-                out.append({"rule": rule, "index": i, "text": text[rule].format(i + 1)})
+                out.append({"rule": rule, "index": i, "text": text(rule, i + 1)})
             prev = h
     return sorted(out, key=lambda o: (o["index"], o["rule"]))
 
@@ -113,7 +120,7 @@ def chart(subgroups: list[dict]) -> dict:
             # the moving range of means is the spread of means, not of single values: pool within the subgroups
             within = ch["sigma_within"] if max(sizes) == 1 else pooled_sigma(groups)
     except SpcError as exc:
-        return {"enough_data": False, "note": f"Not enough data for a control chart: {exc}.",
+        return {"enough_data": False, "note": say("Not enough data for a control chart: {exc}.", exc=exc),
                 "subgroups": len(groups)}
     lo, hi = subgroups[-1].get("min"), subgroups[-1].get("max")
     same = [s for s in subgroups if (s.get("min"), s.get("max")) == (lo, hi)]
@@ -126,6 +133,6 @@ def chart(subgroups: list[dict]) -> dict:
                               if (s.get("min") is not None and v < s["min"]) or (s.get("max") is not None
                                                                                  and v > s["max"]))}
     if len(same) < len(subgroups):
-        out["limits_note"] = (f"the limits changed: capability is from the {len(same)} latest subgroups with the "
-                              "current limits")
+        out["limits_note"] = say("the limits changed: capability is from the {n} latest subgroups with the current "
+                                 "limits", n=len(same))
     return out

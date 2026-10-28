@@ -134,8 +134,8 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
 
     def fits(k: int, r: list[str]) -> bool:
         if len(r) > width and any(c.strip() for c in r[width:]):
-            out["problems"].append(f"line {k}: {len(r)} cells under {width} headings, not read (a decimal comma "
-                                   "in a file separated by commas?)")
+            out["problems"].append(say("line {k}: {cells} cells under {width} headings, not read (a decimal comma "
+                                       "in a file separated by commas?)", k=k, cells=len(r), width=width))
             return False
         return True
 
@@ -154,7 +154,7 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
             name, raw = cell(fcol).strip(), cell(vcol)
             if not name:
                 if raw.strip():
-                    out["problems"].append(f"line {k}: a value without a feature name, not read")
+                    out["problems"].append(say("line {k}: a value without a feature name, not read", k=k))
                 continue
             ax = cell(acol).strip()
             name = f"{name} {ax}" if ax else name
@@ -163,7 +163,7 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
             else:
                 part = cell(pcol).strip()
                 if not part:
-                    out["problems"].append(f"line {k}: {name} has no part, not read")
+                    out["problems"].append(say("line {k}: {name} has no part, not read", k=k, name=name))
                     continue
             nom = number(cell(ncol), comma)
             up, lo = number(cell(ucol), comma), number(cell(lcol), comma)
@@ -180,9 +180,11 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
                                     name=name))
             _part(out, part)
             if v is None:
-                out["problems"].append(f"line {k}: {name} of part {part}: {raw!r} is not a number")
+                out["problems"].append(say("line {k}: {name} of part {part}: {raw} is not a number", k=k, name=name,
+                                           part=part, raw=repr(raw)))
             elif (part, name) in out["values"]:
-                out["problems"].append(f"line {k}: {name} of part {part} is in the file twice; the first is used")
+                out["problems"].append(say("line {k}: {name} of part {part} is in the file twice; the first is used",
+                                           k=k, name=name, part=part))
             else:
                 out["values"][(part, name)] = v
         return out
@@ -191,7 +193,7 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
     names = [(i, h.strip()) for i, h in enumerate(head) if i != pc and h.strip()]
     twice = sorted({h for _, h in names if [x for _, x in names].count(h) > 1})
     if twice:
-        raise MeasError("the same heading twice: " + ", ".join(twice))
+        raise MeasError(say("the same heading twice: {list}", list=", ".join(twice)))
     for _, h in names:
         _feature(out, h)
     seen: set[str] = set()
@@ -209,12 +211,12 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
                     v = number(r[i] if i < len(r) else "", comma)
                     if v is not None:
                         _feature(out, h)[kind] = v
-            out["notes"].append(f"line {k}: the {label} row describes the columns, not a part")
+            out["notes"].append(say("line {k}: the {label} row describes the columns, not a part", k=k, label=label))
             continue
         count += 1
         part = label or str(count)
         if part in seen:
-            out["problems"].append(f"line {k}: part {part} is in the file twice; the first is used")
+            out["problems"].append(say("line {k}: part {part} is in the file twice; the first is used", k=k, part=part))
             continue
         seen.add(part)
         _part(out, part)
@@ -224,7 +226,8 @@ def parse_csv(text: str) -> dict:  # noqa: PLR0912, PLR0915 - the long and the w
                 continue
             v = number(raw, comma)
             if v is None:
-                out["problems"].append(f"line {k}: {h} of part {part}: {raw!r} is not a number")
+                out["problems"].append(say("line {k}: {name} of part {part}: {raw} is not a number", k=k, name=h,
+                                           part=part, raw=repr(raw)))
             else:
                 out["values"][(part, h)] = v
     for f in out["features"]:                                        # limits from a nominal and tolerances
@@ -262,7 +265,7 @@ def parse_dfq(text: str) -> dict:  # noqa: PLR0912, PLR0915 - one branch per kin
             if "\x0f" in line or "\x14" in line or number(line) is not None:
                 value_lines.append((k, line))
             elif line.strip():
-                out["problems"].append(f"line {k}: neither a K-field nor values, not read")
+                out["problems"].append(say("line {k}: neither a K-field nor values, not read", k=k))
             continue
         key, idx, val = int(m.group(1)), int(m.group(2) or 0), m.group(3).strip()
         if key == 1001 and val and val not in part_nos:
@@ -294,15 +297,15 @@ def parse_dfq(text: str) -> dict:  # noqa: PLR0912, PLR0915 - one branch per kin
         _part(out, str(p))
     for idx, vals in columns.items():
         if idx not in names:
-            out["problems"].append(f"values for characteristic {idx}, which the file does not describe")
+            out["problems"].append(say("values for characteristic {idx}, which the file does not describe", idx=idx))
             continue
         name = names[idx] or f"characteristic {idx}"
         for p, (v, att) in enumerate(vals, start=1):
             if att != 0:
-                out["problems"].append(f"{name} of part {p}: marked by the measuring program (attribute {att}), "
-                                       "not imported")
+                out["problems"].append(say("{name} of part {p}: marked by the measuring program (attribute {att}), "
+                                           "not imported", name=name, p=p, att=att))
             elif v is None:
-                out["problems"].append(f"{name} of part {p}: not a number")
+                out["problems"].append(say("{name} of part {p}: not a number", name=name, p=p))
             else:
                 out["values"][(str(p), name)] = v
     if part_nos:
@@ -337,7 +340,7 @@ def match(features: list[dict], chars: list[dict], mapping: dict | None = None) 
             out[f["name"]] = measured[_norm(f["name"])]
     if len(set(out.values())) < len(out):
         twice = sorted({c for c in out.values() if list(out.values()).count(c) > 1})
-        raise MeasError("more than one feature goes to " + ", ".join(twice))
+        raise MeasError(say("more than one feature goes to {list}", list=", ".join(twice)))
     return out
 
 
@@ -357,13 +360,14 @@ def place(parsed: dict, chars: list[dict], n: int, first_sample: int, mapping: d
     for f in parsed["features"]:
         c = plan.get(mapping.get(f["name"], ""))
         if c is None:
-            notes.append(f"{f['name']}: not in the plan, left out")
+            notes.append(say("{name}: not in the plan, left out", name=f["name"]))
             continue
         for lim in ("lsl", "usl"):
             fv, pv = f.get(lim), c.get(lim)
             if fv is not None and pv is not None and abs(float(fv) - float(pv)) > 1e-9:
-                notes.append(f"{f['name']}: the file's {lim.upper()} {fv:g} differs from the plan's {float(pv):g}; "
-                             "the plan's limit decides")
+                notes.append(say("{name}: the file's {lim} {file} differs from the plan's {plan}; the plan's limit "
+                                 "decides", name=f["name"], lim=lim.upper(), file=format(fv, "g"),
+                                 plan=format(float(pv), "g")))
     readings = [{"sample": sample[p], "characteristic": mapping[name], "value": v}
                 for (p, name), v in parsed["values"].items() if name in mapping]
     readings.sort(key=lambda r: (r["sample"], r["characteristic"]))

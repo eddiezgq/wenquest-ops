@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 
 from wqops.hub.ont import metrics as M
 from wqops.hub.quality import records as Q
+from wqops.i18n import say
 
 
 def since(conn, today: dt.date) -> dt.date:
@@ -50,12 +51,21 @@ def open_for_rejected(conn, today: dt.date) -> list[str]:
                               (receipt,)).fetchone()
             qty = sum(ln.get("qty") or 0 for ln in (pr["props"].get("lines", []) if pr else [])
                       if ln.get("item_code") == item) or None
-        facts = [f"Quality inspection {q['key']} ({p.get('inspection_type', 'inspection')}) on {d} rejected {item}."]
-        if receipt:
-            facts.append(f"Received on {receipt}" + (f" from {supplier}" if supplier else "")
-                         + (f", quantity {qty:g}." if qty else "."))
-        facts.append("Opened automatically; containment, disposition and root cause are for Quality to decide.")
-        n = Q.create_ncr(conn, Q.SYSTEM, title=f"Rejected {item} ({q['key']})", description=" ".join(facts),
+        facts = [say("Quality inspection {key} ({type}) on {date} rejected {item}.", key=q["key"],
+                     type=p.get("inspection_type") if "inspection_type" in p else say("inspection"), date=d,
+                     item=item)]
+        if receipt and supplier and qty:
+            facts.append(say("Received on {receipt} from {supplier}, quantity {qty}.", receipt=receipt,
+                             supplier=supplier, qty=format(qty, "g")))
+        elif receipt and supplier:
+            facts.append(say("Received on {receipt} from {supplier}.", receipt=receipt, supplier=supplier))
+        elif receipt and qty:
+            facts.append(say("Received on {receipt}, quantity {qty}.", receipt=receipt, qty=format(qty, "g")))
+        elif receipt:
+            facts.append(say("Received on {receipt}.", receipt=receipt))
+        facts.append(say("Opened automatically; containment, disposition and root cause are for Quality to decide."))
+        n = Q.create_ncr(conn, Q.SYSTEM, title=say("Rejected {item} ({key})", item=item, key=q["key"]),
+                         description=" ".join(facts),
                          inspection=q["key"], item_code=item, receipt=receipt, supplier=supplier, quantity=qty)
         made.append(n["name"])
     return made

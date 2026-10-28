@@ -19,6 +19,7 @@ import math
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub import drafts as D
 from wqops.hub.ont import metrics as M
 from wqops.hub.quality import approval as AP
@@ -64,8 +65,10 @@ def log(conn, kind: str, ref_id: int, email: str | None, action: str, note: str 
 
 
 def history(conn, kind: str, ref_id: int) -> list[dict]:
-    return [_iso(r) for r in conn.execute("select at, email, action, note from iqc_log where kind = %s and "
-                                          "ref_id = %s order by id", (kind, ref_id)).fetchall()]
+    # the event names stay English in the database; shown in the reader's language
+    return [{**_iso(r), "action": I18N.label(r["action"])} for r in conn.execute(
+        "select at, email, action, note from iqc_log where kind = %s and ref_id = %s order by id",
+        (kind, ref_id)).fetchall()]
 
 
 # ---------------------------------------------------------------- settings
@@ -80,11 +83,11 @@ def set_setting(conn, email: str, key: str, value) -> dict:
     if key not in SETTINGS:
         raise KeyError(key)
     if type(value) is not bool:
-        raise IqcError(say("{SETTINGS}: yes or no", SETTINGS=SETTINGS[key][1]))
+        raise IqcError(say("{SETTINGS}: yes or no", SETTINGS=I18N.label(SETTINGS[key][1])))
     with conn.transaction():
         row = conn.execute("insert into iqc_settings (key, value, email) values (%s, %s, %s) returning *",
                            (key, Jsonb(value), email)).fetchone()
-        log(conn, "setting", row["id"], email, "changed", f"{key}: {'on' if value else 'off'}")
+        log(conn, "setting", row["id"], email, "changed", say("{key}: on" if value else "{key}: off", key=key))
     return settings(conn)
 
 
@@ -120,14 +123,14 @@ def _int(v, what: str) -> int:
 
 def add_row(conn, email: str, data: dict) -> dict:
     """A row of the sampling table; Re is Ac + 1. It may not overlap an active row of the same AQL and level."""
-    r = {"aql": _num(data.get("aql"), "the AQL"), "level": data.get("level") or "normal",
-         "lot_min": _int(data.get("lot_min"), "the smallest lot"),
-         "lot_max": _int(data.get("lot_max"), "the largest lot"),
+    r = {"aql": _num(data.get("aql"), say("the AQL")), "level": data.get("level") or "normal",
+         "lot_min": _int(data.get("lot_min"), say("the smallest lot")),
+         "lot_max": _int(data.get("lot_max"), say("the largest lot")),
          "n": _int(data.get("n"), "n"), "ac": _int(data.get("ac"), "Ac")}
     r["re"] = r["ac"] + 1
     errs = S.check_row(r)
     if errs:
-        raise IqcError("; ".join(errs))
+        raise IqcError(Q.join(errs, "; "))
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext('wqo-iqc-rows'))")
         clash = conn.execute("select id, lot_min, lot_max from iqc_sampling_rows where active and aql = %s and "
@@ -140,7 +143,8 @@ def add_row(conn, email: str, data: dict) -> dict:
                            "values (%(aql)s, %(level)s, %(lot_min)s, %(lot_max)s, %(n)s, %(ac)s, %(re)s, %(by)s) "
                            "returning *", {**r, "by": email}).fetchone()
         log(conn, "row", row["id"], email, "added",
-            f"AQL {r['aql']:g} {r['level']}, lots {r['lot_min']}-{r['lot_max']}: n {r['n']}, Ac {r['ac']}")
+            say("AQL {aql} {level}, lots {lot_min}-{lot_max}: n {n}, Ac {ac}", aql=format(r["aql"], "g"),
+                level=Q.word(r["level"]), lot_min=r["lot_min"], lot_max=r["lot_max"], n=r["n"], ac=r["ac"]))
     return _iso(row)
 
 
@@ -166,7 +170,7 @@ def archive_row(conn, email: str, row_id: int, active: bool) -> dict:
         if row is None:
             raise KeyError(row_id)
         if row["active"] == active:
-            raise IqcError("it is already " + ("in use" if active else "archived"))
+            raise IqcError(say("it is already in use") if active else say("it is already archived"))
         if active and conn.execute("select 1 from iqc_sampling_rows where active and aql = %s and level = %s and "
                                    "lot_min <= %s and lot_max >= %s", (row["aql"], row["level"], row["lot_max"],
                                                                        row["lot_min"])).fetchone():
@@ -195,11 +199,12 @@ def _chars(raw) -> list[dict]:
              "unit": str(c.get("unit") or "").strip()[:30], "method": str(c.get("method") or "").strip()[:300]}
         for lim in ("lsl", "usl"):
             v = c.get(lim)
-            x[lim] = None if v in (None, "") else _num(v, f"{x['name'] or 'a characteristic'}: the limit")
+            x[lim] = None if v in (None, "") else _num(v, say("{name}: the limit", name=x["name"])
+                                                       if x["name"] else say("a characteristic: the limit"))
         out.append(x)
     errs = S.check_characteristics(out)
     if errs:
-        raise IqcError("; ".join(errs))
+        raise IqcError(Q.join(errs, "; "))
     return out
 
 
@@ -224,7 +229,7 @@ def new_plan(conn, email: str, item_code: str, aql, characteristics, note: str =
     item_code = str(item_code or "").strip()
     if not item_code:
         raise IqcError(say("which item is the plan for?"))
-    a, chars = _num(aql, "the AQL"), _chars(characteristics)
+    a, chars = _num(aql, say("the AQL")), _chars(characteristics)
     if a <= 0:
         raise IqcError(say("the AQL is a number above 0"))
     with conn.transaction():
@@ -236,15 +241,15 @@ def new_plan(conn, email: str, item_code: str, aql, characteristics, note: str =
         row = conn.execute("insert into iqc_plans (item_code, version, aql, characteristics, note, created_by) "
                            "values (%s, %s, %s, %s, %s, %s) returning *",
                            (item_code, v, a, Jsonb(chars), note.strip()[:1000], email)).fetchone()
-        log(conn, "plan", row["id"], email, "drafted", f"{item_code} version {v}")
+        log(conn, "plan", row["id"], email, "drafted", say("{item_code} version {v}", item_code=item_code, v=v))
     return row
 
 
 def update_plan(conn, email: str, plan_id: int, *, aql=None, characteristics=None, note: str | None = None) -> dict:
     p = plan(conn, plan_id)
     if p["status"] != "draft":
-        raise IqcError(say("the plan is {status}: make a new version to change it", status=p['status']))
-    a = p["aql"] if aql is None else _num(aql, "the AQL")
+        raise IqcError(say("the plan is {status}: make a new version to change it", status=Q.word(p['status'])))
+    a = p["aql"] if aql is None else _num(aql, say("the AQL"))
     chars = p["characteristics"] if characteristics is None else _chars(characteristics)
     if float(a) <= 0:
         raise IqcError(say("the AQL is a number above 0"))
@@ -269,10 +274,10 @@ def enable_plan(conn, user: dict, plan_id: int, password: str, seen: str | None 
     ``seen``: the plan's last change as the signer saw it; if it changed since, nothing is enabled."""
     p = plan(conn, plan_id)
     if p["status"] != "draft":
-        raise IqcError(say("the plan is {status}", status=p['status']))
+        raise IqcError(say("the plan is {status}", status=Q.word(p['status'])))
     errs = S.check_characteristics(p["characteristics"])
     if errs:
-        raise IqcError("; ".join(errs))
+        raise IqcError(Q.join(errs, "; "))
     if settings(conn)["plan_by_other"] and p["created_by"] == user["email"]:
         raise PermissionError(say("someone other than the person who drafted the plan enables it"))
     if not conn.execute("select 1 from iqc_sampling_rows where active and aql = %s and level = 'normal'",
@@ -290,13 +295,14 @@ def enable_plan(conn, user: dict, plan_id: int, password: str, seen: str | None 
         old = enabled_plan(conn, p["item_code"])
         if old:
             conn.execute("update iqc_plans set status = 'retired', retired_at = now() where id = %s", (old["id"],))
-            log(conn, "plan", old["id"], user["email"], "retired", f"replaced by version {p['version']}")
+            log(conn, "plan", old["id"], user["email"], "retired",
+                say("replaced by version {version}", version=p["version"]))
         row = conn.execute("update iqc_plans set status = 'enabled', fingerprint = %s, enabled_by = %s, "
                            "enabled_at = now() where id = %s and status = 'draft' returning *",
                            (fingerprint(p), user["email"], plan_id)).fetchone()
         if row is None:
             raise IqcError(say("the plan changed meanwhile: open it again"))
-        Q._sign(conn, user, "Inspection plan enabled", "iqc_plan", plan_id, f"{p['item_code']} v{p['version']}")
+        Q._sign(conn, user, say("Inspection plan enabled"), "iqc_plan", plan_id, f"{p['item_code']} v{p['version']}")
         log(conn, "plan", plan_id, user["email"], "enabled")
     return row
 
@@ -332,9 +338,9 @@ def save_rule(conn, email: str, rule_id: int | None, data: dict) -> list[dict]:
         r["n"] = r["k"] = None
     elif r["condition"] == "consecutive_accepted":
         r["k"] = None
-    errs = S.check_rule(r) + ([] if isinstance(r["active"], bool) else ["active is yes or no"])
+    errs = S.check_rule(r) + ([] if isinstance(r["active"], bool) else [say("active is yes or no")])
     if errs:
-        raise IqcError("; ".join(errs))
+        raise IqcError(Q.join(errs, "; "))
     with conn.transaction():
         if rule_id is None:
             row = conn.execute("insert into iqc_switch_rules (from_level, to_level, condition, n, k, active, sort) "
@@ -347,8 +353,9 @@ def save_rule(conn, email: str, rule_id: int | None, data: dict) -> list[dict]:
             if row is None:
                 raise KeyError(rule_id)
         log(conn, "rule", row["id"], email, "added" if rule_id is None else "changed",
-            f"{r['from_level']} to {r['to_level']}: {r['condition']} N={r['n']} K={r['k']}"
-            + ("" if r["active"] else " (off)"))
+            say("{from_level} to {to_level}: {condition} N={n} K={k}" if r["active"] else
+                "{from_level} to {to_level}: {condition} N={n} K={k} (off)", from_level=Q.word(r["from_level"]),
+                to_level=Q.word(r["to_level"]), condition=r["condition"], n=r["n"], k=r["k"]))
     return switch_rules(conn)
 
 
@@ -404,7 +411,7 @@ def switch(conn, user: dict, supplier: str, item_code: str, to_level: str, reaso
         conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"wqo-iqc-level:{supplier}:{item_code}",))
         s = suggestion(conn, supplier, item_code)
         if to_level == s["level"]:
-            raise IqcError(say("it is already at {to_level} inspection", to_level=to_level))
+            raise IqcError(say("it is already at {to_level} inspection", to_level=Q.word(to_level)))
         if (s["level"], to_level) == ("reduced", "tightened"):
             raise IqcError(say("reduced cannot go straight to tightened: go back to normal first"))
         p = enabled_plan(conn, item_code)
@@ -412,13 +419,13 @@ def switch(conn, user: dict, supplier: str, item_code: str, to_level: str, reaso
                                   (p["aql"], to_level)).fetchone():
             raise IqcError(say("the sampling table has no {to_level} rows for AQL {aql}, so lots could not be "
                                "sampled: add them first",
-                               to_level=to_level, aql=format(float(p['aql']), 'g')))
+                               to_level=Q.word(to_level), aql=format(float(p['aql']), 'g')))
         sug = s["suggestion"]
         row = conn.execute(
             "insert into iqc_level_switches (supplier, item_code, from_level, to_level, reason, suggestion, history, "
             "email) values (%s, %s, %s, %s, %s, %s, %s, %s) returning *",
             (supplier, item_code, s["level"], to_level, reason.strip()[:1000],
-             f"{sug['to']}: {sug['reason']}" if sug else None,
+             f"{Q.word(sug['to'])}: {sug['reason']}" if sug else None,
              " ".join("A" if r == "accept" else "R" for r in s["lots"]), user["email"])).fetchone()
     return _iso(row)
 
@@ -460,7 +467,7 @@ def _receipt_lot(conn, receipt: str, item_code: str, supplier, lot_qty) -> tuple
     if supplier and supplier != line["supplier"]:
         raise IqcError(say("receipt {receipt} is from {supplier}, not {supplier2}",
                            receipt=receipt, supplier=line['supplier'], supplier2=supplier))
-    if lot_qty not in (None, "") and _num(lot_qty, "the lot size") != line["qty"]:
+    if lot_qty not in (None, "") and _num(lot_qty, say("the lot size")) != line["qty"]:
         raise IqcError(say("receipt {receipt} has {qty} of {item_code}",
                            receipt=receipt, qty=format(line['qty'], 'g'), item_code=item_code))
     if not float(line["qty"]).is_integer():
@@ -481,13 +488,13 @@ def start(conn, email: str, item_code: str, lot_qty=None, *, receipt: str | None
     p = enabled_plan(conn, item_code)
     if p is None:
         raise IqcError(say("{item_code} has no inspection plan in use: enable one first",
-                           item_code=item_code or 'the item'))
+                           item_code=item_code or say('the item')))
     if receipt:
         supplier, lot_qty = _receipt_lot(conn, receipt, item_code, supplier, lot_qty)
     elif not supplier or supplier not in {x["key"] for x in suppliers(conn)}:
         # the supplier decides the inspection level, so it must be one ERPNext knows
         raise IqcError(say("choose the supplier from the list (a supplier in ERPNext)"))
-    qty = _int(lot_qty, "the lot size")
+    qty = _int(lot_qty, say("the lot size"))
     if qty < 1:
         raise IqcError(say("the lot size is at least 1"))
     standing = None
@@ -520,15 +527,18 @@ def start(conn, email: str, item_code: str, lot_qty=None, *, receipt: str | None
         with conn.cursor() as cur:
             cur.executemany("insert into iqc_readings (inspection_id, sample, characteristic) values (%s, %s, %s)",
                             [(ins["id"], i, c["name"]) for i in range(1, sp["n"] + 1) for c in p["characteristics"]])
-        note = (f"{level} inspection of {qty}: n {sp['n']}, Ac {sp['ac']}, Re {sp['re']}"
-                + (" (every piece)" if sp["all"] else "") + ("; the sampling table row is not checked"
-                                                            if row["verified_by"] is None else "")
-                + (f"; {standing}" if standing and standing != "approved" else ""))
+        parts = [say("{level} inspection of {qty}: n {n}, Ac {ac}, Re {re} (every piece)" if sp["all"] else
+                     "{level} inspection of {qty}: n {n}, Ac {ac}, Re {re}", level=Q.word(level), qty=qty,
+                     n=sp["n"], ac=sp["ac"], re=sp["re"])]
+        if row["verified_by"] is None:
+            parts.append(say("the sampling table row is not checked"))
+        if standing and standing != "approved":
+            parts.append(standing)
         if lot_no and supplier and conn.execute(
                 "select 1 from iqc_inspections where supplier = %s and lot_no = %s and status <> 'void' and id <> %s",
                 (supplier, str(lot_no).strip(), ins["id"])).fetchone():
-            note += f"; lot {lot_no} from {supplier} has another inspection"
-        log(conn, "inspection", ins["id"], email, "started", note)
+            parts.append(say("lot {lot_no} from {supplier} has another inspection", lot_no=lot_no, supplier=supplier))
+        log(conn, "inspection", ins["id"], email, "started", Q.join(parts, "; "))
     return ins
 
 
@@ -550,7 +560,7 @@ def enter(conn, email: str, ins_id: int, values: list[dict]) -> int:
     ins = get(conn, ins_id)
     if ins["status"] != "in_progress":
         raise IqcError(say("the inspection is {status}: readings cannot change",
-                           status=ins['status'].replace('_', ' ')))
+                           status=Q.word(ins['status'])))
     kinds = {c["name"]: c["kind"] for c in plan(conn, ins["plan_id"])["characteristics"]}
     if not isinstance(values, list):
         raise IqcError(say("readings are a list"))
@@ -559,14 +569,15 @@ def enter(conn, email: str, ins_id: int, values: list[dict]) -> int:
         st = conn.execute("select status from iqc_inspections where id = %s for update", (ins_id,)).fetchone()
         if st["status"] != "in_progress":
             raise IqcError(say("the inspection is {status}: readings cannot change",
-                               status=st['status'].replace('_', ' ')))
+                               status=Q.word(st['status'])))
         for v in values:
             if not isinstance(v, dict) or v.get("characteristic") not in kinds or type(v.get("sample")) is not int:
                 raise IqcError(say("each reading names its sample and characteristic"))
             kind = kinds[v["characteristic"]]
             val = passed = None
             if kind == "measured" and v.get("value") not in (None, ""):
-                val = _num(v["value"], f"{v['characteristic']}, sample {v['sample']}")
+                val = _num(v["value"], say("{characteristic}, sample {sample}", characteristic=v["characteristic"],
+                                           sample=v["sample"]))
             if kind == "attribute" and v.get("passed") is not None:
                 if not isinstance(v["passed"], bool):
                     raise IqcError(say("{characteristic}, sample {sample}: pass or fail",
@@ -615,8 +626,9 @@ def set_gauge(conn, email: str, ins_id: int, characteristic: str, gauge_id: int 
                          "values (%s, %s, %s, %s, %s) on conflict (inspection_id, characteristic) do update set "
                          "gauge_id = excluded.gauge_id, gauge_code = excluded.gauge_code, next_due = "
                          "excluded.next_due", (ins_id, characteristic, g["id"], g["code"], g["next_due"]))
-        log(conn, "inspection", ins_id, email, "equipment", f"{characteristic}: "
-            + (CAL.get(conn, gauge_id)["code"] if gauge_id else "none"))
+        log(conn, "inspection", ins_id, email, "equipment",
+            say("{characteristic}: {code}", characteristic=characteristic, code=CAL.get(conn, gauge_id)["code"])
+            if gauge_id else say("{characteristic}: none", characteristic=characteristic))
     return _gauges(conn, ins_id)
 
 
@@ -627,7 +639,7 @@ def _check_gauges(conn, ins: dict, chars: list[dict], today: dt.date) -> None:
     if settings(conn)["gauge_required"] and CAL.in_use(conn):
         missing = [c["name"] for c in chars if c["kind"] == "measured" and c["name"] not in used]
         if missing:
-            raise IqcError("name the equipment used for: " + ", ".join(missing))
+            raise IqcError(say("name the equipment used for: {list}", list=Q.join(missing)))
     # equipment that is named is checked whatever the setting
     for ch, row in used.items():
         g = CAL.get(conn, row["gauge_id"])
@@ -642,7 +654,7 @@ def sign(conn, user: dict, ins_id: int, password: str, *, today: dt.date | None 
     """The inspector signs; the lot is judged by code from the readings."""
     ins = get(conn, ins_id)
     if ins["status"] != "in_progress":
-        raise IqcError(say("the inspection is {status}", status=ins['status'].replace('_', ' ')))
+        raise IqcError(say("the inspection is {status}", status=Q.word(ins['status'])))
     chars = plan(conn, ins["plan_id"])["characteristics"]
     Q.check_signer(conn, user, password)
     with conn.transaction():
@@ -660,9 +672,10 @@ def sign(conn, user: dict, ins_id: int, password: str, *, today: dt.date | None 
                            (j["result"], j["defectives"], user["email"], ins_id)).fetchone()
         if row is None:
             raise IqcError(say("the inspection changed meanwhile: open it again"))
-        Q._sign(conn, user, "Incoming inspection signed", "iqc", ins_id, ins["name"])
+        Q._sign(conn, user, say("Incoming inspection signed"), "iqc", ins_id, ins["name"])
         log(conn, "inspection", ins_id, user["email"], "signed",
-            f"{j['defectives']} of {ins['n']} sample units failed (Ac {ins['ac']}, Re {ins['re']}): {j['result']}")
+            say("{failed} of {n} sample units failed (Ac {ac}, Re {re}): {result}", failed=j["defectives"],
+                n=ins["n"], ac=ins["ac"], re=ins["re"], result=Q.word(j["result"])))
     return row
 
 
@@ -671,8 +684,8 @@ def decide(conn, user: dict, ins_id: int, password: str, note: str = "", *, toda
     The result is drafted for ERPNext; a rejected lot gets a nonconformance report."""
     ins = get(conn, ins_id)
     if ins["status"] != "judged":
-        raise IqcError("the inspection is not signed yet" if ins["status"] == "in_progress"
-                       else f"the inspection is {ins['status']}")
+        raise IqcError(say("the inspection is not signed yet") if ins["status"] == "in_progress"
+                       else say("the inspection is {status}", status=Q.word(ins["status"])))
     st = settings(conn)
     if st["release_by_other"] and ins["signed_by"] == user["email"]:
         raise PermissionError(say("someone other than the inspector who signed releases or rejects the lot"))
@@ -688,30 +701,42 @@ def decide(conn, user: dict, ins_id: int, password: str, note: str = "", *, toda
                             ins_id)).fetchone()
         if row is None:
             raise IqcError(say("the inspection changed meanwhile: open it again"))
-        Q._sign(conn, user, "Lot released" if accept else "Lot rejected", "iqc", ins_id, ins["name"])
+        Q._sign(conn, user, say("Lot released") if accept else say("Lot rejected"), "iqc", ins_id, ins["name"])
         log(conn, "inspection", ins_id, user["email"], "released" if accept else "rejected", note.strip())
-        what = (f"{ins['name']}: {ins['defectives']} of {ins['n']} sample units failed (Ac {ins['ac']}, "
-                f"Re {ins['re']}, {ins['level']} inspection, lot of {ins['lot_qty']})")
+
+        def what() -> str:
+            return say("{name}: {failed} of {n} sample units failed (Ac {ac}, Re {re}, {level} inspection, lot of "
+                       "{lot_qty})", name=ins["name"], failed=ins["defectives"], n=ins["n"], ac=ins["ac"],
+                       re=ins["re"], level=Q.word(ins["level"]), lot_qty=ins["lot_qty"])
+
         ncr = None
         if not accept:
             chars = {c["name"]: c for c in plan(conn, ins["plan_id"])["characteristics"]}
-            bad = [f"sample {r['sample']} {r['characteristic']}" for r in readings(conn, ins_id)
+            bad = [say("sample {sample} {characteristic}", sample=r["sample"], characteristic=r["characteristic"])
+                   for r in readings(conn, ins_id)
                    if S.conforms(chars[r["characteristic"]], r["value"], r["passed"]) is False]
-            ncr = Q.create_ncr(conn, user["email"], title=f"Rejected {ins['item_code']} ({ins['name']})",
-                               description=f"Incoming inspection {what}. Failed: {', '.join(bad[:20])}."
-                               + (f" Lot {ins['lot_no']}." if ins["lot_no"] else ""),
+            desc = say("Incoming inspection {what}. Failed: {failed}.", what=what(), failed=Q.join(bad[:20]))
+            if ins["lot_no"]:
+                desc += say(" Lot {lot_no}.", lot_no=ins["lot_no"])
+            ncr = Q.create_ncr(conn, user["email"], title=say("Rejected {item_code} ({name})",
+                                                              item_code=ins["item_code"], name=ins["name"]),
+                               description=desc,
                                item_code=ins["item_code"], receipt=ins["receipt"], supplier=ins["supplier"],
                                quantity=ins["lot_qty"])
             conn.execute("update iqc_inspections set ncr_id = %s where id = %s", (ncr["id"], ins_id))
         draft = None
         if ins["receipt"]:
+            with I18N.use(I18N.company_language()):          # the remarks go to ERPNext: the company's language
+                remarks = say("WenQuest Ops {what}; signed by {signed_by}, released by {by}." if accept else
+                              "WenQuest Ops {what}; signed by {signed_by}, rejected by {by}.", what=what(),
+                              signed_by=ins["signed_by"], by=user["email"])
             draft = D.propose(conn, user, "Quality Inspection", {
                 "inspection_type": "Incoming", "reference_type": "Purchase Receipt", "reference_name": ins["receipt"],
                 "item_code": ins["item_code"], "sample_size": ins["n"], "report_date": str(today),
-                "status": "Accepted" if accept else "Rejected",
-                "remarks": f"WenQuest Ops {what}; signed by {ins['signed_by']}, "
-                           f"{'released' if accept else 'rejected'} by {user['email']}."},
-                summary=f"Incoming inspection {ins['name']}: {ins['item_code']} {'accepted' if accept else 'rejected'}")
+                "status": "Accepted" if accept else "Rejected", "remarks": remarks},
+                summary=say("Incoming inspection {name}: {item_code} accepted" if accept else
+                            "Incoming inspection {name}: {item_code} rejected", name=ins["name"],
+                            item_code=ins["item_code"]))
             conn.execute("update iqc_inspections set draft_id = %s where id = %s", (draft["id"], ins_id))
     return get(conn, ins_id)
 
@@ -728,7 +753,7 @@ def void(conn, email: str, ins_id: int, reason: str) -> dict:
         if row is None:
             ins = get(conn, ins_id)
             raise IqcError(say("a {status} inspection cannot be voided: once signed, the lot is released or rejected",
-                               status=ins['status'].replace('_', ' ')))
+                               status=Q.word(ins['status'])))
         log(conn, "inspection", ins_id, email, "voided", reason.strip())
     return row
 

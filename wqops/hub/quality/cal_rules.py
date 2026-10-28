@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+from wqops.i18n import say
+
 
 def add_months(d: dt.date, months: int) -> dt.date:
     y, m = divmod(d.month - 1 + months, 12)
@@ -19,12 +21,12 @@ def add_months(d: dt.date, months: int) -> dt.date:
 def usable(g: dict, today: dt.date) -> tuple[bool, str]:
     """In service and not past its calibration due date."""
     if g["status"] == "retired":
-        return False, f"{g['code']} is retired"
+        return False, say("{code} is retired", code=g["code"])
     if g["status"] != "in_service":
-        return False, f"{g['code']} is out of service"
+        return False, say("{code} is out of service", code=g["code"])
     due = g.get("next_due")
     if due is None:
-        return False, f"{g['code']} has no calibration due date"
+        return False, say("{code} has no calibration due date", code=g["code"])
     if due < today:
-        return False, f"{g['code']} was due for calibration on {due}"
-    return True, f"{g['code']}, calibrated, due {due}"
+        return False, say("{code} was due for calibration on {due}", code=g["code"], due=due)
+    return True, say("{code}, calibrated, due {due}", code=g["code"], due=due)

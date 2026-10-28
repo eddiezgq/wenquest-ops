@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub import permissions as P
 from wqops.hub.ont import metrics as M
 from wqops.i18n import say
@@ -45,6 +46,13 @@ def load_rules(path: Path = RULES_FILE) -> dict[str, dict]:
     return rules
 
 
+def _join(parts, sep: str = ", ") -> str:
+    """Items of a list in a sentence: Chinese separates them with 、 (and ; with ；)."""
+    if I18N.current() == "zh":
+        sep = {", ": "、", "; ": "；"}.get(sep, sep)
+    return sep.join(parts)
+
+
 def _d(v) -> dt.date | None:
     return M._d(v)
 
@@ -65,8 +73,9 @@ def order_late(conn, rule: dict, today: dt.date) -> list[Finding]:
             out.append(
                 Finding(
                     ("SalesOrder", o["key"]),
-                    f"{o['title']} is {M.days(late)} late",
-                    f"Delivery date {due}; {round(o['props'].get('per_delivered') or 0):g}% delivered.",
+                    say("{title} is {days} late", title=o["title"], days=M.days(late)),
+                    say("Delivery date {due}; {pct}% delivered.", due=due,
+                        pct=format(round(o["props"].get("per_delivered") or 0), "g")),
                     sev,
                     {"days_late": late, "delivery_date": str(due)},
                 )
@@ -92,8 +101,8 @@ def order_at_risk(conn, rule: dict, today: dt.date) -> list[Finding]:
             out.append(
                 Finding(
                     ("SalesOrder", o["key"]),
-                    f"{o['title']} is due {due} with items short",
-                    "Short: " + ", ".join(f"{i} ({short[i]['short']:g})" for i in items),
+                    say("{title} is due {due} with items short", title=o["title"], due=due),
+                    say("Short: {items}", items=_join(f"{i} ({short[i]['short']:g})" for i in items)),
                     rule["severity"],
                     {"delivery_date": str(due), "short_items": items},
                     [("Item", i) for i in items],
@@ -106,8 +115,9 @@ def item_short(conn, rule: dict, today: dt.date) -> list[Finding]:
     return [
         Finding(
             ("Item", x["item"]),
-            f"{x['title']} is short by {x['short']:g}",
-            f"On hand {x['on_hand']:g}, open orders need {x['demand']:g}.",
+            say("{title} is short by {short}", title=x["title"], short=format(x["short"], "g")),
+            say("On hand {on_hand}, open orders need {demand}.", on_hand=format(x["on_hand"], "g"),
+                demand=format(x["demand"], "g")),
             rule["severity"],
             {"on_hand": x["on_hand"], "demand": x["demand"], "short": x["short"]},
             [("SalesOrder", s) for s in x["orders"]],
@@ -138,8 +148,9 @@ def po_late(conn, rule: dict, today: dt.date) -> list[Finding]:
             out.append(
                 Finding(
                     ("PurchaseOrder", o["key"]),
-                    f"{o['title']} is {M.days(worst)} late",
-                    "; ".join(f"{x['item']}: {x['left']:g} not received, due {x['due']}" for x in late),
+                    say("{title} is {days} late", title=o["title"], days=M.days(worst)),
+                    _join((say("{item}: {left} not received, due {due}", item=x["item"],
+                               left=format(x["left"], "g"), due=x["due"]) for x in late), "; "),
                     rule["severity"],
                     {"lines": late},
                     [("Item", x["item"]) for x in late if x["item"]],
@@ -157,9 +168,10 @@ def supplier_on_time_low(conn, rule: dict, today: dt.date) -> list[Finding]:
             out.append(
                 Finding(
                     ("Supplier", keys.get(s["supplier"], s["supplier"])),
-                    f"{s['supplier']} on time {s['value']:g}%",
-                    f"{s['on_time']} of {s['total']} receipt lines on time in {rule.get('days', 90)} days "
-                    f"(target {rule.get('target_pct', 90)}%).",
+                    say("{supplier} on time {pct}%", supplier=s["supplier"], pct=format(s["value"], "g")),
+                    say("{on_time} of {total} receipt lines on time in {days} days (target {target}%).",
+                        on_time=s["on_time"], total=s["total"], days=rule.get("days", 90),
+                        target=rule.get("target_pct", 90)),
                     rule["severity"],
                     {"on_time_pct": s["value"], "lines": s["total"]},
                 )
@@ -177,7 +189,7 @@ def inspection_rejected(conn, rule: dict, today: dt.date) -> list[Finding]:
             Finding(
                 ("QualityInspection", x["key"]),
                 f"{x['title']}",
-                f"Rejected on {x['date']}.",
+                say("Rejected on {date}.", date=x["date"]),
                 rule["severity"],
                 {"date": x["date"]},
                 rel,
@@ -194,8 +206,8 @@ def capa_overdue(conn, rule: dict, today: dt.date) -> list[Finding]:
             out.append(
                 Finding(
                     ("Capa", c["key"]),
-                    f"{c['title']}: action {M.days((today - due).days)} overdue",
-                    f"An action was due {due} and is not done.",
+                    say("{title}: action {days} overdue", title=c["title"], days=M.days((today - due).days)),
+                    say("An action was due {due} and is not done.", due=due),
                     rule["severity"],
                     {"due": str(due), "days_overdue": (today - due).days},
                 )
@@ -265,7 +277,7 @@ def detect(conn, today: dt.date, rules: dict | None = None) -> dict:
                     "update anomalies set status = 'resolved', misses = misses + 1, ended_at = now() where id = %s",
                     (row["id"],),
                 )
-                _log(conn, row["id"], "resolved", note="the condition is gone")
+                _log(conn, row["id"], "resolved", note=say("the condition is gone"))
                 counts["resolved"] += 1
             else:
                 conn.execute("update anomalies set misses = misses + 1 where id = %s", (row["id"],))
@@ -281,8 +293,8 @@ def public(row: dict, rules: dict) -> dict:
     return {
         "id": row["id"],
         "rule": row["rule"],
-        "rule_name": r.get("name", row["rule"]),
-        "hint": r.get("hint", ""),
+        "rule_name": I18N.label(r.get("name", row["rule"])),
+        "hint": I18N.label(r.get("hint", "")),
         "owner": r.get("owner"),
         "subject": [row["subject_type"], row["subject_key"]],
         "title": row["title"],

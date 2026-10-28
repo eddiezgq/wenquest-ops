@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from contextvars import ContextVar
 
+from wqops import i18n as I18N
 from wqops.hub import permissions as P
 from wqops.hub.ont import metrics as M
 from wqops.hub.ont import overview_rules as R
@@ -68,9 +69,9 @@ def _figure(label: str, value, unit: str = "", link: str | None = None, note: st
 
 def _panel(key: str, rules: dict, light_value, figures, series=None, lists=None) -> dict:  # noqa: PLR0917
     rule = rules[key]
-    return {"key": key, "label": R.LABELS[key],
-            "light": {"value": light_value, "unit": rule["unit"], "what": rule["what"], "color": R.light(light_value,
-                                                                                                         rule),
+    return {"key": key, "label": I18N.label(R.LABELS[key]),
+            "light": {"value": light_value, "unit": rule["unit"], "what": I18N.label(rule["what"]),
+                      "color": R.light(light_value, rule),
                       "green": rule["green"], "amber": rule["amber"], "better": rule["better"],
                       "default": rule["default"]},
             "figures": figures, "series": series or {}, "lists": lists or {}}
@@ -88,7 +89,7 @@ def sales(conn, as_of: dt.date, weeks: int, rules: dict) -> dict:
     for o in orders:
         d = M._d(o["props"].get("transaction_date"))
         if d and since <= d <= as_of:
-            name = o["props"].get("customer_name") or cust.get(o["key"]) or "unknown customer"
+            name = o["props"].get("customer_name") or cust.get(o["key"]) or say("unknown customer")
             top[name] = top.get(name, 0) + _num(o["props"].get("grand_total"))
     month = sum(top.values()) if orders else None
     # the light always reads the last 8 weeks, and only once there are 8 weeks of orders to compare with
@@ -97,10 +98,10 @@ def sales(conn, as_of: dt.date, weeks: int, rules: dict) -> dict:
                                                   _num(o["props"].get("grand_total"))) for o in orders), as_of, 8)
     enough = first is not None and first <= as_of - dt.timedelta(days=55)
     return _panel("sales", rules, R.vs_average(eight) if enough else None, [
-        _figure("Orders, last 30 days", round(month, 2) if month is not None else None, "currency", "/objects"),
-        _figure("Orders this week", series[-1]["count"] if orders else None, "orders"),
-        _figure("Against last week", R.change(series), "%")],
-        {"orders": {"label": "Order value by week", "unit": "currency", "points": series}},
+        _figure(say("Orders, last 30 days"), round(month, 2) if month is not None else None, "currency", "/objects"),
+        _figure(say("Orders this week"), series[-1]["count"] if orders else None, "orders"),
+        _figure(say("Against last week"), R.change(series), "%")],
+        {"orders": {"label": say("Order value by week"), "unit": "currency", "points": series}},
         {"customers": [{"label": k, "value": round(v, 2), "unit": "currency"}
                        for k, v in sorted(top.items(), key=lambda x: -x[1])[:5]]})
 
@@ -121,10 +122,10 @@ def delivery(conn, as_of: dt.date, weeks: int, rules: dict) -> dict:
     trend = M.weekly(conn, "on_time_delivery", as_of, weeks)
     late = late_orders(conn, as_of)
     return _panel("delivery", rules, otd["value"], [
-        _figure("On-time delivery, 30 days", otd["value"], "%", "/"),
-        _figure("Delivered late, 30 days", len(otd.get("late", [])), "orders"),
-        _figure("Open orders past their date", len(late), "orders")],
-        {"on_time": {"label": "On-time delivery by week", "unit": "%", "points": trend}},
+        _figure(say("On-time delivery, 30 days"), otd["value"], "%", "/"),
+        _figure(say("Delivered late, 30 days"), len(otd.get("late", [])), "orders"),
+        _figure(say("Open orders past their date"), len(late), "orders")],
+        {"on_time": {"label": say("On-time delivery by week"), "unit": "%", "points": trend}},
         {"late": late[:6]})
 
 
@@ -149,10 +150,10 @@ def inventory(conn, as_of: dt.date, weeks: int, rules: dict) -> dict:
     doi = M.days_of_inventory(conn, as_of)
     has_stock = value["value"] is not None
     return _panel("inventory", rules, short["value"] if has_stock else None, [
-        _figure("Stock value", value["value"], "currency"),
-        _figure("Days of inventory", doi["value"], "days"),
-        _figure("Items short", short["value"] if has_stock else None, "items")],
-        {"value": {"label": "Stock value by week", "unit": "currency", "points": _inventory_by_week(conn, as_of,
+        _figure(say("Stock value"), value["value"], "currency"),
+        _figure(say("Days of inventory"), doi["value"], "days"),
+        _figure(say("Items short"), short["value"] if has_stock else None, "items")],
+        {"value": {"label": say("Stock value by week"), "unit": "currency", "points": _inventory_by_week(conn, as_of,
                                                                                                     weeks)}},
         {"short": [{"label": i["title"], "value": i["short"], "unit": "short", "link": f"/o/Item/{i['item']}"}
                    for i in short.get("items", [])[:6]]})
@@ -178,12 +179,12 @@ def purchasing(conn, as_of: dt.date, weeks: int, rules: dict) -> dict:
     waiting = len(I.awaiting(conn)) + conn.execute("select count(*) as n from iqc_inspections where status in "
                                                    "('in_progress', 'judged')").fetchone()["n"]
     return _panel("purchasing", rules, sot["value"], [
-        _figure("Received on time, 30 days", sot["value"], "%"),
-        _figure("Still to receive", open_value, "currency"),
-        _figure("Purchase orders late", len(late), "orders"),
-        _figure("Incoming lots waiting", waiting, "lots", "/quality/iqc"),
-        _figure("Incoming lots rejected, 30 days", M._pct(lots["rej"], lots["n"]), "%", "/quality/iqc")],
-        {"on_time": {"label": "Received on time by week", "unit": "%", "points": trend}},
+        _figure(say("Received on time, 30 days"), sot["value"], "%"),
+        _figure(say("Still to receive"), open_value, "currency"),
+        _figure(say("Purchase orders late"), len(late), "orders"),
+        _figure(say("Incoming lots waiting"), waiting, "lots", "/quality/iqc"),
+        _figure(say("Incoming lots rejected, 30 days"), M._pct(lots["rej"], lots["n"]), "%", "/quality/iqc")],
+        {"on_time": {"label": say("Received on time by week"), "unit": "%", "points": trend}},
         {"late": sorted(late, key=lambda x: -x["value"])[:6]})
 
 
@@ -198,24 +199,24 @@ def production(conn, as_of: dt.date, weeks: int, rules: dict) -> dict:
     st = {r["status"]: r["n"] for r in conn.execute("select status, count(*) as n from prod_records group by status")}
     series = R.by_week(((r["d"], 1) for r in rel), as_of, weeks)
     return _panel("production", rules, first_pass, [
-        _figure("Lots in production", st.get("in_production", 0), "lots", "/quality/production"),
-        _figure("Waiting for release", st.get("qa_review", 0), "lots", "/quality/production"),
-        _figure("Released, 30 days", len(month), "lots"),
-        _figure("First-pass yield, 30 days", first_pass, "%")],
-        {"released": {"label": "Lots released by week", "unit": "lots", "points": series}})
+        _figure(say("Lots in production"), st.get("in_production", 0), "lots", "/quality/production"),
+        _figure(say("Waiting for release"), st.get("qa_review", 0), "lots", "/quality/production"),
+        _figure(say("Released, 30 days"), len(month), "lots"),
+        _figure(say("First-pass yield, 30 days"), first_pass, "%")],
+        {"released": {"label": say("Lots released by week"), "unit": "lots", "points": series}})
 
 
 def _overdue_quality(conn, as_of: dt.date) -> list[dict]:
-    out = [{"label": f"CAPA step: {r['text'][:60]}", "value": (as_of - r["due"]).days, "unit": "days late",
-            "link": f"/quality/capa/{r['capa_id']}"} for r in conn.execute(
+    out = [{"label": say("CAPA step: {text}", text=r["text"][:60]), "value": (as_of - r["due"]).days,
+            "unit": "days late", "link": f"/quality/capa/{r['capa_id']}"} for r in conn.execute(
         "select a.capa_id, a.text, a.due from capa_actions a join capas c on c.id = a.capa_id where not a.done and "
         "a.due < %s and c.status not in ('closed', 'cancelled') order by a.due", (as_of,))]
-    out += [{"label": f"Complaint {r['name']}: report due", "value": (as_of - r["deadline_on"]).days,
+    out += [{"label": say("Complaint {name}: report due", name=r["name"]), "value": (as_of - r["deadline_on"]).days,
              "unit": "days late", "link": f"/quality/complaints/{r['id']}"} for r in conn.execute(
         "select id, name, deadline_on from complaints where deadline_on < %s and report_ref = '' and status not in "
         "('closed', 'cancelled') order by deadline_on", (as_of,))]
-    out += [{"label": f"Calibration of {r['code']}", "value": (as_of - r["next_due"]).days, "unit": "days late",
-             "link": f"/quality/gauges/{r['id']}"} for r in conn.execute(
+    out += [{"label": say("Calibration of {code}", code=r["code"]), "value": (as_of - r["next_due"]).days,
+             "unit": "days late", "link": f"/quality/gauges/{r['id']}"} for r in conn.execute(
         "select id, code, next_due from gauges where status <> 'retired' and next_due < %s order by next_due",
         (as_of,))]
     return out
@@ -238,11 +239,11 @@ def quality(conn, as_of: dt.date, weeks: int, rules: dict) -> dict:
     used = conn.execute("select exists (select 1 from capas) or exists (select 1 from complaints) or exists "
                         "(select 1 from gauges) as y").fetchone()["y"]
     return _panel("quality", rules, len(overdue) if used else None, [
-        _figure("Open nonconformances", ncr["value"], "open", "/quality"),
-        _figure("Overdue quality actions", len(overdue), "items"),
-        _figure("Open complaints", complaints, "open", "/quality/complaints"),
-        _figure("Open recalls", recalls, "open", "/quality/recalls")],
-        {"ncrs": {"label": "Nonconformances opened by week", "unit": "reports", "points": opened}},
+        _figure(say("Open nonconformances"), ncr["value"], "open", "/quality"),
+        _figure(say("Overdue quality actions"), len(overdue), "items"),
+        _figure(say("Open complaints"), complaints, "open", "/quality/complaints"),
+        _figure(say("Open recalls"), recalls, "open", "/quality/recalls")],
+        {"ncrs": {"label": say("Nonconformances opened by week"), "unit": "reports", "points": opened}},
         {"overdue": sorted(overdue, key=lambda x: -x["value"])[:6], "iso": iso})
 
 
@@ -260,17 +261,17 @@ def finance(conn, as_of: dt.date, weeks: int, rules: dict) -> dict:
     for o in sinv:
         d, v = M._d(o["props"].get("due_date")), _num(o["props"].get("outstanding_amount"))
         if d and d < as_of and v > 0:
-            name = o["props"].get("customer_name") or cust.get(o["key"]) or "unknown customer"
+            name = o["props"].get("customer_name") or cust.get(o["key"]) or say("unknown customer")
             late[name] = late.get(name, 0) + v
     return _panel("finance", rules, share, [
-        _figure("Receivables", ar_total if sinv else None, "currency"),
-        _figure("Overdue receivables", ar_late if sinv else None, "currency"),
-        _figure("Overdue share", share, "%"),
-        _figure("Payables", ap_total if pinv else None, "currency"),
-        _figure("Billed, last 4 weeks", round(sum(w["value"] for w in billed[-4:]), 2) if sinv else None,
+        _figure(say("Receivables"), ar_total if sinv else None, "currency"),
+        _figure(say("Overdue receivables"), ar_late if sinv else None, "currency"),
+        _figure(say("Overdue share"), share, "%"),
+        _figure(say("Payables"), ap_total if pinv else None, "currency"),
+        _figure(say("Billed, last 4 weeks"), round(sum(w["value"] for w in billed[-4:]), 2) if sinv else None,
                 "currency")],
-        {"billed": {"label": "Billed by week", "unit": "currency", "points": billed},
-         "aging": {"label": "Receivables by days past due", "unit": "currency", "points": R.aging(ar, as_of),
+        {"billed": {"label": say("Billed by week"), "unit": "currency", "points": billed},
+         "aging": {"label": say("Receivables by days past due"), "unit": "currency", "points": R.aging(ar, as_of),
                    "kind": "aging"}},
         {"late_customers": [{"label": k, "value": round(v, 2), "unit": "currency"}
                             for k, v in sorted(late.items(), key=lambda x: -x[1])[:5]]})
@@ -289,12 +290,12 @@ def chain(conn, as_of: dt.date, allowed: set[str]) -> list[dict]:
     if "purchasing" in allowed:
         pos = [o for o in _docs(conn, "PurchaseOrder") if o["props"].get("status") in OPEN_PO]
         late = [o for o in pos if (M._d(o["props"].get("schedule_date")) or as_of) < as_of]
-        steps.append({"key": "po", "label": "Purchase orders", "count": len(pos), "stuck": len(late),
-                      "stuck_note": "past their required-by date", "link": "/objects"})
+        steps.append({"key": "po", "label": say("Purchase orders"), "count": len(pos), "stuck": len(late),
+                      "stuck_note": say("past their required-by date"), "link": "/objects"})
         drafts = [o for o in M._objs(conn, "PurchaseReceipt") if o["props"].get("docstatus") == 0]
-        steps.append({"key": "receipt", "label": "Receiving", "count": len(drafts),
+        steps.append({"key": "receipt", "label": say("Receiving"), "count": len(drafts),
                       "stuck": sum(1 for o in drafts if (M._d(o["props"].get("posting_date")) or as_of) < old),
-                      "stuck_note": f"waiting over {ATTENTION_DAYS} days", "link": "/objects"})
+                      "stuck_note": say("waiting over {n} days", n=ATTENTION_DAYS), "link": "/objects"})
     if "quality" in allowed:
         from wqops.hub.quality import iqc as I  # noqa: PLC0415
 
@@ -302,13 +303,13 @@ def chain(conn, as_of: dt.date, allowed: set[str]) -> list[dict]:
         busy = conn.execute("select count(*) filter (where (created_at at time zone %(tz)s)::date < %(old)s) as stuck, "
                             "count(*) as n from iqc_inspections where status in ('in_progress', 'judged')",
                             {"tz": TZ.get(), "old": old}).fetchone()
-        steps.append({"key": "iqc", "label": "Incoming inspection", "count": len(wait) + busy["n"],
-                      "stuck": busy["stuck"], "stuck_note": f"open over {ATTENTION_DAYS} days",
+        steps.append({"key": "iqc", "label": say("Incoming inspection"), "count": len(wait) + busy["n"],
+                      "stuck": busy["stuck"], "stuck_note": say("open over {n} days", n=ATTENTION_DAYS),
                       "link": "/quality/iqc"})
     if "inventory" in allowed:
         short = M.shortages(conn)
-        steps.append({"key": "stock", "label": "Stock", "count": M.inventory_value(conn)["value"],
-                      "unit": "currency", "stuck": short["value"], "stuck_note": "items short", "link": "/"})
+        steps.append({"key": "stock", "label": say("Stock"), "count": M.inventory_value(conn)["value"],
+                      "unit": "currency", "stuck": short["value"], "stuck_note": say("items short"), "link": "/"})
     if "production" in allowed:
         r = conn.execute("select count(*) filter (where status = 'in_production') as wip, count(*) filter (where "
                          "status = 'in_production' and (created_at at time zone %(tz)s)::date < %(old)s) as wip_old, "
@@ -316,24 +317,25 @@ def chain(conn, as_of: dt.date, allowed: set[str]) -> list[dict]:
                          "'qa_review' and "
                          "(submitted_at at time zone %(tz)s)::date < %(old)s) as rev_old from prod_records",
                          {"tz": TZ.get(), "old": old}).fetchone()
-        steps.append({"key": "make", "label": "Production", "count": r["wip"], "stuck": r["wip_old"],
-                      "stuck_note": f"started over {ATTENTION_DAYS} days ago", "link": "/quality/production"})
-        steps.append({"key": "release", "label": "Release", "count": r["rev"], "stuck": r["rev_old"],
-                      "stuck_note": f"waiting over {ATTENTION_DAYS} days", "link": "/quality/production"})
+        steps.append({"key": "make", "label": say("Production"), "count": r["wip"], "stuck": r["wip_old"],
+                      "stuck_note": say("started over {n} days ago", n=ATTENTION_DAYS), "link": "/quality/production"})
+        steps.append({"key": "release", "label": say("Release"), "count": r["rev"], "stuck": r["rev_old"],
+                      "stuck_note": say("waiting over {n} days", n=ATTENTION_DAYS), "link": "/quality/production"})
     if "delivery" in allowed:
         open_so = [o for o in _docs(conn, "SalesOrder") if o["props"].get("status") in M.OPEN_SO]
-        steps.append({"key": "ship", "label": "Delivery", "count": len(open_so), "stuck": len(late_orders(conn, as_of)),
-                      "stuck_note": "past their date", "link": "/"})
+        steps.append({"key": "ship", "label": say("Delivery"), "count": len(open_so),
+                      "stuck": len(late_orders(conn, as_of)),
+                      "stuck_note": say("past their date"), "link": "/"})
     if "finance" in allowed:
         sinv = _docs(conn, "SalesInvoice")
         to_bill = [o for o in _docs(conn, "SalesOrder") if o["props"].get("status") in ("To Bill",
                                                                                         "To Deliver and Bill")]
-        steps.append({"key": "bill", "label": "Invoicing", "count": len(to_bill), "stuck": None,
+        steps.append({"key": "bill", "label": say("Invoicing"), "count": len(to_bill), "stuck": None,
                       "stuck_note": "", "link": "/"})
         unpaid = [o for o in sinv if _num(o["props"].get("outstanding_amount")) > 0]
-        steps.append({"key": "cash", "label": "Payment", "count": len(unpaid),
+        steps.append({"key": "cash", "label": say("Payment"), "count": len(unpaid),
                       "stuck": sum(1 for o in unpaid if (M._d(o["props"].get("due_date")) or as_of) < as_of),
-                      "stuck_note": "past due", "link": "/"})
+                      "stuck_note": say("past due"), "link": "/"})
     return steps
 
 
@@ -343,8 +345,8 @@ def returns(conn, allowed: set[str]) -> list[dict]:
         return []
     c = conn.execute("select count(*) as n from complaints where status not in ('closed', 'cancelled')").fetchone()
     r = conn.execute("select count(*) as n from recalls where status = 'open'").fetchone()
-    return [{"key": "complaints", "label": "Complaints", "count": c["n"], "link": "/quality/complaints"},
-            {"key": "recalls", "label": "Recalls", "count": r["n"], "link": "/quality/recalls"}]
+    return [{"key": "complaints", "label": say("Complaints"), "count": c["n"], "link": "/quality/complaints"},
+            {"key": "recalls", "label": say("Recalls"), "count": r["n"], "link": "/quality/recalls"}]
 
 
 # ---------------------------------------------------------------- what waits for people
@@ -355,7 +357,7 @@ def waiting(conn, user: dict, as_of: dt.date) -> list[dict]:
 
     def add(kind: str, label: str, n: int, link: str, urgent: bool = False) -> None:
         if n:
-            out.append({"kind": kind, "label": label, "count": n, "link": link, "urgent": urgent})
+            out.append({"kind": kind, "label": I18N.label(label), "count": n, "link": link, "urgent": urgent})
 
     add("reading", "Documents for you to read", conn.execute(
         "select count(*) as n from doc_training where email = %s and status = 'pending'", (me,)).fetchone()["n"],
@@ -395,7 +397,7 @@ def build(conn, user: dict, as_of: dt.date, weeks: int, saved: dict | None = Non
     rules = R.thresholds((saved or {}).get("thresholds"))
     allowed = allowed_panels(user["roles"])
     panels = [PANEL_FNS[k](conn, as_of, weeks, rules) for k in R.PANELS if k in allowed]
-    return {"as_o": str(as_of), "weeks": weeks, "panels": panels, "chain": chain(conn, as_of, allowed),
+    return {"as_of": str(as_of), "weeks": weeks, "panels": panels, "chain": chain(conn, as_of, allowed),
             "returns": returns(conn, allowed), "waiting": waiting(conn, user, as_of),
             "synced_at": _synced(conn)}
 

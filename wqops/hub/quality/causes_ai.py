@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from wqops import i18n as I18N
 from wqops.hub.ai import agent as AG
 from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
@@ -107,8 +108,10 @@ def suggest(conn, user: dict, aid: int, model: L.Anthropic | None, *, today: dt.
     shown = {r["ref"] for r in recs}
     listing = "\n".join(f"[{r['ref']}] {r['kind']}: {r['summary']}" for r in recs)
     ctx = T.Ctx(conn=conn, user=user, today=today)
-    AG.start(ctx, "cause", f"{CR.METHODS[a['method']]} {a['name']} on {a['ref_name']}"
-             + (f", why {level}" if level else ""))
+    method = I18N.label(CR.METHODS[a["method"]])
+    AG.start(ctx, "cause", say("{method} {name} on {ref}, why {level}", method=method, name=a["name"],
+                               ref=a["ref_name"], level=level) if level else
+             say("{method} {name} on {ref}", method=method, name=a["name"], ref=a["ref_name"]))
     out = {"engine": "model", "model": model.model, "tool_calls": [], "verified": True, "unverified": [], "usage": {}}
     try:
         tool = _tool(a["method"], a["categories"])
@@ -124,10 +127,11 @@ def suggest(conn, user: dict, aid: int, model: L.Anthropic | None, *, today: dt.
         made = C.propose(conn, aid, ctx.run_id, user["email"], kept) if kept else []
         ctx.refs = sorted({r for p in kept for r in p["refs"]})
         note = CR.CONTROL.sub(" ", str(use["input"].get("note") or "")).strip()[:600]
-        out.update(usage=resp.get("usage", {}), answer=note or f"{len(made)} suggestions",
+        out.update(usage=resp.get("usage", {}), answer=note or say("{n} suggestions", n=len(made)),
                    verified=not dropped and not bad, unverified=dropped,
                    tool_calls=[{"tool": tool["name"], "args": {"analysis": a["name"], "level": level}, "ok": True,
-                                "summary": f"{len(made)} kept, {len(dropped) + bad} dropped"}])
+                                "summary": say("{kept} kept, {dropped} dropped", kept=len(made),
+                                               dropped=len(dropped) + bad)}])
         AG.finish(ctx, out)
         return {"run": ctx.run_id, "items": made, "dropped": dropped, "unusable": bad, "note": note,
                 "shown": len(recs)}

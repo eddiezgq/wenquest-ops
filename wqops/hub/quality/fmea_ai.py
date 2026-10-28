@@ -74,7 +74,8 @@ def suggest(conn, user: dict, fid: int, model: L.Anthropic | None, *, today: dt.
     ask = (f"Process: {f['process']}\nItem: {f['item_code']}\nScope: {f['scope'] or '-'}\n"
            f"Rows the team already has:\n{rows_now}\n\nDraft up to {MAX_ROWS} more rows.\n\nRecords:\n{listing}")
     ctx = T.Ctx(conn=conn, user=user, today=today)
-    AG.start(ctx, "fmea", f"draft rows for {f['name']} v{f['version']} ({f['process']})"[:1000])
+    AG.start(ctx, "fmea", say("draft rows for {name} v{version} ({process})", name=f["name"], version=f["version"],
+                              process=f["process"])[:1000])
     out = {"engine": "model", "model": model.model, "tool_calls": [], "verified": True, "unverified": [], "usage": {}}
     try:
         resp = model.create(SYSTEM, [{"role": "user", "content": ask}], [TOOL], 4000,
@@ -99,10 +100,11 @@ def suggest(conn, user: dict, fid: int, model: L.Anthropic | None, *, today: dt.
         made = F.propose(conn, user["email"], fid, ctx.run_id, kept) if kept else []
         ctx.refs = sorted({r for p in kept for r in p["refs"]})
         note = _t(use["input"].get("note"), 600)
-        out.update(usage=resp.get("usage", {}), answer=note or f"{len(made)} rows drafted",
+        out.update(usage=resp.get("usage", {}), answer=note or say("{n} rows drafted", n=len(made)),
                    verified=not dropped and not bad, unverified=dropped,
                    tool_calls=[{"tool": "draft_rows", "args": {"fmea": f["name"]}, "ok": True,
-                                "summary": f"{len(made)} kept, {len(dropped) + bad} dropped"}])
+                                "summary": say("{kept} kept, {dropped} dropped", kept=len(made),
+                                               dropped=len(dropped) + bad)}])
         AG.finish(ctx, out)
         return {"run": ctx.run_id, "rows": made, "dropped": dropped, "unusable": bad, "note": note,
                 "shown": len(recs)}

@@ -49,7 +49,7 @@ def permission(doctype: str) -> str:
 def check_allowed(user: dict, doctype: str) -> None:
     perm = permission(doctype)
     if not P.allows(user["roles"], perm):
-        raise NotAllowed(say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+        raise NotAllowed(say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.describe(perm)))
 
 
 def clean(doctype: str, payload) -> dict:
@@ -92,7 +92,7 @@ def propose(conn, user: dict, doctype: str, payload, *, summary: str = "", sourc
             ai_run: str | None = None) -> dict:
     check_allowed(user, doctype)
     if source == "ai" and not P.allows(user["roles"], "ai:use"):
-        raise NotAllowed(say("your role does not allow: {ai_use}", ai_use=P.PERMISSIONS['ai:use']))
+        raise NotAllowed(say("your role does not allow: {ai_use}", ai_use=P.describe('ai:use')))
     if source not in ("person", "ai"):
         raise DraftError(say("source must be person or ai"))
     fields = clean(doctype, payload)
@@ -167,7 +167,7 @@ def _erp_fields(erp: ErpClient, user: dict, row: dict) -> dict:
 def _confirm_hub(conn, user: dict, row: dict) -> dict:
     p = row["payload"]
     with conn.transaction():
-        record, note = None, "ready to send"
+        record, note = None, say("ready to send")
         if row["doctype"] == "Nonconformance Report":
             from wqops.hub.quality import records as Q  # noqa: PLC0415
 

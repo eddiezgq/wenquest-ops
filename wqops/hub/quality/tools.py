@@ -11,6 +11,7 @@ import re
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.quality import iqc as I
 from wqops.hub.quality import measurements as ME
 from wqops.hub.quality import records as Q
@@ -43,9 +44,19 @@ def _custom_choices(conn) -> dict[str, str]:
             if f.get("type") == "choice"}
 
 
+def _by(source: str, conn=None) -> dict[str, str]:
+    """What a source can be grouped by, in the reader's language (the company's own fields as they named them)."""
+    out = {k: I18N.label(v) for k, v in SOURCES[source]["by"].items()}
+    return out | (_custom_choices(conn) if source == "ncr" and conn is not None else {})
+
+
+def _measure(source: str) -> str:
+    return say("tool measure::" + SOURCES[source]["measure"])
+
+
 def options(conn) -> dict:
     """What a Pareto chart can count, by what, and the check sheet forms."""
-    out = {k: {"label": v["label"], "measure": v["measure"], "by": dict(v["by"])} for k, v in SOURCES.items()}
+    out = {k: {"label": I18N.label(v["label"]), "measure": _measure(k), "by": _by(k)} for k, v in SOURCES.items()}
     out["ncr"]["by"].update(_custom_choices(conn))
     return {"sources": out, "forms": forms(conn)}
 
@@ -68,11 +79,11 @@ def pareto_for(conn, source: str, by: str, *, since=None, until=None,  # noqa: P
                form_id: int | None = None) -> dict:
     if source not in SOURCES:
         raise ToolsError(say("count one of: {SOURCES}", SOURCES=', '.join(SOURCES)))
-    dims = dict(SOURCES[source]["by"]) | (_custom_choices(conn) if source == "ncr" else {})
+    dims = _by(source, conn)
     if by not in dims:
         raise ToolsError(say("group {label} by one of: {dims}",
-                             label=SOURCES[source]['label'].lower(), dims=', '.join(dims.values())))
-    d0, d1 = _day(since, "from"), _day(until, "to")
+                             label=I18N.label(SOURCES[source]['label']).lower(), dims=', '.join(dims.values())))
+    d0, d1 = _day(since, say("date::from")), _day(until, say("date::to"))
     if d0 and d1 and d1 < d0:
         raise ToolsError(say("the period ends before it starts"))
     lo = d0 or dt.date(1900, 1, 1)
@@ -131,15 +142,15 @@ def pareto_for(conn, source: str, by: str, *, since=None, until=None,  # noqa: P
     for b in bars:
         b["records"] = refs.get(b["key"], [])
     total = sum(counts.values())
-    out = {"source": source, "by": by, "by_label": dims[by], "measure": SOURCES[source]["measure"],
+    out = {"source": source, "by": by, "by_label": dims[by], "measure": _measure(source),
            "since": d0.isoformat() if d0 else None, "until": d1.isoformat() if d1 else None, "records": records,
            "total": total, "bars": bars, "vital_few": TR.vital_few(bars) if bars else 0}
     nr = counts.get(TR.NOT_RECORDED, 0)
     if nr:
-        out["note"] = (f"{int(nr)} of {int(total)} {SOURCES[source]['measure']} have no {dims[by].lower()} recorded; "
-                       "they are shown as their own bar")
+        out["note"] = say("{n} of {total} {measure} have no {by} recorded; they are shown as their own bar",
+                          n=int(nr), total=int(total), measure=_measure(source), by=dims[by].lower())
     if not bars:
-        out["note"] = "Nothing to count in this period."
+        out["note"] = say("Nothing to count in this period.")
     return out
 
 
@@ -149,15 +160,15 @@ def histogram_for(conn, source: str, item_code: str, parameter: str) -> dict:
     values = [v for g in groups for v in g["values"]]
     out = {"source": source, "item_code": item_code, "parameter": parameter, "values": len(values)}
     if len(values) < 2:
-        return out | {"enough_data": False, "note": "At least 2 measured values are needed for a histogram."}
+        return out | {"enough_data": False, "note": say("At least 2 measured values are needed for a histogram.")}
     lo, hi = groups[-1]["min"], groups[-1]["max"]
     out |= {"enough_data": True, "histogram": TR.histogram(values, lo, hi)}
     spc = ME.spc_for(conn, source, item_code, parameter, limit=1000)
     out["capability"] = spc.get("capability")
     out["capability_note"] = spc.get("capability_note") or (None if spc.get("capability") else
-                                                            "unknown: needs both limits and enough data")
+                                                            say("unknown: needs both limits and enough data"))
     if any((g["min"], g["max"]) != (lo, hi) for g in groups):
-        out["limits_note"] = "the limits changed over time: the lines show the latest limits"
+        out["limits_note"] = say("the limits changed over time: the lines show the latest limits")
     return out
 
 
@@ -173,7 +184,8 @@ def scatter_for(conn, source: str, item_code: str, x: str, y: str, *, limit: int
             "join iqc_readings b on b.inspection_id = i.id and b.characteristic = %s and b.sample = a.sample "
             "where i.item_code = %s and i.status = any(%s) and a.value is not null and b.value is not null "
             "order by i.signed_at, i.id, a.sample limit %s", (x, y, item_code, list(ME.SIGNED), limit)).fetchall()
-        pts = [{"x": float(r["x"]), "y": float(r["y"]), "label": f"{r['name']} sample {r['sample']}",
+        pts = [{"x": float(r["x"]), "y": float(r["y"]), "label": say("{name} sample {sample}", name=r["name"],
+                                                                    sample=r["sample"]),
                 "ref": {"kind": "iqc", "id": r["id"], "name": r["name"]}} for r in rows]
     elif source == "production":
         rows = conn.execute(
@@ -235,7 +247,7 @@ def new_form(conn, email: str, name: str, categories) -> dict:
     with conn.transaction():
         row = conn.execute("insert into check_sheet_forms (name, categories, created_by) values (%s, %s, %s) "
                            "returning *", (name, cats, email)).fetchone()
-        _log(conn, row["id"], email, "created", f"{name}: {', '.join(cats)}")
+        _log(conn, row["id"], email, say("created"), f"{name}: {', '.join(cats)}")
     return row
 
 
@@ -244,7 +256,7 @@ def retire_form(conn, email: str, form_id: int, active: bool = False) -> dict:
     with conn.transaction():
         row = conn.execute("update check_sheet_forms set active = %s where id = %s returning *",
                            (active, form_id)).fetchone()
-        _log(conn, form_id, email, "back in use" if active else "retired")
+        _log(conn, form_id, email, say("back in use") if active else say("retired"))
     return row
 
 
@@ -274,7 +286,7 @@ def record(conn, user: dict, form_id: int, data: dict, password: str, *, today: 
         counts[c] = int(str(v).strip())
         if counts[c] > 1_000_000:
             raise ToolsError(say("{c}: at most 1,000,000", c=c))
-    on = _day(data.get("on_date"), "the day counted") or today
+    on = _day(data.get("on_date"), say("the day counted")) or today
     if on > today:
         raise ToolsError(say("the day counted cannot be in the future"))
     item = str(data.get("item_code") or "").strip()[:140] or None
@@ -287,5 +299,6 @@ def record(conn, user: dict, form_id: int, data: dict, password: str, *, today: 
             "values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
             (name, form_id, on, item, place, Jsonb(counts), sum(counts.values()),
              str(data.get("note") or "").strip()[:2000], user["email"])).fetchone()
-        Q._sign(conn, user, f"Check sheet recorded ({sum(counts.values())} counted)", "check_sheet", row["id"], name)
+        Q._sign(conn, user, say("Check sheet recorded ({n} counted)", n=sum(counts.values())), "check_sheet",
+                row["id"], name)
     return row | {"form": f["name"]}

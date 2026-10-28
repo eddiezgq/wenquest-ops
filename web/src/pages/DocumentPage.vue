@@ -112,7 +112,7 @@ async function newRevision() {
         </ul>
         <div v-if="editable && d.suggest.issues.some((i) => i.kind === 'revisions' && i.older.includes(d.id))" class="mt-3">
           <Button icon-left="lucide-archive" :label="t('Keep as obsolete (older revision)')"
-                  @click="step('archive', { reason: 'older revision; ' + d.suggest.issues.find((i) => i.kind === 'revisions').title.split(', ')[1] }, t('Kept as obsolete; its history stays in the library.'))" />
+                  @click="step('archive', { reason: 'older revision; rev ' + d.suggest.issues.find((i) => i.kind === 'revisions').current_revision + ' is current' }, t('Kept as obsolete; its history stays in the library.'))" />
           <span class="wq-muted ms-2">{{ t('It stays findable and is never used.') }}</span></div>
         <div v-if="editable && d.suggest.number && form.number !== d.suggest.number" class="mt-3">
           <Button icon-left="lucide-hash" :label="t('Use the suggested number {number}', { number: d.suggest.number })" @click="form.number = d.suggest.number" />

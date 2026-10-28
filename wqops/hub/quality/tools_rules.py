@@ -77,7 +77,7 @@ def correlation(pairs: list[tuple[float, float]]) -> dict:
     pts = [(float(x), float(y)) for x, y in pairs if x is not None and y is not None]
     out = {"n": len(pts), "r": None, "r2": None, "slope": None, "intercept": None}
     if len(pts) < 3:
-        out["note"] = "unknown: at least 3 pairs are needed"
+        out["note"] = say("unknown: at least 3 pairs are needed")
         return out
     xs, ys = [p[0] for p in pts], [p[1] for p in pts]
     mx, my = st.fmean(xs), st.fmean(ys)
@@ -85,11 +85,19 @@ def correlation(pairs: list[tuple[float, float]]) -> dict:
     syy = sum((y - my) ** 2 for y in ys)
     sxy = sum((x - mx) * (y - my) for x, y in pts)
     if sxx == 0 or syy == 0:
-        out["note"] = "unknown: one of the two values does not vary"
+        out["note"] = say("unknown: one of the two values does not vary")
         return out
     r = sxy / math.sqrt(sxx * syy)
     out.update(r=r, r2=r * r, slope=sxy / sxx, intercept=my - sxy / sxx * mx)
     a = abs(r)
-    out["note"] = ("strong" if a >= 0.7 else "moderate" if a >= 0.4 else "weak") + \
-        (" positive" if r > 0 else " negative") + " correlation; it does not show which causes which"
+    strength = "strong" if a >= 0.7 else "moderate" if a >= 0.4 else "weak"
+    notes = {
+        ("strong", True): say("strong positive correlation; it does not show which causes which"),
+        ("strong", False): say("strong negative correlation; it does not show which causes which"),
+        ("moderate", True): say("moderate positive correlation; it does not show which causes which"),
+        ("moderate", False): say("moderate negative correlation; it does not show which causes which"),
+        ("weak", True): say("weak positive correlation; it does not show which causes which"),
+        ("weak", False): say("weak negative correlation; it does not show which causes which"),
+    }
+    out["note"] = notes[(strength, r > 0)]
     return out

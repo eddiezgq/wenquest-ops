@@ -91,7 +91,9 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model=None,  # noqa: PLR091
         a = run(lambda: C.get(c, ident(aid)))
         s = run(lambda: C.subject(c, a["ref_kind"], a["ref_id"]))
         recs = C.context(c, s, today=OA.today(company()[0]))
-        return {"records": recs, "links": C.links(c, [r["ref"] for r in recs])}
+        # the summaries are what the model reads (left as they are); the kind of record is a fixed name
+        shown = [dict(r, kind=say("record kind::" + r["kind"])) for r in recs]
+        return {"records": shown, "links": C.links(c, [r["ref"] for r in recs])}
 
     @app.post("/api/quality/causes/{aid}/items", status_code=201)
     async def add(aid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):

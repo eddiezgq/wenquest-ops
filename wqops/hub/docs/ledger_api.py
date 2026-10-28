@@ -11,6 +11,7 @@ import logging
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import db as DB
 from wqops.hub import drafts as D
 from wqops.hub import permissions as P
@@ -34,7 +35,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
           erp_client=None) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                           PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def allowed(u: dict) -> list[str]:
         return [t for t, x in LG.TARGETS.items() if P.allows(u["roles"], x["perm"])]
@@ -71,7 +73,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
         need(u, "documents:view")
         rows = c.execute("select * from ledger_imports where document_id = %s order by id desc",
                          (document_id,)).fetchall()
-        return {"kinds": {t: LG.TARGETS[t]["label"] for t in allowed(u)}, "imports": [_iso(r) for r in rows]}
+        return {"kinds": {t: LG.target_label(t) for t in allowed(u)}, "imports": [_iso(r) for r in rows]}
 
     @app.post("/api/ledgers", status_code=201)
     async def start(request: Request, u=Depends(user_dep)):
@@ -83,7 +85,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None, 
             raise HTTPException(403, say("your role does not allow importing any ledger"))
         target = str(d.get("target") or "")
         if target and target not in kinds:
-            what = LG.TARGETS.get(target, {}).get("label", target)
+            what = LG.target_label(target)
             raise HTTPException(403, say("your role does not allow importing a {what}", what=what))
 
         def work():

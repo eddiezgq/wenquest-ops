@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 
+from wqops import i18n as I18N
 from wqops.i18n import say
 
 LEVELS = {"normal": "Normal", "tightened": "Tightened", "reduced": "Reduced"}
@@ -17,6 +18,20 @@ KINDS = ("measured", "attribute")
 CONDITIONS = {"window_rejected": "at least K of the last N lots rejected",
               "consecutive_accepted": "N lots in a row accepted",
               "any_rejected": "any lot rejected"}
+# the same conditions as whole sentences to translate (the web pages use these too)
+_CONDITION_TEXT = {"window_rejected": "at least {K} of the last {N} lots rejected",
+                   "consecutive_accepted": "{N} lots in a row accepted", "any_rejected": "any lot rejected"}
+
+
+def _level(level: str) -> str:
+    """'tightened' as a word in a sentence, in the reader's language."""
+    return say(LEVELS[level]).lower() if level in LEVELS else level
+
+
+def _join(items, sep: str = ", ") -> str:
+    if I18N.current() == "zh":
+        sep = {", ": "、"}.get(sep, sep)
+    return sep.join(items)
 
 
 class SamplingError(ValueError):
@@ -27,18 +42,19 @@ def check_row(r: dict) -> list[str]:
     """What is wrong with a sampling table row: a lot size range, n >= 1, Ac >= 0, Re = Ac + 1."""
     errs = []
     if r.get("level") not in LEVELS:
-        errs.append("the inspection level is normal, tightened or reduced")
+        errs.append(say("the inspection level is normal, tightened or reduced"))
     aql = r.get("aql")
     if not isinstance(aql, (int, float)) or isinstance(aql, bool) or not 0 < aql <= 1000 or math.isnan(aql):
-        errs.append("the AQL is a number above 0")
+        errs.append(say("the AQL is a number above 0"))
     ints = {k: r.get(k) for k in ("lot_min", "lot_max", "n", "ac", "re")}
     if any(type(v) is not int for v in ints.values()):
-        errs.append("lot sizes, n, Ac and Re are whole numbers")
+        errs.append(say("lot sizes, n, Ac and Re are whole numbers"))
         return errs
     if ints["lot_min"] < 1 or ints["lot_max"] < ints["lot_min"]:
-        errs.append(f"the lot size range {ints['lot_min']}-{ints['lot_max']} is not a range")
+        errs.append(say("the lot size range {lot_min}-{lot_max} is not a range", lot_min=ints["lot_min"],
+                        lot_max=ints["lot_max"]))
     if ints["n"] < 1 or ints["ac"] < 0 or ints["re"] != ints["ac"] + 1:
-        errs.append("n is at least 1, Ac at least 0 and Re is Ac + 1")
+        errs.append(say("n is at least 1, Ac at least 0 and Re is Ac + 1"))
     return errs
 
 
@@ -46,7 +62,8 @@ def lookup(rows: list[dict], aql: float, level: str, lot_qty: int) -> dict:
     """The one active row for this AQL, level and lot size. None or more than one is an error: never a guess."""
     hits = [r for r in rows if r.get("active", True) and float(r["aql"]) == float(aql) and r["level"] == level
             and r["lot_min"] <= lot_qty <= r["lot_max"]]
-    where = f"AQL {aql:g}, {LEVELS.get(level, level).lower()} inspection, lot size {lot_qty}"
+    where = say("AQL {aql}, {level} inspection, lot size {lot_qty}", aql=format(aql, "g"), level=_level(level),
+                lot_qty=lot_qty)
     if not hits:
         raise SamplingError(say("the sampling table has no row for {where}", where=where))
     if len(hits) > 1:
@@ -65,32 +82,32 @@ def check_characteristics(chars) -> list[str]:
     """What is wrong with a plan's characteristics: names unique, a kind, limits only on measured ones and in order."""
     errs, seen = [], set()
     if not isinstance(chars, list) or not chars:
-        return ["a plan has at least one characteristic"]
+        return [say("a plan has at least one characteristic")]
     for i, c in enumerate(chars, start=1):
         if not isinstance(c, dict):
-            errs.append(f"characteristic {i} is not described")
+            errs.append(say("characteristic {i} is not described", i=i))
             continue
         name = str(c.get("name") or "").strip()
         if not name:
-            errs.append(f"characteristic {i} needs a name")
+            errs.append(say("characteristic {i} needs a name", i=i))
         elif name.lower() in seen:
-            errs.append(f"characteristic {name!r} twice")
+            errs.append(say("characteristic {name} twice", name=repr(name)))
         seen.add(name.lower())
         if c.get("kind") not in KINDS:
-            errs.append(f"{name or i}: measured or attribute")
+            errs.append(say("{name}: measured or attribute", name=name or i))
             continue
         lo, hi = c.get("lsl"), c.get("usl")
         for v in (lo, hi):
             if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or math.isnan(v)):
-                errs.append(f"{name or i}: limits are numbers")
+                errs.append(say("{name}: limits are numbers", name=name or i))
                 break
         else:
             if c["kind"] == "attribute" and (lo is not None or hi is not None or c.get("unit")):
-                errs.append(f"{name or i}: an attribute is pass or fail, with no limits or unit")
+                errs.append(say("{name}: an attribute is pass or fail, with no limits or unit", name=name or i))
             if c["kind"] == "measured" and lo is None and hi is None:
-                errs.append(f"{name or i}: a measured characteristic needs a lower or an upper limit")
+                errs.append(say("{name}: a measured characteristic needs a lower or an upper limit", name=name or i))
             if lo is not None and hi is not None and lo > hi:
-                errs.append(f"{name or i}: the lower limit is above the upper limit")
+                errs.append(say("{name}: the lower limit is above the upper limit", name=name or i))
     return errs
 
 
@@ -112,7 +129,8 @@ def judge(chars: list[dict], readings: list[dict], n: int, ac: int, re: int) -> 
     for r in readings:
         ok = conforms(by[r["characteristic"]], r.get("value"), r.get("passed"))
         if ok is None:
-            missing.append(f"sample {r['sample']}, {r['characteristic']}")
+            missing.append(say("sample {sample}, {characteristic}", sample=r["sample"],
+                               characteristic=r["characteristic"]))
         elif not ok:
             bad_units.add(r["sample"])
     if len(readings) != n * len(chars):
@@ -129,17 +147,17 @@ def check_rule(r: dict) -> list[str]:
     errs = []
     if r.get("from_level") not in LEVELS or r.get("to_level") not in LEVELS or r.get("from_level") == r.get(
             "to_level"):
-        errs.append("a rule goes from one inspection level to another")
+        errs.append(say("a rule goes from one inspection level to another"))
     if (r.get("from_level"), r.get("to_level")) == ("reduced", "tightened"):
-        errs.append("reduced cannot go straight to tightened; it goes back to normal first")
+        errs.append(say("reduced cannot go straight to tightened; it goes back to normal first"))
     if r.get("condition") not in CONDITIONS:
-        errs.append("the condition is one of: " + ", ".join(CONDITIONS))
+        errs.append(say("the condition is one of: {list}", list=_join(CONDITIONS)))
     elif r["condition"] != "any_rejected":
         n, k = r.get("n"), r.get("k")
         if type(n) is not int or n < 1:
-            errs.append("N is a whole number of lots, at least 1")
+            errs.append(say("N is a whole number of lots, at least 1"))
         elif r["condition"] == "window_rejected" and (type(k) is not int or not 1 <= k <= n):
-            errs.append("K is a whole number from 1 to N")
+            errs.append(say("K is a whole number from 1 to N"))
     return errs
 
 
@@ -160,8 +178,9 @@ def suggest(rules: list[dict], level: str, results: list[str]) -> dict | None:
             continue
         hit, tail = _met(rule, results)
         if hit:
-            what = CONDITIONS[rule["condition"]].replace("K", str(rule.get("k"))).replace("N", str(rule.get("n")))
+            what = say(_CONDITION_TEXT[rule["condition"]], K=rule.get("k"), N=rule.get("n"))
             return {"to": rule["to_level"], "rule_id": rule.get("id"),
-                    "reason": f"{LEVELS[level]} to {LEVELS[rule['to_level']].lower()}: {what}; actually "
-                              f"{tail.count('reject')} of the last {len(tail)} lots rejected"}
+                    "reason": say("{from_level} to {to_level}: {what}; actually {rejected} of the last {n} lots "
+                                  "rejected", from_level=say(LEVELS[level]), to_level=_level(rule["to_level"]),
+                                  what=what, rejected=tail.count("reject"), n=len(tail))}
     return None

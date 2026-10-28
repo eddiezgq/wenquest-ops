@@ -18,6 +18,7 @@ import datetime as dt
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import risk_rules as RR
 from wqops.i18n import say
@@ -30,6 +31,17 @@ ITEM_RANKS = {"severity": "severity", "probability": "probability", "res_severit
 
 class RiskError(ValueError):
     pass
+
+
+RANK_NAMES = {"severity": "field::severity", "probability": "field::probability",
+              "res_severity": "field::residual severity", "res_probability": "field::residual probability"}
+
+
+def _join(items, sep: str = "; ") -> str:
+    """A list inside a sentence, with the separator of the reader's language."""
+    if I18N.current() == "zh":
+        sep = {", ": "、", "; ": "；"}.get(sep, sep)
+    return sep.join(items)
 
 
 def _iso(row: dict) -> dict:
@@ -73,12 +85,12 @@ def add_level(conn, email: str, data: dict) -> dict:
         raise RiskError(say("name the level"))
     with conn.transaction():
         if conn.execute("select 1 from risk_levels where kind = %s and rank = %s", (kind, rank)).fetchone():
-            raise RiskError(say("there is already a {kind} level {rank}", kind=kind, rank=rank))
+            raise RiskError(say("there is already a {kind} level {rank}", kind=say(RANK_NAMES[kind]), rank=rank))
         row = conn.execute("insert into risk_levels (kind, rank, name, description, created_by) values "
                            "(%s, %s, %s, %s, %s) returning *", (kind, rank, name[:200],
                                                                 str(data.get("description") or "")[:2000],
                                                                 email)).fetchone()
-        log(conn, None, email, "level added", f"{kind} {rank} {name}")
+        log(conn, None, email, say("level added"), f"{kind} {rank} {name}")
     return _iso(row)
 
 
@@ -104,7 +116,7 @@ def update_level(conn, email: str, lid: int, data: dict) -> dict:
             return _iso(lv)
         row = conn.execute("update risk_levels set " + ", ".join(f"{k} = %({k})s" for k in d)  # noqa: S608
                            + " where id = %(id)s returning *", {**d, "id": lid}).fetchone()
-        log(conn, None, email, "level changed", f"{lv['kind']} {lv['rank']}: " + "; ".join(
+        log(conn, None, email, say("level changed"), f"{lv['kind']} {lv['rank']}: " + "; ".join(
             f"{k} {lv[k]!r} -> {v!r}" for k, v in d.items()))
     return _iso(row)
 
@@ -114,7 +126,7 @@ def set_cell(conn, email: str, severity, probability, verdict) -> dict:
     if type(severity) is not int or type(probability) is not int:
         raise RiskError(say("the cell is a severity rank and a probability rank"))
     if verdict not in (*RR.VERDICTS, None):
-        raise RiskError("the verdict is one of: " + ", ".join(RR.VERDICTS))
+        raise RiskError(say("the verdict is one of: {verdicts}", verdicts=", ".join(RR.VERDICTS)))
     with conn.transaction():
         conn.execute("select pg_advisory_xact_lock(hashtext('wqo-risk-matrix'))")
         have = {(r["kind"], r["rank"]) for r in conn.execute("select kind, rank from risk_levels where active")}
@@ -130,7 +142,7 @@ def set_cell(conn, email: str, severity, probability, verdict) -> dict:
                          "on conflict (severity, probability) do update set verdict = excluded.verdict, "
                          "updated_by = excluded.updated_by, updated_at = now()",
                          (severity, probability, verdict, email))
-        log(conn, None, email, "matrix changed", f"S{severity} x P{probability}: {old or '-'} -> {verdict or '-'}")
+        log(conn, None, email, say("matrix changed"), f"S{severity} x P{probability}: {old or '-'} -> {verdict or '-'}")
     return {"severity": severity, "probability": probability, "verdict": verdict}
 
 
@@ -147,7 +159,7 @@ def load_example(conn, email: str) -> None:
         for (s, p), v in RR.example_matrix().items():
             conn.execute("insert into risk_matrix (severity, probability, verdict, updated_by) values "
                          "(%s, %s, %s, %s)", (s, p, v, email))
-        log(conn, None, email, "example loaded", RR.EXAMPLE_NOTE)
+        log(conn, None, email, say("example loaded"), say(RR.EXAMPLE_NOTE))
 
 
 def criteria_history(conn) -> list[dict]:
@@ -188,7 +200,7 @@ def create(conn, email: str, data: dict) -> dict:
                            "(%s, %s, %s, %s, %s, %s) returning *",
                            (f"RMF-{n:05d}", product[:300], str(data.get("scope") or "")[:4000], owner, [email],
                             email)).fetchone()
-        log(conn, row["id"], email, "started", product)
+        log(conn, row["id"], email, say("started"), product)
     return row
 
 
@@ -227,7 +239,7 @@ def update(conn, email: str, fid: int, data: dict) -> dict:
         conn.execute("update risk_files set " + ", ".join(f"{k} = %({k})s" for k in d)  # noqa: S608
                      + ", updated_at = now() where id = %(id)s", {**d, "id": fid})
         _touch(conn, f, email)
-        log(conn, fid, email, "changed", ", ".join(k.replace("_", " ") for k in sorted(d)))
+        log(conn, fid, email, say("changed"), ", ".join(k.replace("_", " ") for k in sorted(d)))
     return get(conn, fid)
 
 
@@ -244,7 +256,7 @@ def _item_values(conn, data: dict, current: dict | None = None) -> dict:
                 out[k] = None
             elif type(v) is not int or (ITEM_RANKS[k], v) not in have:
                 raise RiskError(say("{k} is the rank of a {ITEM_RANKS} level in use",
-                                    k=k.replace('_', ' ').replace('res ', 'residual '), ITEM_RANKS=ITEM_RANKS[k]))
+                                    k=say(RANK_NAMES[k]), ITEM_RANKS=say(RANK_NAMES[ITEM_RANKS[k]])))
             else:
                 out[k] = v
         elif k == "capa_id":
@@ -273,7 +285,7 @@ def add_item(conn, email: str, fid: int, data: dict) -> dict:
         row = conn.execute(f"insert into risk_items ({', '.join(cols)}) values "  # noqa: S608 - fixed column names
                            f"({', '.join(['%s'] * len(cols))}) returning *", [fid, seq, *d.values()]).fetchone()
         _touch(conn, f, email)
-        log(conn, fid, email, "item added", f"{seq}: {d.get('hazard', '')}")
+        log(conn, fid, email, say("item added"), f"{seq}: {d.get('hazard', '')}")
     return row
 
 
@@ -290,7 +302,7 @@ def update_item(conn, email: str, fid: int, iid: int, data: dict) -> dict:
         row = conn.execute("update risk_items set " + ", ".join(f"{k} = %({k})s" for k in d)  # noqa: S608
                            + " where id = %(id)s returning *", {**d, "id": iid}).fetchone()
         _touch(conn, f, email)
-        log(conn, fid, email, "item changed", f"{it['seq']}: " + ", ".join(k.replace("_", " ") for k in sorted(d)))
+        log(conn, fid, email, say("item changed"), f"{it['seq']}: " + ", ".join(k.replace("_", " ") for k in sorted(d)))
     return row
 
 
@@ -301,7 +313,7 @@ def remove_item(conn, email: str, fid: int, iid: int) -> None:
         if it is None:
             raise KeyError(iid)
         _touch(conn, f, email)
-        log(conn, fid, email, "item removed", f"{it['seq']}: {it['hazard']}")
+        log(conn, fid, email, say("item removed"), f"{it['seq']}: {it['hazard']}")
 
 
 def _not_involved(user: dict, f: dict) -> None:
@@ -324,7 +336,7 @@ def approve(conn, user: dict, fid: int, password: str) -> dict:
         m, its = matrix(conn), items(conn, fid)
         missing = RR.to_approve(f, its, m)
         if missing:
-            raise RiskError("still needed: " + "; ".join(missing))
+            raise RiskError(say("still needed: {list}", list=_join(missing)))
         for it in its:
             it["initial_verdict"] = RR.verdict(m, it["severity"], it["probability"])
             it["residual_verdict"] = RR.residual(it, m)
@@ -332,15 +344,16 @@ def approve(conn, user: dict, fid: int, password: str) -> dict:
                          (it["initial_verdict"], it["residual_verdict"], it["id"]))
         crit = RR.criteria(levels(conn), m)
         fp = RR.fingerprint(f, its, crit)
-        Q._sign(conn, user, "Risk management file approved", "risk_file", fid, f"{f['name']} v{f['version']}")
+        Q._sign(conn, user, say("Risk management file approved"), "risk_file", fid, f"{f['name']} v{f['version']}")
         row = conn.execute("update risk_files set status = 'approved', approved_by = %s, approved_at = %s, "
                            "criteria = %s, fingerprint = %s, updated_at = now() where id = %s returning *",
                            (user["email"], dt.datetime.now(dt.UTC), Jsonb(crit), fp, fid)).fetchone()
-        log(conn, fid, user["email"], "approved", fp)
+        log(conn, fid, user["email"], say("approved"), fp)
         if f["previous_id"]:
             conn.execute("update risk_files set status = 'superseded', updated_at = now() where id = %s and "
                          "status = 'approved'", (f["previous_id"],))
-            log(conn, f["previous_id"], user["email"], "superseded", f"by version {f['version']}")
+            log(conn, f["previous_id"], user["email"], say("superseded"),
+                say("by version {version}", version=f["version"]))
     return row
 
 
@@ -363,7 +376,7 @@ def revise(conn, email: str, fid: int) -> dict:
         for it in items(conn, fid):
             conn.execute(f"insert into risk_items (file_id, {', '.join(keys)}) values "  # noqa: S608 - fixed names
                          f"(%s, {', '.join(['%s'] * len(keys))})", [row["id"], *(it[k] for k in keys)])
-        log(conn, row["id"], email, "new version", f"from version {f['version']}")
+        log(conn, row["id"], email, say("new version"), say("from version {version}", version=f["version"]))
     return row
 
 
@@ -374,7 +387,7 @@ def withdraw(conn, email: str, fid: int, reason: str) -> dict:
         _draft(conn, fid)
         row = conn.execute("update risk_files set status = 'withdrawn', withdraw_reason = %s, updated_at = now() "
                            "where id = %s returning *", (reason.strip()[:1000], fid)).fetchone()
-        log(conn, fid, email, "withdrawn", reason.strip())
+        log(conn, fid, email, say("withdrawn"), reason.strip())
     return row
 
 

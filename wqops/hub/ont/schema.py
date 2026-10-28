@@ -18,6 +18,8 @@ DIR = Path(__file__).resolve().parents[2] / "ontology"
 MATURITY = {"have": "Synced", "erp": "In ERPNext, not synced yet"}
 PROP_TYPES = {"str", "num", "int", "bool", "date", "json"}
 UNITS = {"currency", "%", "days"}
+# the texts of the ontology a person reads (translated on the way out, ADR-0023)
+LABEL_KEYS = frozenset({"label", "maturity_label", "inverse", "source"})
 
 
 class OntologyError(ValueError):

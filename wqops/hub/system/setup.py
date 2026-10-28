@@ -14,6 +14,7 @@ import io
 
 from psycopg.types.json import Json
 
+from wqops import i18n as I18N
 from wqops.hub.docs import library as LIB
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import workflow as W
@@ -47,11 +48,11 @@ def clean_answers(qs: dict, raw: dict) -> dict:
             continue
         if q["type"] == "yesno":
             if type(v) is not bool:
-                raise SetupError(say("{label} yes or no", label=q['label']))
+                raise SetupError(say("{label} yes or no", label=I18N.label(q['label'])))
             out[k] = v
         elif q["type"] == "number":
             if type(v) is not int or not 0 < v < 1_000_000:
-                raise SetupError(say("{label}: a whole number", label=q['label']))
+                raise SetupError(say("{label}: a whole number", label=I18N.label(q['label'])))
             out[k] = v
         else:
             out[k] = str(v).strip()[:500]
@@ -71,7 +72,8 @@ def save_answers(conn, email: str, standard: str, raw: dict) -> dict:
 
 
 def proposed_applicability(conn, standard: str) -> list[dict]:
-    """What the answers say does not apply (or does), against what is declared now."""
+    """What the answers say does not apply (or does), against what is declared now. The reasons are in the reader's
+    language: declared, they are kept as written."""
     vals = answers(conn, standard)["answers"]
     now = QMS.applicability(conn, standard)
     out = []
@@ -80,9 +82,11 @@ def proposed_applicability(conn, standard: str) -> list[dict]:
             continue
         for control, reason in q["if_no"].items():
             applies = bool(vals[k])
-            why = reason if not applies else f"Answered yes: {q['label'].rstrip('?').lower()}."
+            question = I18N.label(q["label"])
+            why = I18N.label(reason) if not applies else \
+                say("Answered yes: {question}.", question=question.rstrip("?？").lower())
             current = now.get(control)
-            out.append({"control": control, "applies": applies, "reason": why, "question": q["label"],
+            out.append({"control": control, "applies": applies, "reason": why, "question": question,
                         "same": bool(current) and current["applies"] == applies})
     return out
 
@@ -119,10 +123,11 @@ def clean(pack: dict, raw: dict) -> dict:
         v = raw.get("value")
         if type(spec["value"]) is bool:
             if type(v) is not bool:
-                raise SetupError(say("{label}: yes or no", label=spec['label']))
+                raise SetupError(say("{label}: yes or no", label=I18N.label(spec['label'])))
         elif type(v) is not int or not spec.get("min", 0) <= v <= spec.get("max", 3650):
             raise SetupError(say("{label}: a whole number from {spec} to {spec2}",
-                                 label=spec['label'], spec=spec.get('min', 0), spec2=spec.get('max', 3650)))
+                                 label=I18N.label(spec['label']), spec=spec.get('min', 0),
+                                 spec2=spec.get('max', 3650)))
         return {"kind": k, "key": key, "value": v}
     control = str(raw.get("control") or "")
     if control not in cs:
@@ -143,15 +148,19 @@ def describe(pack: dict, ch: dict) -> str:
     try:
         clean(pack, ch)
     except (SetupError, TypeError, ValueError, KeyError):
-        return "A change WenQuest Ops cannot make: " + ", ".join(f"{k} {v}" for k, v in ch.items())[:200]
+        return say("A change WenQuest Ops cannot make: {change}",
+                   change=", ".join(f"{k} {v}" for k, v in ch.items())[:200])
     if ch["kind"] == "setting":
         spec = pack["settings"][ch["key"]]
-        v = ("on" if ch["value"] else "off") if type(ch["value"]) is bool else ch["value"]
-        return f"{spec['label']}: {v}"
+        v = (say("setting::on") if ch["value"] else say("setting::off")) if type(ch["value"]) is bool \
+            else ch["value"]
+        return say("{setting}: {value}", setting=I18N.label(spec["label"]), value=v)
     c = QMS.controls(pack)[ch["control"]]
+    req = I18N.label(c["summary"])
     if ch["kind"] == "applies":
-        return f"{'Applies' if ch['applies'] else 'Does not apply'}: {c['summary']}"
-    return f"Evidence for: {c['summary']}"
+        return say("Applies: {requirement}", requirement=req) if ch["applies"] else \
+            say("Does not apply: {requirement}", requirement=req)
+    return say("Evidence for: {requirement}", requirement=req)
 
 
 def check(conn, standard: str, pack: dict, ch: dict, doc_id: int | None, quote: str,  # noqa: PLR0917
@@ -159,9 +168,9 @@ def check(conn, standard: str, pack: dict, ch: dict, doc_id: int | None, quote: 
     problems = []
     verified = body is not None and WP.quoted(quote, body)
     if body is None:
-        problems.append("it does not name one of the procedures that were read")
+        problems.append(say("it does not name one of the procedures that were read"))
     elif not verified:
-        problems.append("its quote is not in the procedure it names")
+        problems.append(say("its quote is not in the procedure it names"))
     already = False
     if ch["kind"] == "setting":
         already = QMS.settings(conn, standard, pack).get(ch["key"]) == ch["value"]
@@ -250,8 +259,9 @@ def decide(conn, user: dict, iid: int, accept: bool, *, password: str = "", note
         if it is None:
             raise KeyError(iid)
         if it["decision"] != "open":
-            raise SetupError(say("this change was already {decision} by {decided_by}",
-                                 decision=it['decision'], decided_by=it['decided_by']))
+            raise SetupError(say("this change was already accepted by {decided_by}", decided_by=it["decided_by"])
+                             if it["decision"] == "accepted" else
+                             say("this change was already rejected by {decided_by}", decided_by=it["decided_by"]))
         if accept:
             if not acceptable(it):
                 raise SetupError(say("only a change whose quote was found and that passes the checks can be accepted"))
@@ -262,7 +272,7 @@ def decide(conn, user: dict, iid: int, accept: bool, *, password: str = "", note
                 QMS.declare(conn, user, std, ch["control"], ch["applies"], ch["reason"], password, today, tz)
             else:
                 QMS.link(conn, user["email"], std, ch["control"], it["document_id"], True, today,
-                         f"proposed from the procedure: \"{it['quote'][:300]}\"", tz)
+                         say("proposed from the procedure: \"{quote}\"", quote=it["quote"][:300]), tz)
         return conn.execute("update qms_setup_items set decision = %s, decided_by = %s, decided_at = now(), "
                             "decision_note = %s where id = %s returning *",
                             ("accepted" if accept else "rejected", user["email"], note.strip()[:1000] or None,
@@ -275,64 +285,102 @@ TITLES = {"ncr": ("Control of Nonconforming Product", "nonconformance"),
           "capa": ("Corrective and Preventive Action", "capa")}
 
 
+def _title(kind: str) -> str:
+    return {"ncr": lambda: say("Control of Nonconforming Product"),
+            "capa": lambda: say("Corrective and Preventive Action")}[kind]()
+
+
+def _zh() -> bool:
+    return I18N.current() == "zh"
+
+
+def _list(items) -> str:
+    return ("、" if _zh() else ", ").join(items)
+
+
+def _or(items) -> str:
+    return (" 或 " if _zh() else " or ").join(items)
+
+
+def _approvals(cfg: dict, step: str) -> list[str]:
+    L, out = I18N.label, []
+    for a in cfg["approvals"]:
+        if a["before"] != step:
+            continue
+        roles = _or(L(r) for r in a["roles"])
+        when = [say("when {field} is {values}", field=L(k), values=_or(L(y) for y in x))
+                for k, x in (a.get("when") or {}).items()]
+        out.append(say("{approval} (signed by {roles}, {conditions})", approval=L(a["label"]), roles=roles,
+                       conditions=_list(when)) if when
+                   else say("{approval} (signed by {roles})", approval=L(a["label"]), roles=roles))
+    return out
+
+
 def procedure_text(conn, kind: str) -> tuple[str, list[tuple[str, list[str]]]]:
-    """The procedure for a kind of record, written from the enabled workflow: (title, [(heading, paragraphs)])."""
+    """The procedure for a kind of record, written from the enabled workflow: (title, [(heading, paragraphs)]), in
+    the current language (the workflow's own names are translated where the catalog has them)."""
     v = W.ensure(conn, kind)
     cfg = W.view(v["config"])
-    title = TITLES[kind][0]
-    label = {s: x.get("label", s) for s, x in cfg["states"].items()}
+    L = I18N.label
+    title = _title(kind)
+    label = {s: L(x.get("label", s)) for s, x in cfg["states"].items()}
     open_states = [label[s] for s, x in cfg["states"].items() if not x.get("final")]
     steps = []
     for name, st in cfg["steps"].items():
-        bits = [f"{st.get('label') or name} (from {', '.join(label[s] for s in st['from'])}"
-                + (f" to {label[st['to']]})" if st.get("to") else ")")]
-        bits.append("Done by: " + ", ".join(r.replace("_", " ") for r in st["who"]) + ".")
+        step, frm = L(st.get("label") or name), _list(label[s] for s in st["from"])
+        bits = [say("{step} (from {source} to {target})", step=step, source=frm, target=label[st["to"]])
+                if st.get("to") else say("{step} (from {source})", step=step, source=frm)]
+        bits.append(say("Done by: {roles}.", roles=_list(L(r.replace("_", " ")) for r in st["who"])))
         if st["needs"]:
-            bits.append("Needs: " + ", ".join(st["needs"]) + ".")
+            bits.append(say("Needs: {list}.", list=_list(L(x) for x in st["needs"])))
         if st.get("reason"):
-            bits.append("A reason is recorded.")
+            bits.append(say("A reason is recorded."))
         if st.get("sign"):
-            bits.append(f"Signed with the person's password: \"{st['sign']}\".")
+            bits.append(say("Signed with the person's password: \"{sign}\".", sign=L(st["sign"])))
         if st["not_by_text"]:
-            bits.append("Not done by " + " or ".join(st["not_by_text"]) + ".")
-        own = [f["label"] for f in cfg["fields"].values() if name in (f.get("required_at") or [])]
+            bits.append(say("Not done by {list}.", list=_or(st["not_by_text"])))
+        own = [L(f["label"]) for f in cfg["fields"].values() if name in (f.get("required_at") or [])]
         if own:
-            bits.append("Recorded first: " + ", ".join(own) + ".")
-        appr = [f"{a['label']} (signed by {' or '.join(a['roles'])}"
-                + "".join(f", when {k} is {' or '.join(x)}" for k, x in (a.get("when") or {}).items()) + ")"
-                for a in cfg["approvals"] if a["before"] == name]
+            bits.append(say("Recorded first: {list}.", list=_list(own)))
+        appr = _approvals(cfg, name)
         if appr:
-            bits.append("Approved first: " + "; ".join(appr) + ".")
-        steps.append(" ".join(bits))
+            bits.append(say("Approved first: {list}.", list=("；" if _zh() else "; ").join(appr)))
+        steps.append(("" if _zh() else " ").join(bits))
     rules = []
     for sev in (cfg.get("rules") or {}).get("capa_closed_before_close") or []:
-        rules.append(f"A {sev} nonconformance is closed only after its corrective action is closed.")
+        rules.append(say("A {severity} nonconformance is closed only after its corrective action is closed.",
+                         severity=L(sev)))
     for sev in (cfg.get("rules") or {}).get("eight_d_before_close") or []:
-        rules.append(f"A {sev} nonconformance is closed only after its 8D report is complete.")
+        rules.append(say("A {severity} nonconformance is closed only after its 8D report is complete.",
+                         severity=L(sev)))
     if (cfg.get("rules") or {}).get("one_open_capa_per_ncr"):
-        rules.append("A nonconformance has at most one open corrective action at a time.")
+        rules.append(say("A nonconformance has at most one open corrective action at a time."))
     num = cfg["numbering"]
     name_of = cfg.get("label") or kind
+    one = L(name_of) if _zh() else name_of.lower()
+    many = L(name_of) if _zh() else f"{name_of.lower()}s"
+    finals = _or(label[s] for s, x in cfg["states"].items() if x.get("final"))
     sections = [
-        ("1. Purpose", [f"To set out how {name_of.lower()}s are recorded, decided and closed, as WenQuest Ops "
-                        "carries them out. This procedure is written from the workflow in use; when the workflow "
-                        "changes, it is written again."]),
-        ("2. Scope", ["Every " + name_of.lower() + " recorded in WenQuest Ops."]),
-        ("3. Records", [f"Each is numbered {num['prefix']}-{'0' * (int(num['digits']) - 1)}1 onwards and moves "
-                        f"through: {', '.join(open_states)}, then "
-                        + " or ".join(label[s] for s, x in cfg["states"].items() if x.get("final")) + ".",
-                        "Every step is logged with who did it and when; signatures and the log cannot be changed "
-                        "or deleted; a closed or cancelled record is locked."]),
-        ("4. Steps", steps),
+        (say("1. Purpose"), [say("To set out how {records} are recorded, decided and closed, as WenQuest Ops carries "
+                                 "them out. This procedure is written from the workflow in use; when the workflow "
+                                 "changes, it is written again.", records=many)]),
+        (say("2. Scope"), [say("Every {record} recorded in WenQuest Ops.", record=one)]),
+        (say("3. Records"), [say("Each is numbered {first} onwards and moves through: {states}, then {final}.",
+                                 first=f"{num['prefix']}-{'0' * (int(num['digits']) - 1)}1",
+                                 states=_list(open_states), final=finals),
+                             say("Every step is logged with who did it and when; signatures and the log cannot be "
+                                 "changed or deleted; a closed or cancelled record is locked.")]),
+        (say("4. Steps"), steps),
     ]
     if cfg["fields"]:
-        sections.append(("5. Information the company records", [
-            f"{f['label']} ({f['type']})" for f in cfg["fields"].values()]))
+        sections.append((say("5. Information the company records"), [
+            say("{field} ({type})", field=L(f["label"]), type=f["type"]) for f in cfg["fields"].values()]))
     if rules:
-        sections.append((f"{len(sections) + 1}. Rules", rules))
-    sections.append((f"{len(sections) + 1}. Source", [f"{name_of} workflow version {v['version']}, enabled by "
-                                                      f"{v['enabled_by']} on {v['enabled_at']:%Y-%m-%d}, fingerprint "
-                                                      f"{v['fingerprint'][:12]}."]))
+        sections.append((say("{n}. Rules", n=len(sections) + 1), rules))
+    sections.append((say("{n}. Source", n=len(sections) + 1), [
+        say("{workflow} workflow version {version}, enabled by {by} on {date}, fingerprint {fp}.",
+            workflow=L(name_of), version=v["version"], by=v["enabled_by"], date=f"{v['enabled_at']:%Y-%m-%d}",
+            fp=v["fingerprint"][:12])]))
     return title, sections
 
 
@@ -340,8 +388,8 @@ def _docx(company: str, title: str, sections: list[tuple[str, list[str]]]) -> by
     import docx as D  # noqa: PLC0415 - python-docx, a hub dependency
 
     d = D.Document()
-    d.sections[0].header.paragraphs[0].text = f"{company} - written by WenQuest Ops from the workflow in use; " \
-                                              "not in effect until approved"
+    d.sections[0].header.paragraphs[0].text = say("{company} - written by WenQuest Ops from the workflow in use; not "
+                                                  "in effect until approved", company=company)
     d.add_heading(title, level=1)
     for h, paras in sections:
         d.add_heading(h, level=2)
@@ -353,21 +401,26 @@ def _docx(company: str, title: str, sections: list[tuple[str, list[str]]]) -> by
 
 
 def generate(conn, email: str, kind: str, company: str = "the company") -> dict:
-    """Write the procedure for a kind of record into the library, to review and have approved."""
+    """Write the procedure for a kind of record into the library, to review and have approved. A company document:
+    written in the company's language."""
     if kind not in TITLES:
         raise KeyError(kind)
     v = W.ensure(conn, kind)
-    source = f"{kind} workflow v{v['version']}"
-    title, sections = procedure_text(conn, kind)
-    data = _docx(company, title, sections)
+    source = f"{kind} workflow v{v['version']}"          # stored and compared (generated): not translated
+    with I18N.use(I18N.company_language()):
+        title, sections = procedure_text(conn, kind)
+        data = _docx(company, title, sections)
+        file_name = say("{title} (from {source})", title=title, source=source) + ".docx"
+    summary = say("Written by WenQuest Ops from the {source}.", source=source)
+    note = say("Written from the {source}", source=source)
     with conn.transaction():
-        imp = LIB.new_import(conn, email, f"Written from the {source}")
-        doc = LIB.add_file(conn, imp["id"], f"{title} (from {source}).docx", data)
+        imp = LIB.new_import(conn, email, note)
+        doc = LIB.add_file(conn, imp["id"], file_name, data)
         LIB.extract_one(conn, LIB.get(conn, doc["id"]))
         conn.execute("update documents set generated_from = %s where id = %s", (source, doc["id"]))
         row = LIB.propose(conn, doc["id"], {"doc_type": "procedure", "process": TITLES[kind][1], "title": title,
                                             "revision": f"W{v['version']}", "confidence": "high",
-                                            "summary": f"Written by WenQuest Ops from the {source}."}, "generated")
+                                            "summary": summary}, "generated")
         conn.execute("update doc_imports set status = 'done', engine = 'rules' where id = %s", (imp["id"],))
         LIB.log(conn, doc["id"], email, "written from the workflow", source)
     return row

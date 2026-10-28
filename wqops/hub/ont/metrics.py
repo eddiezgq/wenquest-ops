@@ -9,10 +9,13 @@ from __future__ import annotations
 import datetime as dt
 from collections import defaultdict
 
+from wqops import i18n as I18N
+from wqops.i18n import say
+
 
 def days(n: int) -> str:
     """'1 day', '3 days' (titles and causes people read)."""
-    return f"{n} day" if n == 1 else f"{n} days"
+    return say("{n} day", n=n) if n == 1 else say("{n} days", n=n)
 
 
 OPEN_SO = ("To Deliver and Bill", "To Deliver")  # ERPNext statuses with goods still to ship
@@ -24,8 +27,8 @@ DEFINITIONS = {
     "shortages": "Stock items whose quantity on hand (all warehouses except quarantine) is less than what open "
                  "sales orders still have to ship.",
     "inventory_value": "Sum of the stock ledger's value changes, cancelled entries left out, by warehouse.",
-    "days_of_inventory": f"Inventory value divided by the average daily value shipped on delivery notes over the "
-                         f"last {DOI_DAYS} days.",
+    "days_of_inventory": "Inventory value divided by the average daily value shipped on delivery notes over the "
+                         "last {days} days.",
     "supplier_on_time": "Purchase receipt lines in the period received on or before the required-by date of their "
                         "purchase order line, out of all receipt lines in the period that name their order line.",
     "open_nonconformances": "Nonconformance reports not yet closed or cancelled, plus submitted quality inspections in "
@@ -74,7 +77,8 @@ def on_time_delivery(conn, as_of: dt.date, days: int) -> dict:
             continue
         done, due = last_dn.get(o["key"]), _d(p.get("delivery_date"))
         if done is None or due is None:
-            unknown.append({"key": o["key"], "missing": "delivery note date" if done is None else "delivery date"})
+            unknown.append({"key": o["key"], "missing": say("delivery note date") if done is None
+                            else say("delivery date")})
             continue
         if start <= done <= end:
             rows.append({"key": o["key"], "title": o["title"], "due": str(due), "delivered": str(done),
@@ -172,7 +176,7 @@ def supplier_on_time(conn, as_of: dt.date, days: int) -> dict:
         d = _d(p.get("posting_date"))
         if not _submitted(p) or p.get("is_return") or not d or not start <= d <= end:
             continue
-        name = p.get("supplier_name") or "unknown supplier"
+        name = p.get("supplier_name") or say("unknown supplier")
         for i, ln in enumerate(p.get("lines", []), start=1):
             ref = po_lines.get(ln.get("purchase_order_item") or "")
             if ref is None or ref[1] is None:
@@ -232,7 +236,8 @@ def compute(conn, name: str, as_of: dt.date, days: int) -> dict:
           "inventory_value": lambda: inventory_value(conn), "days_of_inventory": lambda: days_of_inventory(conn, as_of),
           "supplier_on_time": lambda: supplier_on_time(conn, as_of, days),
           "open_nonconformances": lambda: open_nonconformances(conn, as_of, days)}[name]
-    return {"name": name, "label": LABELS[name], "definition": DEFINITIONS[name], **fn()}
+    return {"name": name, "label": I18N.label(LABELS[name]),
+            "definition": say(DEFINITIONS[name], days=DOI_DAYS), **fn()}
 
 
 def weekly(conn, name: str, as_of: dt.date, weeks: int = 8) -> list[dict]:

@@ -87,44 +87,61 @@ def lookup_gaps(cfg: dict) -> int:
                if judge(cfg, s, o, d)["priority"] is None)
 
 
+def _texts(kind: str) -> dict[str, str]:
+    """Whole sentences per field, so each language keeps its own word order."""
+    return {
+        "missing": {"step": say("row {n}: the step"), "failure_mode": say("row {n}: the failure mode"),
+                    "effect": say("row {n}: the effect"), "cause": say("row {n}: the cause")},
+        "rank": {"severity": say("row {n}: the severity rank"), "occurrence": say("row {n}: the occurrence rank"),
+                 "detection": say("row {n}: the detection rank")},
+        "off": {"severity": say("row {n}: severity {v} is not on the company's scale"),
+                "occurrence": say("row {n}: occurrence {v} is not on the company's scale"),
+                "detection": say("row {n}: detection {v} is not on the company's scale")},
+        "scale": {"severity": say("the company's severity scale"), "occurrence": say("the company's occurrence scale"),
+                  "detection": say("the company's detection scale")},
+    }[kind]
+
+
 def row_needs(r: dict, ranks: dict[str, set[int]], cfg: dict | None) -> list[str]:
     """What one row still needs before the PFMEA can be approved."""
-    n = f"row {r.get('seq')}"
+    n = r.get("seq")
     out = []
     if not r.get("confirmed", True):
-        out.append(f"{n}: drafted by the AI; confirm or remove it")
+        out.append(say("row {n}: drafted by the AI; confirm or remove it", n=n))
+    missing, rank, off = _texts("missing"), _texts("rank"), _texts("off")
     for k in ("step", "failure_mode", "effect", "cause"):
         if not (r.get(k) or "").strip():
-            out.append(f"{n}: the {k.replace('_', ' ')}")
+            out.append(missing[k].replace("{n}", str(n)))
     for k in ("severity", "occurrence", "detection"):
         v = r.get(k)
         if v is None:
-            out.append(f"{n}: the {k} rank")
+            out.append(rank[k].replace("{n}", str(n)))
         elif v not in ranks.get(k, set()):
-            out.append(f"{n}: {k} {v} is not on the company's scale")
+            out.append(off[k].replace("{n}", str(n)).replace("{v}", str(v)))
     if any(r.get(k) is not None for k in ("res_severity", "res_occurrence", "res_detection")):
         for k in ("res_severity", "res_occurrence", "res_detection"):
             v = r.get(k)
             if v is None or v not in ranks.get(RANK_KEYS[k], set()):
-                out.append(f"{n}: the ranks after action are given together, on the company's scales")
+                out.append(say("row {n}: the ranks after action are given together, on the company's scales", n=n))
                 break
     j = judge(cfg, r.get("severity"), r.get("occurrence"), r.get("detection"))
     if j["rpn"] is not None and j["action"] is None:
-        out.append(f"{n}: the company's rule does not decide whether it needs action")
+        out.append(say("row {n}: the company's rule does not decide whether it needs action", n=n))
     if j["action"] and not (r.get("action") or "").strip():
-        out.append(f"{n}: needs action under the company's rule: say what is recommended")
+        out.append(say("row {n}: needs action under the company's rule: say what is recommended", n=n))
     return out
 
 
 def to_approve(f: dict, rows: list[dict], ranks: dict[str, set[int]], cfg: dict | None) -> list[str]:
     out = []
     if cfg is None:
-        out.append("the company's rule for when a row needs action (Process FMEA, criteria)")
+        out.append(say("the company's rule for when a row needs action (Process FMEA, criteria)"))
+    scale = _texts("scale")
     for k in KINDS:
         if not ranks.get(k):
-            out.append(f"the company's {k} scale")
+            out.append(scale[k])
     if not rows:
-        out.append("at least one failure mode")
+        out.append(say("at least one failure mode"))
     for r in rows:
         out += row_needs(r, ranks, cfg)
     return out
@@ -161,7 +178,7 @@ def verify(proposals: list[dict], shown: set[str]) -> tuple[list[dict], list[dic
         good = [x for x in refs if x in shown]
         if not good:
             dropped.append({"failure_mode": str(p.get("failure_mode") or "")[:200], "refs": refs,
-                            "reason": "cites no record it was shown" if refs else "cites no record"})
+                            "reason": say("cites no record it was shown") if refs else say("cites no record")})
         else:
             kept.append(p | {"refs": good})
     return kept, dropped

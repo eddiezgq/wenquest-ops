@@ -11,6 +11,7 @@ import datetime as dt
 import io
 import re
 
+from wqops import i18n as I18N
 from wqops.hub.ai import agent as AG
 from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
@@ -77,14 +78,15 @@ def _docx(company: str, title: str, sections: list[dict], to_fill: list[str]) ->
 
     d = D.Document()
     hdr = d.sections[0].header
-    hdr.paragraphs[0].text = f"{company} - DRAFT written by AI for review; not in effect until approved"
+    hdr.paragraphs[0].text = say("{company} - DRAFT written by AI for review; not in effect until approved",
+                                 company=company)
     d.add_heading(title, level=1)
     for s in sections:
         d.add_heading(s["heading"], level=2)
         for para in s["paragraphs"]:
             d.add_paragraph(para)
     if to_fill:
-        d.add_heading("To fill in before approval", level=2)
+        d.add_heading(say("To fill in before approval"), level=2)
         for t in to_fill:
             d.add_paragraph(t, style="List Bullet")
     buf = io.BytesIO()
@@ -133,7 +135,8 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
     known = "\n".join(f"- {d['number'] or ''} {d['title']} ({d['doc_type']})".strip() for d in have) or "none yet"
     std = QMS.name_of(standard)
     ctx = T.Ctx(conn=conn, user=user, today=today)
-    AG.start(ctx, "document", f"draft for {standard} {control}: {c['summary']}"[:1000])
+    AG.start(ctx, "document", say("draft for {standard} {control}: {requirement}", standard=standard, control=control,
+                                  requirement=I18N.label(c["summary"]))[:1000])
     out = {"engine": "model", "model": model.model, "tool_calls": [], "verified": True, "unverified": [], "usage": {}}
     try:
         resp = model.create(
@@ -154,24 +157,31 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
             raise L.LlmError(say("the model did not write a draft"))
         d = _clean(use["input"])
         try:
-            data = _docx(company, d["title"], d["sections"], d["to_fill"])
+            with I18N.use(I18N.company_language()):      # a company document: the company's language
+                data = _docx(company, d["title"], d["sections"], d["to_fill"])
         except ValueError as exc:
             raise L.LlmError(say("the model's draft could not be written as a file: {exc}", exc=exc)) from exc
         name = re.sub(r"[^\w .-]+", " ", f"DRAFT {d['title']}").strip()[:100] + ".docx"
+        shown_std, clauses = I18N.label(std), ", ".join(c["clauses"])
         with conn.transaction():
-            imp = LIB.new_import(conn, user["email"], f"AI draft for {std} {', '.join(c['clauses'])}")
+            imp = LIB.new_import(conn, user["email"], say("AI draft for {standard} {clauses}", standard=shown_std,
+                                                          clauses=clauses))
             doc = LIB.add_file(conn, imp["id"], name, data)
             LIB.extract_one(conn, LIB.get(conn, doc["id"]))
             conn.execute("update documents set ai_drafted = true where id = %s", (doc["id"],))
             row = LIB.propose(conn, doc["id"], {"doc_type": d["doc_type"], "process": PROCESS.get(control, "other"),
                                                 "title": d["title"], "confidence": "low",
-                                                "summary": f"AI draft for: {c['summary']}"}, "ai", ctx.run_id)
+                                                "summary": say("AI draft for: {requirement}",
+                                                               requirement=I18N.label(c["summary"]))},
+                                 "ai", ctx.run_id)
             conn.execute("update doc_imports set status = 'done', engine = 'ai' where id = %s", (imp["id"],))
-            LIB.log(conn, doc["id"], user["email"], "drafted by AI", f"for {std} {', '.join(c['clauses'])}; "
-                    f"{len(d['to_fill'])} things to fill in")
+            LIB.log(conn, doc["id"], user["email"], "drafted by AI",
+                    say("for {standard} {clauses}; {n} things to fill in", standard=shown_std, clauses=clauses,
+                        n=len(d["to_fill"])))
         out.update(usage=resp.get("usage", {}), answer=d["title"],
                    tool_calls=[{"tool": "write_document", "args": {"control": control}, "ok": True,
-                                "summary": f"{d['title']}: {len(d['sections'])} sections"}])
+                                "summary": say("{title}: {n} sections", title=d["title"],
+                                               n=len(d["sections"]))}])
         AG.finish(ctx, out)
         return row
     except Exception as exc:                    # the run is closed whatever went wrong, then the error goes on

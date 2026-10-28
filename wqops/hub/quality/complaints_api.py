@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import complaints as C
@@ -17,7 +18,8 @@ from wqops.i18n import say
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route per action
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                         PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def run(fn):
         try:

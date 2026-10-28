@@ -9,6 +9,7 @@ import json
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from wqops import i18n as I18N
 from wqops.hub import integration as IG
 from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
@@ -21,7 +22,7 @@ MAX_BODY = 1_000_000
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route after another
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.describe(perm)))
 
     def run(fn):
         try:
@@ -67,10 +68,12 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         path = request.url.path
         if tok is None:
             IG.called(c, None, request.method, path, 401)
-            return JSONResponse({"detail": "a valid access token is needed (Authorization: Bearer wqo_...)"}, 401)
+            return JSONResponse({"detail": say("a valid access token is needed (Authorization: Bearer wqo_...)")},
+                                401)
         if scope and scope not in tok["scopes"]:
             IG.called(c, tok["id"], request.method, path, 403)
-            return JSONResponse({"detail": f"this token may not: {IG.SCOPES[scope]}"}, 403)
+            return JSONResponse({"detail": say("this token may not: {scope}", scope=I18N.label(IG.SCOPES[scope]))},
+                                403)
         try:
             out = await fn(tok)
             status = 202 if request.method == "POST" else 200
@@ -117,7 +120,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
     @app.get("/api/integrations/tokens")
     def list_tokens(u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "integrations:manage")
-        return {"tokens": IG.tokens(c), "scopes": IG.SCOPES}
+        return {"tokens": IG.tokens(c), "scopes": {k: I18N.label(v) for k, v in IG.SCOPES.items()}}
 
     @app.post("/api/integrations/tokens", status_code=201)
     async def create_token(request: Request, u=Depends(user_dep), c=Depends(conn_dep)):

@@ -50,10 +50,11 @@ def check_password(pw: str, stored: str | None) -> bool:
 
 
 def password_problem(pw: str) -> str | None:
+    """What is wrong with a new password, as a whole sentence (None when it will do)."""
     if len(pw) < MIN_PASSWORD:
-        return f"at least {MIN_PASSWORD} characters"
+        return say("password needs at least {n} characters", n=MIN_PASSWORD)
     if not (any(c.isalpha() for c in pw) and any(c.isdigit() for c in pw)):
-        return "letters and digits"
+        return say("password needs letters and digits")
     return None
 
 
@@ -102,7 +103,7 @@ def set_password(conn, email: str, pw: str, *, by: str | None = None) -> None:
         raise AccountError(say("no active person with email {email}", email=email))
     problem = password_problem(pw)
     if problem:
-        raise AccountError(say("password needs {problem}", problem=problem))
+        raise AccountError(problem)
     conn.execute("update users set password_hash=%s, failed_logins=0, locked_until=null, updated_at=now() "
                  "where id=%s", (hash_password(pw), u["id"]))
     conn.execute("delete from sessions where user_id=%s", (u["id"],))

@@ -12,10 +12,19 @@ import datetime as dt
 import re
 import unicodedata
 
+from wqops import i18n as I18N
+
 TYPES = {"procedure": "Procedure", "work_instruction": "Work instruction", "form": "Form or template",
          "record": "Record", "spec": "Specification or drawing", "certificate": "Certificate",
          "external": "External document", "other": "Other"}
 CONTROLLED = {"procedure", "work_instruction", "form"}      # need signed approval to become effective
+
+
+def type_names() -> dict[str, str]:
+    """The document types as the reader sees them: the keys stay, the names are translated."""
+    return {k: I18N.label(v) for k, v in TYPES.items()}
+
+
 FIELDS = ("doc_type", "process", "number", "title", "revision", "effective_date", "owner", "language")
 QUOTED = ("doc_type", "process", "number", "title", "revision", "effective_date", "owner")
 CORE = ("doc_type", "process", "title")                    # a high-confidence proposal has these verified

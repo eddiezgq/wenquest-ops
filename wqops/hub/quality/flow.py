@@ -16,6 +16,7 @@ import datetime as dt
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.quality import flow_rules as FL
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
@@ -25,6 +26,13 @@ FIELDS = {"title", "item_code", "scope", "owner"}
 
 class FlowError(ValueError):
     pass
+
+
+def _join(items, sep: str = "; ") -> str:
+    """A list inside a sentence, with the separator of the reader's language."""
+    if I18N.current() == "zh":
+        sep = {", ": "、", "; ": "；"}.get(sep, sep)
+    return sep.join(items)
 
 
 def _iso(row: dict) -> dict:
@@ -64,7 +72,7 @@ def resolve(conn, all_steps: list[dict], *, today: dt.date) -> dict[str, dict]: 
                 r.update(ok=True, label=f"{d['number']} rev {d['revision'] or '-'} {d['title'] or ''}".strip(),
                          url=f"/documents/{d['id']}")
             else:
-                r["why"] = "no revision of it is in effect"
+                r["why"] = say("no revision of it is in effect")
         elif kind == "fmea":
             name, seq = key.rsplit("#", 1)
             f = conn.execute("select id, version from fmea_files where name = %s and status = 'approved'",
@@ -75,14 +83,14 @@ def resolve(conn, all_steps: list[dict], *, today: dt.date) -> dict[str, dict]: 
                 r.update(ok=True, label=f"{name} v{f['version']} row {seq}: {row['failure_mode']} (RPN {row['rpn']})",
                          url=f"/quality/fmea/{f['id']}")
             else:
-                r["why"] = "the approved PFMEA has no such row" if f else "no approved version of the PFMEA"
+                r["why"] = say("the approved PFMEA has no such row") if f else say("no approved version of the PFMEA")
         elif kind == "plan":
             p = conn.execute("select id, version from iqc_plans where item_code = %s and status = 'enabled'",
                              (key,)).fetchone()
             if p:
                 r.update(ok=True, label=f"{key} plan v{p['version']}", url=f"/quality/iqc/plans/{p['id']}")
             else:
-                r["why"] = "no inspection plan of this item is in use"
+                r["why"] = say("no inspection plan of this item is in use")
         elif kind == "template":
             t = conn.execute("select id, version, title from prod_templates where code = %s and status = 'active'",
                              (key,)).fetchone()
@@ -90,18 +98,18 @@ def resolve(conn, all_steps: list[dict], *, today: dt.date) -> dict[str, dict]: 
                 r.update(ok=True, label=f"{key} v{t['version']} {t['title']}".strip(),
                          url=f"/quality/production/templates/{t['id']}")
             else:
-                r["why"] = "no version of this template is in use"
+                r["why"] = say("no version of this template is in use")
         else:
             g = conn.execute("select id, code, name, status, next_due from gauges where lower(code) = lower(%s)",
                              (key,)).fetchone()
             if g is None or g["status"] == "retired":
-                r["why"] = "retired" if g else "no such measuring equipment"
+                r["why"] = say("retired") if g else say("no such measuring equipment")
             else:
                 r.update(ok=True, label=f"{g['code']} {g['name']}", url=f"/quality/gauges/{g['id']}")
                 if g["status"] != "in_service":
-                    r["warn"] = "out of service"
+                    r["warn"] = say("out of service")
                 elif g["next_due"] and g["next_due"] < today:
-                    r["warn"] = "calibration overdue"
+                    r["warn"] = say("calibration overdue")
         out[f"{kind}:{key}"] = r
     return out
 
@@ -127,7 +135,7 @@ def create(conn, email: str, data: dict) -> dict:
                            "(%s, %s, %s, %s, %s, %s, %s) returning *",
                            (f"PF-{n:05d}", title[:300], str(data.get("item_code") or "").strip()[:140] or None,
                             str(data.get("scope") or "")[:4000], owner, [email], email)).fetchone()
-        log(conn, row["id"], email, "started", title)
+        log(conn, row["id"], email, say("started"), title)
     return row
 
 
@@ -168,7 +176,7 @@ def update(conn, email: str, cid: int, data: dict) -> dict:
         conn.execute("update flow_charts set " + ", ".join(f"{k} = %({k})s" for k in d)  # noqa: S608
                      + ", updated_at = now() where id = %(id)s", {**d, "id": cid})
         _touch(conn, c, email)
-        log(conn, cid, email, "changed", ", ".join(k.replace("_", " ") for k in sorted(d)))
+        log(conn, cid, email, say("changed"), ", ".join(k.replace("_", " ") for k in sorted(d)))
     return get(conn, cid)
 
 
@@ -212,7 +220,7 @@ def add_step(conn, email: str, cid: int, data: dict) -> dict:
                            (cid, seq, d.get("code", ""), d["kind"], d["name"], d.get("description", ""),
                             Jsonb(d.get("branches", [])), Jsonb(d.get("links", {})))).fetchone()
         _touch(conn, c, email)
-        log(conn, cid, email, "step added", f"{seq}: {d['name']}")
+        log(conn, cid, email, say("step added"), f"{seq}: {d['name']}")
     return row
 
 
@@ -231,7 +239,7 @@ def update_step(conn, email: str, cid: int, sid: int, data: dict) -> dict:
                            {**{k: Jsonb(v) if k in ("branches", "links") else v for k, v in d.items()},
                             "id": sid}).fetchone()
         _touch(conn, c, email)
-        log(conn, cid, email, "step changed", f"{s['seq']} {s['name']}: " + ", ".join(sorted(d)))
+        log(conn, cid, email, say("step changed"), f"{s['seq']} {s['name']}: " + ", ".join(sorted(d)))
     return row
 
 
@@ -249,8 +257,9 @@ def remove_step(conn, email: str, cid: int, sid: int) -> None:
                 cut += len(o["branches"]) - len(keep)
                 conn.execute("update flow_steps set branches = %s where id = %s", (Jsonb(keep), o["id"]))
         _touch(conn, c, email)
-        log(conn, cid, email, "step removed", f"{s['seq']} {s['name']}" + (f"; {cut} branches to it removed"
-                                                                           if cut else ""))
+        note = (say("{seq} {name}; {cut} branches to it removed", seq=s["seq"], name=s["name"], cut=cut) if cut
+                else f"{s['seq']} {s['name']}")
+        log(conn, cid, email, say("step removed"), note)
 
 
 def move_step(conn, email: str, cid: int, sid: int, direction: str) -> None:
@@ -276,7 +285,8 @@ def move_step(conn, email: str, cid: int, sid: int, direction: str) -> None:
             if new != o["branches"]:
                 conn.execute("update flow_steps set branches = %s where id = %s", (Jsonb(new), o["id"]))
         _touch(conn, c, email)
-        log(conn, cid, email, "step moved", f"{a['name']} {direction}")
+        log(conn, cid, email, say("step moved"),
+            say("{name} up", name=a["name"]) if direction == "up" else say("{name} down", name=a["name"]))
 
 
 def _not_involved(user: dict, c: dict) -> None:
@@ -297,17 +307,18 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
         res = resolve(conn, st, today=today)
         missing = FL.to_approve(c, st, res)
         if missing:
-            raise FlowError("still needed: " + "; ".join(missing))
+            raise FlowError(say("still needed: {list}", list=_join(missing)))
         fp = FL.fingerprint(c, st, res)
-        Q._sign(conn, user, "Process flow chart approved", "flow_chart", cid, f"{c['name']} v{c['version']}")
+        Q._sign(conn, user, say("Process flow chart approved"), "flow_chart", cid, f"{c['name']} v{c['version']}")
         row = conn.execute("update flow_charts set status = 'approved', approved_by = %s, approved_at = now(), "
                            "resolved = %s, fingerprint = %s, updated_at = now() where id = %s returning *",
                            (user["email"], Jsonb(res), fp, cid)).fetchone()
-        log(conn, cid, user["email"], "approved", fp)
+        log(conn, cid, user["email"], say("approved"), fp)
         if c["previous_id"]:
             conn.execute("update flow_charts set status = 'superseded', updated_at = now() where id = %s and "
                          "status = 'approved'", (c["previous_id"],))
-            log(conn, c["previous_id"], user["email"], "superseded", f"by version {c['version']}")
+            log(conn, c["previous_id"], user["email"], say("superseded"),
+                say("by version {version}", version=c["version"]))
     return row
 
 
@@ -329,7 +340,7 @@ def revise(conn, email: str, cid: int) -> dict:
                          "values (%s, %s, %s, %s, %s, %s, %s, %s)",
                          (row["id"], s["seq"], s["code"], s["kind"], s["name"], s["description"],
                           Jsonb(s["branches"]), Jsonb(s["links"])))
-        log(conn, row["id"], email, "new version", f"from version {c['version']}")
+        log(conn, row["id"], email, say("new version"), say("from version {version}", version=c["version"]))
     return row
 
 
@@ -340,7 +351,7 @@ def withdraw(conn, email: str, cid: int, reason: str) -> dict:
         _draft(conn, cid)
         row = conn.execute("update flow_charts set status = 'withdrawn', withdraw_reason = %s, updated_at = now() "
                            "where id = %s returning *", (reason.strip()[:1000], cid)).fetchone()
-        log(conn, cid, email, "withdrawn", reason.strip())
+        log(conn, cid, email, say("withdrawn"), reason.strip())
     return row
 
 
@@ -370,7 +381,7 @@ def view(conn, cid: int, *, today: dt.date) -> dict:
                 changed.append({"link": k, "was": was["label"], "now": cur["label"] if cur["ok"] else cur["why"]})
     return {**_iso(c), "steps": st, "links_now": now, "changed_since": changed,
             "to_approve": FL.to_approve(c, st, now) if c["status"] == "draft" else [],
-            "not_analysed": FL.not_analysed(st), "intact": intact(conn, c), "kinds": FL.KINDS,
+            "not_analysed": FL.not_analysed(st), "intact": intact(conn, c), "kinds": FL.kinds(),
             "versions": [_iso(r) for r in conn.execute("select id, version, status, approved_by, approved_at from "
                                                        "flow_charts where name = %s order by version", (c["name"],))],
             "history": [_iso(r) for r in conn.execute("select at, email, action, note from flow_log where "

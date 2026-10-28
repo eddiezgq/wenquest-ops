@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import drafts as D
 from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
@@ -23,7 +24,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         for perm in perms:
             if not P.allows(u["roles"], perm):
                 raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
-                                             PERMISSIONS=P.PERMISSIONS[perm]))
+                                             PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def run(fn):
         try:
@@ -55,7 +56,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         need(u, "quality:view")
         return {"inspections": I.listing(c, status), "waiting": I.awaiting(c), "plans": I.plans(c),
                 "rows": I.rows(c), "levels": I.levels(c), "rules": I.switch_rules(c), "settings": I.settings(c),
-                "setting_labels": {k: v[1] for k, v in I.SETTINGS.items()}, "conditions": S.CONDITIONS,
+                "setting_labels": {k: I18N.label(v[1]) for k, v in I.SETTINGS.items()}, "conditions": S.CONDITIONS,
                 "items": I.items(c), "suppliers": I.suppliers(c), **can(u)}
 
     # ------------------------------------------------ inspections

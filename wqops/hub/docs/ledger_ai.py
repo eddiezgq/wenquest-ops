@@ -91,7 +91,7 @@ def propose(conn, user: dict, t: LG.Table, targets: dict[str, dict[str, LG.Field
         tg = target or rules_target(t, targets)
         return {"target": tg, "proposal": LG.rules_mapping(tg, t, targets[tg]), "engine": "rules", "ai_run": None}
     ctx = T.Ctx(conn=conn, user=user, today=today)
-    AG.start(ctx, "ledger", f"ledger mapping: {t.sheet}, {len(t.data())} rows")
+    AG.start(ctx, "ledger", say("ledger mapping: {sheet}, {n} rows", sheet=t.sheet, n=len(t.data())))
     out = {"engine": "model", "model": model.model, "tool_calls": [], "verified": True, "unverified": [], "usage": {}}
     allowed = {target: targets[target]} if target else targets
     try:
@@ -118,5 +118,5 @@ def propose(conn, user: dict, t: LG.Table, targets: dict[str, dict[str, LG.Field
         AG.finish(ctx, out | {"engine": "rules (model unavailable)", "answer": "", "verified": False,
                               "error": str(exc)[:1000]})
         prop = LG.rules_mapping(tg, t, targets[tg])
-        prop["notes"] = f"The model could not propose ({exc}); matched by column names."
+        prop["notes"] = say("The model could not propose ({error}); matched by column names.", error=exc)
         return {"target": tg, "proposal": prop, "engine": "rules", "ai_run": ctx.run_id}

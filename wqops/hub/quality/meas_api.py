@@ -60,7 +60,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             v = str(form.get(k) or "").strip()
             if v:
                 if not v.isdigit() or not 0 < int(v) < 2**31:
-                    raise HTTPException(400, say("{k} is a number", k=k.replace('_', ' ')))
+                    raise HTTPException(400, say("{k} is a number", k=say("upload field::" + k.replace("_", " "))))
                 opts[k] = int(v)
         opts["password"] = str(form.get("password") or "")
         opts["seen"] = str(form.get("seen") or "")

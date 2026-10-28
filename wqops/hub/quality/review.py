@@ -17,6 +17,7 @@ import datetime as dt
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.ont import metrics as M
 from wqops.hub.quality import records as Q
 from wqops.hub.quality import review_rules as RR
@@ -35,6 +36,31 @@ FIELDS = {"title", "period_start", "period_end", "meeting_on", "chair", "attende
 
 class ReviewError(ValueError):
     pass
+
+
+def _field(k: str) -> str:
+    """A field of the review by its name, in the reader's language."""
+    return say("review field::" + k.replace("_", " "))
+
+
+def _fig_label(label: str) -> str:
+    if label.startswith("Entries "):
+        return say("review figure::Entries {status}", status=say("supplier status::" + label[8:]))
+    return say("review figure::" + label)
+
+
+def shown(data: dict | None) -> dict | None:
+    """The stored inputs with their section and figure names in the reader's language. What is stored and
+    fingerprinted stays as it was counted (English names)."""
+    if not data or I18N.current() == "en":
+        return data
+    secs = {}
+    for k, raw in (data.get("sections") or {}).items():
+        sec = dict(raw)
+        sec["label"] = I18N.label(sec.get("label"))
+        sec["figures"] = [dict(f, label=_fig_label(f["label"])) for f in sec.get("figures") or []]
+        secs[k] = sec
+    return {**data, "sections": secs}
 
 
 def _iso(row: dict) -> dict:
@@ -193,7 +219,7 @@ def _clean(conn, data: dict) -> dict:
     out = {}
     for k, v in data.items():
         if k in ("period_start", "period_end", "meeting_on"):
-            out[k] = _date(v, k.replace("_", " "))
+            out[k] = _date(v, _field(k))
             if out[k] is None and k != "meeting_on":
                 raise ReviewError(say("give the period"))
         elif k == "chair":
@@ -223,7 +249,8 @@ def create(conn, email: str, data: dict) -> dict:
         cols = ["name", "created_by", *d]
         row = conn.execute(f"insert into mgmt_reviews ({', '.join(cols)}) values "
                            f"({', '.join(['%s'] * len(cols))}) returning *", [name, email, *d.values()]).fetchone()
-        log(conn, row["id"], email, "drafted", f"{d['period_start']} to {d['period_end']}")
+        log(conn, row["id"], email, say("drafted"),
+            say("{start} to {end}", start=d["period_start"], end=d["period_end"]))
     return row
 
 
@@ -260,7 +287,8 @@ def update(conn, email: str, rid: int, data: dict) -> dict:
                      + ", updated_at = now() where id = %(id)s", {**d, "id": rid})
         if {"notes", "conclusion"} & set(d):
             _involve(conn, r, email)
-        log(conn, rid, email, "changed", ", ".join(k.replace("_", " ") for k in sorted(d)))
+        sep = "、" if I18N.current() == "zh" else ", "
+        log(conn, rid, email, say("changed"), sep.join(_field(k) for k in sorted(d)))
     return get(conn, rid)
 
 
@@ -274,20 +302,20 @@ def collect(conn, email: str, rid: int, *, today: dt.date, tz: str = "UTC") -> d
                            "clock_timestamp(), status = 'frozen', updated_at = now(), involved = case when %s = "
                            "any(involved) then involved else array_append(involved, %s) end where id = %s returning *",
                            (Jsonb(data), fp, email, email, email, rid)).fetchone()
-        log(conn, rid, email, "inputs collected again" if r["fingerprint"] else "inputs collected",
-            f"{fp}" + (f" (was {r['fingerprint']})" if r["fingerprint"] else ""))
+        log(conn, rid, email, say("inputs collected again") if r["fingerprint"] else say("inputs collected"),
+            say("{fp} (was {old})", fp=fp, old=r["fingerprint"]) if r["fingerprint"] else f"{fp}")
     return row
 
 
 def add_action(conn, email: str, rid: int, data: dict, *, today: dt.date) -> dict:
     text = str(data.get("text") or "").strip()
     owner = str(data.get("owner") or "").strip().lower()
-    due = _date(data.get("due"), "the due date")
+    due = _date(data.get("due"), say("the due date"))
     if due is None:
         raise ReviewError(say("give the due date"))
     missing = RR.check_action(text, owner, due, today)
     if missing:
-        raise ReviewError("still needed: " + "; ".join(missing))
+        raise ReviewError(say("still needed: {list}", list="; ".join(missing)))
     if not conn.execute("select 1 from users where email = %s and active", (owner,)).fetchone():
         raise ReviewError(say("{owner} is not a person in the company", owner=owner))
     capa = data.get("capa_id")
@@ -300,7 +328,8 @@ def add_action(conn, email: str, rid: int, data: dict, *, today: dt.date) -> dic
                            "(%s, %s, %s, %s, %s, %s) returning *", (rid, text[:2000], owner, due, capa or None,
                                                                      email)).fetchone()
         _involve(conn, r, email)
-        log(conn, rid, email, "action decided", f"{text[:200]} ({owner}, due {due})")
+        log(conn, rid, email, say("action decided"), say("{text} ({owner}, due {due})", text=text[:200], owner=owner,
+                                                            due=due))
     return row
 
 
@@ -322,7 +351,7 @@ def action_done(conn, user: dict, aid: int, evidence: str) -> dict:
             raise PermissionError(say("the action's owner or Quality marks it done"))
         row = conn.execute("update mgmt_review_actions set status = 'done', evidence = %s, done_by = %s, done_at = "
                            "now() where id = %s returning *", (evidence.strip()[:2000], user["email"], aid)).fetchone()
-        log(conn, a["review_id"], user["email"], "action done", f"{a['text'][:200]}: {evidence.strip()[:200]}")
+        log(conn, a["review_id"], user["email"], say("action done"), f"{a['text'][:200]}: {evidence.strip()[:200]}")
     return row
 
 
@@ -331,19 +360,19 @@ def sign(conn, user: dict, rid: int, password: str, *, today: dt.date) -> dict:
     r = get(conn, rid)
     missing = RR.to_sign(r, user["email"], today)
     if missing:
-        raise ReviewError("still needed: " + "; ".join(missing))
+        raise ReviewError(say("still needed: {list}", list="; ".join(missing)))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         r = _open(conn, rid)
         missing = RR.to_sign(r, user["email"], today)
         if missing:
-            raise ReviewError("still needed: " + "; ".join(missing))
+            raise ReviewError(say("still needed: {list}", list="; ".join(missing)))
         if RR.fingerprint(r["inputs"]) != r["fingerprint"]:
             raise ReviewError(say("the inputs no longer match their fingerprint: collect them again"))
-        Q._sign(conn, user, "Management review approved", "mgmt_review", rid, r["name"])
+        Q._sign(conn, user, say("Management review approved"), "mgmt_review", rid, r["name"])
         row = conn.execute("update mgmt_reviews set status = 'closed', signed_by = %s, signed_at = now(), updated_at = "
                            "now() where id = %s returning *", (user["email"], rid)).fetchone()
-        log(conn, rid, user["email"], "signed", r["fingerprint"])
+        log(conn, rid, user["email"], say("signed"), r["fingerprint"])
     return row
 
 
@@ -354,7 +383,7 @@ def cancel(conn, email: str, rid: int, reason: str) -> dict:
         _open(conn, rid)
         row = conn.execute("update mgmt_reviews set status = 'cancelled', cancel_reason = %s, updated_at = now() "
                            "where id = %s returning *", (reason.strip()[:1000], rid)).fetchone()
-        log(conn, rid, email, "cancelled", reason.strip())
+        log(conn, rid, email, say("cancelled"), reason.strip())
     return row
 
 
@@ -370,7 +399,8 @@ def listing(conn) -> list[dict]:
 
 def view(conn, rid: int, user: dict, today: dt.date) -> dict:
     r = get(conn, rid)
-    return {**_iso(r), "sections": SECTIONS, "actions": actions(conn, rid),
+    return {**_iso(r), "inputs": shown(r["inputs"]), "sections": {k: I18N.label(v) for k, v in SECTIONS.items()},
+            "actions": actions(conn, rid),
             "intact": None if r["inputs"] is None else RR.fingerprint(r["inputs"]) == r["fingerprint"],
             "to_sign": RR.to_sign(r, user["email"], today) if r["status"] in ("draft", "frozen") else [],
             "history": [_iso(x) for x in conn.execute("select at, email, action, note from mgmt_review_log where "
@@ -383,9 +413,11 @@ def register_view(conn) -> list[dict]:
     out = []
     for r in conn.execute("select * from mgmt_reviews where status = 'closed' order by id").fetchall():
         acts = actions(conn, r["id"])
-        decisions = r["conclusion"] + "".join(f"\n- {a['text']} ({a['owner']}, due {a['due']})" for a in acts)
+        decisions = r["conclusion"] + "".join("\n- " + say("{text} ({owner}, due {due})", text=a["text"],
+                                                             owner=a["owner"], due=a["due"]) for a in acts)
+        sep = "、" if I18N.current() == "zh" else ", "
         out.append({"id": f"m{r['id']}", "values": {
             "review_date": r["meeting_on"].isoformat(), "attendees": r["attendees"],
-            "inputs": ", ".join(s["label"] for s in (r["inputs"] or {}).get("sections", {}).values()),
+            "inputs": sep.join(I18N.label(s["label"]) for s in (r["inputs"] or {}).get("sections", {}).values()),
             "decisions": decisions}, "signed": True, "imported": False})
     return out

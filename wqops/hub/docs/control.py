@@ -18,6 +18,7 @@ import datetime as dt
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
 
@@ -121,7 +122,8 @@ def record_review(conn, email: str, doc_id: int, outcome: str, note: str, *, tod
         row = conn.execute("insert into doc_reviews (document_id, outcome, note, revision_id, next_due, reviewed_by, "
                            "reviewed_on) values (%s, %s, %s, %s, %s, %s, %s) returning *",
                            (doc_id, outcome, note.strip()[:2000], revision_id, due, email, today)).fetchone()
-        _log(conn, doc_id, email, "reviewed", f"{OUTCOMES[outcome]}" + (f": {note.strip()}" if note.strip() else ""))
+        _log(conn, doc_id, email, "reviewed", say("{outcome}: {note}", outcome=say(OUTCOMES[outcome]),
+                                                  note=note.strip()) if note.strip() else say(OUTCOMES[outcome]))
     return row
 
 
@@ -131,7 +133,7 @@ def decide_review(conn, user: dict, review_id: int, approve: bool, *, password: 
     if r is None:
         raise KeyError(review_id)
     if r["status"] != "submitted":
-        raise ControlError(say("the review is already {status}", status=r['status']))
+        raise ControlError(say("the review is already {status}", status=I18N.label(f"review status::{r['status']}")))
     if r["reviewed_by"] == user["email"]:
         raise PermissionError(say("someone other than the reviewer approves the review"))
     if not approve and not note.strip():
@@ -150,7 +152,7 @@ def decide_review(conn, user: dict, review_id: int, approve: bool, *, password: 
             raise ControlError(say("the review changed meanwhile: open it again"))
         doc = _doc(conn, r["document_id"])
         if approve:
-            Q._sign(conn, user, "Document review approved", "document", doc["id"],
+            Q._sign(conn, user, say("Document review approved"), "document", doc["id"],
                     " ".join(x for x in (doc["number"], doc["title"]) if x) or doc["original_name"])
         _log(conn, doc["id"], user["email"], "review approved" if approve else "review sent back", note.strip())
     return row
@@ -207,9 +209,11 @@ def set_training(conn, email: str, doc_id: int, trainees, needs_training: bool, 
     with conn.transaction():
         row = conn.execute("update documents set trainees = %s, needs_training = %s, updated_at = now() where id = %s "
                            "returning *", (Jsonb(t), needs_training, doc_id)).fetchone()
-        _log(conn, doc_id, email, "readers set", f"roles: {', '.join(t['roles']) or '-'}; people: "
-             f"{', '.join(t['people']) or '-'}; this revision {'needs' if needs_training else 'does not need'} "
-             "reading")
+        roles, people = ", ".join(t["roles"]) or "-", ", ".join(t["people"]) or "-"
+        _log(conn, doc_id, email, "readers set",
+             say("roles: {roles}; people: {people}; this revision needs reading", roles=roles, people=people)
+             if needs_training else
+             say("roles: {roles}; people: {people}; this revision does not need reading", roles=roles, people=people))
         if row["status"] == "effective" and row["needs_training"]:
             _assign(conn, row, email, today or dt.datetime.now(dt.UTC).date())
     return row
@@ -231,8 +235,8 @@ def on_effective(conn, doc: dict, email: str, today: dt.date) -> int:
     each reader gets a record. Called inside the transaction that makes it effective."""
     if doc.get("supersedes"):
         conn.execute("update doc_training set status = 'superseded', done_at = now(), note = %s where document_id = "
-                     "%s and status = 'pending'", (f"replaced by revision {doc['revision']} (document {doc['id']})",
-                                                   doc["supersedes"]))
+                     "%s and status = 'pending'", (say("replaced by revision {revision} (document {id})",
+                                                       revision=doc["revision"], id=doc["id"]), doc["supersedes"]))
     if not doc.get("needs_training"):
         return 0
     return _assign(conn, doc, email, today)
@@ -248,7 +252,7 @@ def _assign(conn, doc: dict, email: str, today: dt.date) -> int:
         added += conn.execute("insert into doc_training (document_id, email, due) values (%s, %s, %s) on conflict do "
                               "nothing", (doc["id"], p, due)).rowcount
     if added:
-        _log(conn, doc["id"], email, "reading assigned", f"{added} people, due {due}")
+        _log(conn, doc["id"], email, "reading assigned", say("{n} people, due {date}", n=added, date=due))
     return added
 
 
@@ -260,7 +264,7 @@ def acknowledge(conn, user: dict, record_id: int, password: str) -> dict:
     if r["email"] != user["email"]:
         raise PermissionError(say("only the person confirms their own reading"))
     if r["status"] != "pending":
-        raise ControlError(say("it is already {status}", status=r['status']))
+        raise ControlError(say("it is already {status}", status=I18N.label(f"reading status::{r['status']}")))
     Q.check_signer(conn, user, password)
     with conn.transaction():
         row = conn.execute("update doc_training set status = 'acknowledged', done_at = now(), done_by = %s where id = "
@@ -268,7 +272,7 @@ def acknowledge(conn, user: dict, record_id: int, password: str) -> dict:
         if row is None:
             raise ControlError(say("it changed meanwhile"))
         doc = _doc(conn, r["document_id"])
-        Q._sign(conn, user, "Read and understood", "doc_training", record_id,
+        Q._sign(conn, user, say("Read and understood"), "doc_training", record_id,
                 " ".join(x for x in (doc["number"], doc["title"], f"rev {doc['revision']}") if x))
     return row
 
@@ -286,7 +290,7 @@ def waive(conn, email: str, record_id: int, reason: str) -> dict:
                            "id = %s and status = 'pending' returning *", (email, reason.strip()[:1000],
                                                                          record_id)).fetchone()
         if row is None:
-            raise ControlError(say("it is already {status}", status=r['status']))
+            raise ControlError(say("it is already {status}", status=I18N.label(f"reading status::{r['status']}")))
         _log(conn, r["document_id"], email, "reading waived", f"{r['email']}: {reason.strip()}")
     return row
 

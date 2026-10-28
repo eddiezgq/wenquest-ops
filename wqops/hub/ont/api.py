@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import permissions as P
 from wqops.hub.ont import metrics as M
 from wqops.hub.ont import overview as OV
@@ -47,7 +48,7 @@ def relations(conn, onto: S.Ontology, roles, type_: str, key: str) -> list[dict]
             if not onto.can_see(roles, r["t"]):
                 continue
             spec = onto.link(type_, r["link"]) if direction == "out" else onto.link(r["t"], r["link"])
-            label = spec["l"] if direction == "out" else spec["inv"]
+            label = I18N.label(spec["l"] if direction == "out" else spec["inv"])
             g = groups.setdefault((direction, r["link"], r["t"]), {"direction": direction, "link": r["link"],
                                                                     "label": label, "type": r["t"], "objects": []})
             o = found.get((r["t"], r["k"]))
@@ -62,12 +63,13 @@ def mount(app: FastAPI, conn_dep, user_dep, onto_fn=S.get) -> None:
         if type_ not in onto.types:
             raise HTTPException(404, say("no object type {type}", type=type_))
         if not onto.can_see(u["roles"], type_):
-            raise HTTPException(403, say("your role does not see {label} objects", label=onto.types[type_]['label']))
+            raise HTTPException(403, say("your role does not see {label} objects",
+                                         label=I18N.label(onto.types[type_]["label"])))
         return onto
 
     @app.get("/api/ont/schema")
     def ont_schema(u=Depends(user_dep)):
-        return onto_fn().public(u["roles"])
+        return I18N.localize(onto_fn().public(u["roles"]), S.LABEL_KEYS)
 
     @app.get("/api/ont/search")
     def ont_search(q: str = "", type: str = "", limit: int = 20, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -96,7 +98,7 @@ def mount(app: FastAPI, conn_dep, user_dep, onto_fn=S.get) -> None:
         onto = visible(u, type_)
         r = c.execute("select * from ont_objects where type = %s and key = %s", (type_, key)).fetchone()
         if r is None:
-            raise HTTPException(404, say("no {label} {key}", label=onto.types[type_]['label'], key=key))
+            raise HTTPException(404, say("no {label} {key}", label=I18N.label(onto.types[type_]["label"]), key=key))
         hist = c.execute("select kind, at, changes, event_id from ont_history where type = %s and key = %s "
                          "order by id desc limit 50", (type_, key)).fetchall()
         spec = onto.types[type_]
@@ -106,9 +108,10 @@ def mount(app: FastAPI, conn_dep, user_dep, onto_fn=S.get) -> None:
         about = c.execute("select * from anomalies where status in ('open', 'ack', 'doing') and rule = any(%s) and "
                           "((subject_type = %s and subject_key = %s) or related @> %s::jsonb) order by id",
                           (AN.visible_rules(u["roles"], rules), type_, key, json.dumps([[type_, key]]))).fetchall()
-        return {**_brief(r), "label": spec["label"], "domain": spec["domain"], "source": spec["source"],
+        return {**_brief(r), "label": I18N.label(spec["label"]), "domain": spec["domain"],
+                "source": I18N.label(spec["source"]),
                 "anomalies": [AN.public(a, rules) for a in about],
-                "props": [{"name": p, "label": s["l"], "type": s["t"], "unit": s.get("u", ""),
+                "props": [{"name": p, "label": I18N.label(s["l"]), "type": s["t"], "unit": s.get("u", ""),
                            "value": r["props"][p]} for p, s in spec["props"].items() if p in r["props"]],
                 "relations": relations(c, onto, u["roles"], type_, key), "history": hist}
 
@@ -138,7 +141,8 @@ def mount(app: FastAPI, conn_dep, user_dep, onto_fn=S.get) -> None:
         found = objects_by_keys(c, list(seen))
         nodes = [{"type": t, "key": k, "title": found[(t, k)]["title"] if (t, k) in found else k,
                   "known": (t, k) in found} for t, k in sorted(seen)]
-        return {"nodes": nodes, "edges": [{"from": a, "link": ln, "label": onto.link(a[0], ln)["l"], "to": b}
+        return {"nodes": nodes, "edges": [{"from": a, "link": ln, "label": I18N.label(onto.link(a[0], ln)["l"]),
+                                           "to": b}
                                           for a, ln, b in sorted(edges)], "truncated": len(seen) >= MAX_NODES}
 
 
@@ -180,18 +184,19 @@ def mount_dashboard(app: FastAPI, conn_dep, user_dep, company) -> None:
         """The company overview (ADR-0018): the panels, the chain and what waits, as this person may see them."""
         if not P.allows(u["roles"], "dashboard:view"):
             raise HTTPException(403, say("your role does not allow: {dashboard_view}",
-                                         dashboard_view=P.PERMISSIONS['dashboard:view']))
+                                         dashboard_view=P.describe('dashboard:view')))
         st = OV.settings(c)
         return OV.build(c, u, _day(as_of), _weeks(weeks), st, tz=_tz()) | {
-            "visitor_mode": st["visitor_mode"], "thresholds": OV.R.thresholds(st["thresholds"]),
-            "threshold_note": OV.R.NOTE, "can_configure": P.allows(u["roles"], "settings:edit")}
+            "visitor_mode": st["visitor_mode"],
+            "thresholds": I18N.localize(OV.R.thresholds(st["thresholds"]), {"what"}),
+            "threshold_note": I18N.label(OV.R.NOTE), "can_configure": P.allows(u["roles"], "settings:edit")}
 
     @app.get("/api/overview/wall")
     def overview_wall(weeks: int = 8, u=Depends(user_dep), c=Depends(conn_dep)):
         """The big screen; in visitor mode without amounts of money or names."""
         if not P.allows(u["roles"], "dashboard:view"):
             raise HTTPException(403, say("your role does not allow: {dashboard_view}",
-                                         dashboard_view=P.PERMISSIONS['dashboard:view']))
+                                         dashboard_view=P.describe('dashboard:view')))
         return OV.wall(c, u, _day(""), _weeks(weeks), OV.settings(c), tz=_tz()) | {
             "company": (company()[0] or {}).get("company", {}).get("name")}
 
@@ -199,7 +204,7 @@ def mount_dashboard(app: FastAPI, conn_dep, user_dep, company) -> None:
     async def overview_settings(request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         if not P.allows(u["roles"], "settings:edit"):
             raise HTTPException(403, say("your role does not allow: {settings_edit}",
-                                         settings_edit=P.PERMISSIONS['settings:edit']))
+                                         settings_edit=P.describe('settings:edit')))
         try:
             d = await request.json()
         except ValueError as exc:
@@ -219,7 +224,7 @@ def mount_dashboard(app: FastAPI, conn_dep, user_dep, company) -> None:
             raise HTTPException(404, say("no metric {name}", name=name))
         if not P.allows(u["roles"], M.VIEW[name]):
             raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
-                                         PERMISSIONS=P.PERMISSIONS[M.VIEW[name]]))
+                                         PERMISSIONS=P.describe(M.VIEW[name])))
         day = dt.date.fromisoformat(as_of) if as_of else today(company()[0])
         return M.compute(c, name, day, days) | {"as_of": str(day), "days": days}
 
@@ -257,7 +262,8 @@ def mount_anomalies(app: FastAPI, conn_dep, user_dep, company, onto_fn=S.get) ->
     @app.get("/api/anomalies/rules")
     def anomaly_rules(u=Depends(user_dep)):
         rules = AN.load_rules()
-        return [{"id": rid, **r} for rid, r in rules.items() if rid in AN.visible_rules(u["roles"], rules)]
+        return [I18N.localize({"id": rid, **r}, {"name", "hint"}) for rid, r in rules.items()
+                if rid in AN.visible_rules(u["roles"], rules)]
 
     @app.get("/api/anomalies")
     def anomalies(status: str = "active", u=Depends(user_dep), c=Depends(conn_dep)):

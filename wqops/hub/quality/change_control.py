@@ -15,6 +15,7 @@ import datetime as dt
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.quality import change_rules as CR
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
@@ -28,6 +29,13 @@ IMPLEMENTED_FIELDS = {"target_date", "effectiveness"}
 
 class ChangeError(ValueError):
     pass
+
+
+def _join(items, sep: str = "; ") -> str:
+    """A list inside a sentence, with the separator of the reader's language."""
+    if I18N.current() == "zh":
+        sep = {", ": "、", "; ": "；", " or ": "或"}.get(sep, sep)
+    return sep.join(items)
 
 
 def _iso(row: dict) -> dict:
@@ -53,7 +61,8 @@ def _ids(conn, v, what: str, statuses: tuple[str, ...]) -> list[int]:
                                                          (list(v),))}
     bad = [x for x in v if found.get(x) not in statuses]
     if bad:
-        raise ChangeError(f"{what}: documents {', '.join(map(str, bad))} are not " + " or ".join(statuses))
+        raise ChangeError(say("{what}: documents {ids} are not {statuses}", what=what,
+                              ids=_join(map(str, bad), ", "), statuses=_join(statuses, " or ")))
     return sorted(set(v))
 
 
@@ -64,7 +73,7 @@ def _clean(conn, data: dict, allowed: set[str], c: dict | None = None) -> dict: 
             raise ChangeError(say("{k} cannot be changed now", k=k.replace('_', ' ')))
         if k == "kind":
             if v not in CR.KINDS:
-                raise ChangeError("the kind is one of: " + ", ".join(CR.KINDS))
+                raise ChangeError(say("the kind is one of: {kinds}", kinds=", ".join(CR.KINDS)))
             out[k] = v
         elif k in CR.QUESTIONS:
             if v not in ("yes", "no", None, ""):
@@ -86,9 +95,9 @@ def _clean(conn, data: dict, allowed: set[str], c: dict | None = None) -> dict: 
                 raise ChangeError(say("no such corrective action"))
             out[k] = v
         elif k == "documents":
-            out[k] = Jsonb(_ids(conn, v, "the documents it changes", ("effective",)))
+            out[k] = Jsonb(_ids(conn, v, say("the documents it changes"), ("effective",)))
         elif k == "revisions":
-            ids = _ids(conn, v, "the new revisions", ("draft", "in_review", "approved", "effective"))
+            ids = _ids(conn, v, say("the new revisions"), ("draft", "in_review", "approved", "effective"))
             mine = {int(x) for x in (c or {}).get("documents") or []}
             for r in conn.execute("select id, supersedes from documents where id = any(%s)", (ids,)):
                 if r["supersedes"] not in mine:
@@ -116,7 +125,7 @@ def create(conn, email: str, data: dict) -> dict:
         row = conn.execute(f"insert into changes ({', '.join(cols)}) values "  # noqa: S608 - fixed column names
                            f"({', '.join(['%s'] * len(cols))}) returning *",
                            [name, email, [email], *d.values()]).fetchone()
-        log(conn, row["id"], email, "raised", row["title"])
+        log(conn, row["id"], email, say("raised"), row["title"])
     return row
 
 
@@ -142,9 +151,9 @@ def update(conn, email: str, cid: int, data: dict) -> dict:
                                            "st": c["status"]}).fetchone()
         if row is None:
             raise ChangeError(say("the change moved on meanwhile: open it again"))
-        log(conn, cid, email, "changed", "; ".join(
-            f"target date: {c['target_date'] or '-'} -> {d['target_date'] or '-'}" if k == "target_date" else k
-            for k in sorted(d)))
+        log(conn, cid, email, say("changed"), "; ".join(
+            say("target date: {old} -> {new}", old=c["target_date"] or "-", new=d["target_date"] or "-")
+            if k == "target_date" else k for k in sorted(d)))
     return row
 
 
@@ -173,8 +182,8 @@ def submit(conn, email: str, cid: int) -> dict:
             raise ChangeError(say("the change is {status}", status=c['status']))
         missing = CR.to_submit(c, docs_of(conn, c))
         if missing:
-            raise ChangeError("still needed: " + "; ".join(missing))
-        return _move(conn, c, "submitted", email, "submitted", submitted_by=email,
+            raise ChangeError(say("still needed: {list}", list=_join(missing)))
+        return _move(conn, c, "submitted", email, say("submitted"), submitted_by=email,
                      editors=sorted(set(c["editors"]) | {email}))
 
 
@@ -185,7 +194,7 @@ def send_back(conn, email: str, cid: int, reason: str) -> dict:
     if not reason.strip():
         raise ChangeError(say("say what needs to change"))
     with conn.transaction():
-        return _move(conn, c, "draft", email, "sent back", reason.strip())
+        return _move(conn, c, "draft", email, say("sent back"), reason.strip())
 
 
 def _not_involved(user: dict, c: dict) -> None:
@@ -206,9 +215,9 @@ def approve(conn, user: dict, cid: int, password: str) -> dict:
         _not_involved(user, c)
         missing = CR.to_submit(c, docs_of(conn, c))
         if missing:
-            raise ChangeError("it no longer has what it needs: " + "; ".join(missing) + " (send it back)")
-        Q._sign(conn, user, "Change approved", "change", cid, c["name"])
-        return _move(conn, c, "approved", user["email"], "approved", approved_by=user["email"],
+            raise ChangeError(say("it no longer has what it needs: {list} (send it back)", list=_join(missing)))
+        Q._sign(conn, user, say("Change approved"), "change", cid, c["name"])
+        return _move(conn, c, "approved", user["email"], say("approved"), approved_by=user["email"],
                      approved_at=dt.datetime.now(dt.UTC))
 
 
@@ -232,8 +241,8 @@ def implement(conn, user: dict, cid: int) -> dict:
             raise PermissionError(say("the owner or Quality marks it implemented"))
         missing = CR.to_implement(c, docs_of(conn, c))
         if missing:
-            raise ChangeError("still needed: " + "; ".join(missing))
-        return _move(conn, c, "implemented", user["email"], "implemented", implemented_by=user["email"],
+            raise ChangeError(say("still needed: {list}", list=_join(missing)))
+        return _move(conn, c, "implemented", user["email"], say("implemented"), implemented_by=user["email"],
                      implemented_at=dt.datetime.now(dt.UTC))
 
 
@@ -245,11 +254,11 @@ def close(conn, user: dict, cid: int, password: str) -> dict:
         raise PermissionError(say("someone other than the owner closes it"))
     missing = CR.to_close(c)
     if missing:
-        raise ChangeError("still needed: " + "; ".join(missing))
+        raise ChangeError(say("still needed: {list}", list=_join(missing)))
     Q.check_signer(conn, user, password)
     with conn.transaction():
-        Q._sign(conn, user, "Change closed", "change", cid, c["name"])
-        return _move(conn, c, "closed", user["email"], "closed", closed_by=user["email"],
+        Q._sign(conn, user, say("Change closed"), "change", cid, c["name"])
+        return _move(conn, c, "closed", user["email"], say("closed"), closed_by=user["email"],
                      closed_at=dt.datetime.now(dt.UTC))
 
 
@@ -272,7 +281,7 @@ def cancel(conn, user: dict, cid: int, reason: str) -> dict:
             raise ChangeError(say("{number} rev {revision} is already in effect: implement and close the change "
                                   "instead",
                                   number=live[0]['number'], revision=live[0]['revision']))
-        return _move(conn, c, "cancelled", user["email"], "cancelled", reason.strip(),
+        return _move(conn, c, "cancelled", user["email"], say("cancelled"), reason.strip(),
                      cancel_reason=reason.strip()[:1000])
 
 
@@ -287,7 +296,7 @@ def listing(conn, status: str, today: dt.date) -> list[dict]:
 def view(conn, cid: int, today: dt.date) -> dict:
     c = get(conn, cid)
     docs = docs_of(conn, c)
-    return {**_iso(c), "questions": CR.QUESTIONS, "kinds": CR.KINDS,
+    return {**_iso(c), "questions": CR.questions(), "kinds": CR.KINDS,
             "docs": {str(k): _iso(v) for k, v in docs.items()},
             "to_submit": CR.to_submit(c, docs) if c["status"] == "draft" else [],
             "to_implement": CR.to_implement(c, docs) if c["status"] == "approved" else [],

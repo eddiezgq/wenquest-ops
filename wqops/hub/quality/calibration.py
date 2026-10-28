@@ -16,6 +16,7 @@ import datetime as dt
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.quality import cal_rules as CR
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
@@ -73,7 +74,7 @@ def add(conn, email: str, code: str, data: dict) -> dict:
         cols = ["code", "created_by", *f]
         row = conn.execute(f"insert into gauges ({', '.join(cols)}) values "  # noqa: S608 - fixed column names
                            f"({', '.join(['%s'] * len(cols))}) returning *", [code, email, *f.values()]).fetchone()
-        log(conn, row["id"], email, "registered", "out of service until its first good calibration is approved")
+        log(conn, row["id"], email, "registered", say("out of service until its first good calibration is approved"))
     return row
 
 
@@ -138,15 +139,16 @@ def record(conn, email: str, gid: int, data: dict, *, today: dt.date) -> dict:
     if g["status"] == "retired":
         raise CalError(say("the equipment is retired"))
     f = _cal_fields(data, today)
-    for need, what in (("done_on", "the date"), ("done_by", "who calibrated it"), ("result", "the result")):
+    for need, what in (("done_on", say("give the date")), ("done_by", say("give who calibrated it")),
+                       ("result", say("give the result"))):
         if not f.get(need):
-            raise CalError(say("give {what}", what=what))
+            raise CalError(what)
     with conn.transaction():
         row = conn.execute("insert into gauge_calibrations (gauge_id, done_on, done_by, certificate, result, as_found, "
                            "as_left, recorded_by, changed_by) values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *",
                            (gid, f["done_on"], f["done_by"], f.get("certificate", ""), f["result"],
                             f.get("as_found", ""), f.get("as_left", ""), email, email)).fetchone()
-        log(conn, gid, email, "calibration recorded", f"{f['done_on']}: {f['result']}")
+        log(conn, gid, email, "calibration recorded", f"{f['done_on']}: {Q.word(f['result'])}")
     return row
 
 
@@ -194,7 +196,8 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
     with conn.transaction():
         g = conn.execute("select * from gauges where id = %s for update", (c["gauge_id"],)).fetchone()
         _date_rules(conn, c, g)                       # again, under the lock: another approval may have come first
-        Q._sign(conn, user, f"Calibration approved ({c['result']})", "calibration", cid, g["code"])
+        Q._sign(conn, user, say("Calibration approved (pass)") if c["result"] == "pass" else
+                say("Calibration approved (fail)"), "calibration", cid, g["code"])
         if conn.execute("update gauge_calibrations set status = 'approved', approved_by = %s, approved_at = now() "
                         "where id = %s and status = 'draft' returning id", (user["email"], cid)).fetchone() is None:
             raise CalError(say("the calibration changed meanwhile: open it again"))
@@ -204,8 +207,9 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
                                  (g["id"],)).fetchone()
             conn.execute("update gauges set last_pass = %s, next_due = %s, status = %s, updated_at = now() where "
                          "id = %s", (c["done_on"], due, "out_of_service" if open_ else "in_service", g["id"]))
-            log(conn, g["id"], user["email"], "calibration approved", f"pass on {c['done_on']}; next due {due}"
-                + ("; stays out of service until the out-of-tolerance assessment is signed" if open_ else ""))
+            log(conn, g["id"], user["email"], "calibration approved",
+                say("pass on {done_on}; next due {due}; stays out of service until the out-of-tolerance assessment "
+                    "is signed" if open_ else "pass on {done_on}; next due {due}", done_on=c["done_on"], due=due))
         else:
             # what it measured since its last good calibration before this one
             prev = conn.execute("select max(done_on) as d from gauge_calibrations where gauge_id = %s and status = "
@@ -218,9 +222,10 @@ def approve(conn, user: dict, cid: int, password: str, *, today: dt.date) -> dic
             conn.execute("update gauges set status = 'out_of_service', updated_at = now() where id = %s", (g["id"],))
             conn.execute("insert into gauge_impacts (gauge_id, calibration_id, since, inspections, production) values "
                          "(%s, %s, %s, %s, %s)", (g["id"], cid, since, Jsonb(hit), Jsonb(lots)))
-            log(conn, g["id"], user["email"], "out of tolerance", f"on {c['done_on']}: out of service; "
-                f"{len(hit)} inspections and {len(lots)} production lots measured since "
-                f"{since or 'it was registered'} to assess")
+            log(conn, g["id"], user["email"], "out of tolerance",
+                say("on {done_on}: out of service; {inspections} inspections and {lots} production lots measured "
+                    "since {since} to assess", done_on=c["done_on"], inspections=len(hit), lots=len(lots),
+                    since=since or say("it was registered")))
     return get(conn, g["id"])
 
 
@@ -256,16 +261,18 @@ def assess(conn, user: dict, impact_id: int, password: str, conclusion: str, *, 
             raise CalError(say("it is already assessed"))
         ncr = None
         if open_ncr:
-            ncr = Q.create_ncr(conn, user["email"], title=f"Out-of-tolerance equipment {g['code']}",
-                               description=f"{g['code']} {g['name']} was found out of tolerance. "
-                                           f"{len(imp['inspections'])} incoming inspections measured with it since "
-                                           f"{imp['since'] or 'it was registered'}: "
-                                           + ", ".join(x["name"] for x in imp["inspections"][:30])
-                                           + (". Production lots: " + ", ".join(
-                                               f"{x['item_code']} lot {x['lot_no']}" for x in imp["production"][:30])
-                                              if imp.get("production") else "")
-                                           + f". Assessment: {conclusion.strip()}")
-        Q._sign(conn, user, "Out-of-tolerance assessment", "calibration_impact", impact_id, g["code"])
+            desc = say("{code} {name} was found out of tolerance. {n} incoming inspections measured with it since "
+                       "{since}: {list}", code=g["code"], name=g["name"], n=len(imp["inspections"]),
+                       since=imp["since"] or say("it was registered"),
+                       list=Q.join(x["name"] for x in imp["inspections"][:30]))
+            if imp.get("production"):
+                desc += say(". Production lots: {list}", list=Q.join(
+                    say("{item_code} lot {lot_no}", item_code=x["item_code"], lot_no=x["lot_no"])
+                    for x in imp["production"][:30]))
+            desc += say(". Assessment: {conclusion}", conclusion=conclusion.strip())
+            ncr = Q.create_ncr(conn, user["email"], title=say("Out-of-tolerance equipment {code}", code=g["code"]),
+                               description=desc)
+        Q._sign(conn, user, say("Out-of-tolerance assessment"), "calibration_impact", impact_id, g["code"])
         conn.execute("update gauge_impacts set status = 'assessed', conclusion = %s, ncr_id = %s, assessed_by = %s, "
                      "assessed_at = now() where id = %s", (conclusion.strip()[:4000], ncr["id"] if ncr else None,
                                                             user["email"], impact_id))
@@ -304,8 +311,8 @@ def view(conn, gid: int, today: dt.date) -> dict:
     imps = conn.execute("select * from gauge_impacts where gauge_id = %s order by id desc", (gid,)).fetchall()
     return {**_iso(g), "usable": ok, "why": why, "calibrations": [_iso(c) for c in cals],
             "impacts": [_iso(i) for i in imps],
-            "history": [_iso(r) for r in conn.execute("select at, email, action, note from gauge_log where gauge_id = "
-                                                      "%s order by id", (gid,)).fetchall()],
+            "history": [{**_iso(r), "action": I18N.label(r["action"])} for r in conn.execute(
+                "select at, email, action, note from gauge_log where gauge_id = %s order by id", (gid,)).fetchall()],
             "used_by": measured_since(conn, gid, None)[-50:]}
 
 

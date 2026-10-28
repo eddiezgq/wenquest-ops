@@ -24,6 +24,12 @@ class FlowRuleError(ValueError):
     pass
 
 
+def kinds() -> dict[str, str]:
+    """The kinds of step in the reader's language (the keys are what is stored)."""
+    return {"operation": say("flow kind::Operation"), "inspection": say("Inspection"), "move": say("Move"),
+            "store": say("Storage"), "delay": say("Wait")}
+
+
 def _key(v, what: str, n: int = 60) -> str:
     s = CONTROL.sub("", str(v if v is not None else "")).strip()[:n]
     if not s:
@@ -71,8 +77,9 @@ def links(v) -> dict:  # noqa: PLR0912 - one block per kind of link
         if not isinstance(items, list):
             raise FlowRuleError(say("{k} is a list", k=k))
         keys = []
+        what = say("a document number") if k == "documents" else say("a measuring equipment number")
         for x in items[:MAX_LIST]:
-            s = _key(x, f"a {LINK_KINDS[k].lower()} number")
+            s = _key(x, what)
             if s not in keys:
                 keys.append(s)
         if keys:
@@ -84,14 +91,14 @@ def links(v) -> dict:  # noqa: PLR0912 - one block per kind of link
     for x in fm[:MAX_LIST]:
         if not isinstance(x, dict) or type(x.get("seq")) is not int:
             raise FlowRuleError(say("a PFMEA row is its PFMEA number and its row number"))
-        r = {"name": _key(x.get("name"), "the PFMEA number"), "seq": x["seq"]}
+        r = {"name": _key(x.get("name"), say("the PFMEA number")), "seq": x["seq"]}
         if r not in rows:
             rows.append(r)
     if rows:
         out["fmea"] = rows
     for k in ("plan", "template"):
         if v.get(k) not in (None, ""):
-            out[k] = _key(v[k], LINK_KINDS[k].lower(), 140)
+            out[k] = _key(v[k], say("incoming inspection plan") if k == "plan" else say("production template"), 140)
     return out
 
 
@@ -104,22 +111,36 @@ def link_keys(lk: dict) -> list[tuple[str, str]]:
     return out
 
 
+def _unresolved(step: str, kind: str, key: str, why: str) -> str:
+    """One link that points to nothing in effect, as a whole sentence per kind of link."""
+    if kind == "documents":
+        return say("step {step}: document {key}: {why}", step=step, key=key, why=why)
+    if kind == "fmea":
+        name, _, seq = key.rpartition("#")
+        return say("step {step}: pfmea row {name} row {seq}: {why}", step=step, name=name, seq=seq, why=why)
+    if kind == "plan":
+        return say("step {step}: incoming inspection plan {key}: {why}", step=step, key=key, why=why)
+    if kind == "template":
+        return say("step {step}: production template {key}: {why}", step=step, key=key, why=why)
+    return say("step {step}: measuring equipment {key}: {why}", step=step, key=key, why=why)
+
+
 def to_approve(chart: dict, steps: list[dict], resolved: dict[str, dict]) -> list[str]:
     """What still stands between the draft and approval. ``resolved`` maps "kind:key" to what the link points to
     now ({ok, why})."""
     out = []
     if not steps:
-        out.append("at least one step")
+        out.append(say("at least one step"))
     seqs = {s["seq"] for s in steps}
     for s in steps:
-        n = f"step {s['code'] or s['seq']} {s['name']}"
+        n = f"{s['code'] or s['seq']} {s['name']}"
         for b in s.get("branches") or []:
             if b["to"] is not None and b["to"] not in seqs:
-                out.append(f"{n}: a branch goes to a step that was removed")
+                out.append(say("step {step}: a branch goes to a step that was removed", step=n))
         for kind, key in link_keys(s.get("links") or {}):
-            r = resolved.get(f"{kind}:{key}") or {"ok": False, "why": "not checked"}
+            r = resolved.get(f"{kind}:{key}") or {"ok": False, "why": say("not checked")}
             if not r["ok"]:
-                out.append(f"{n}: {LINK_KINDS[kind].lower()} {key.replace('#', ' row ')}: {r['why']}")
+                out.append(_unresolved(n, kind, key, r["why"]))
     return out
 
 

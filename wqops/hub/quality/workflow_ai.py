@@ -125,7 +125,8 @@ def propose(conn, user: dict, kind: str, docs: list[dict], model: L.Anthropic | 
     base = W.ensure(conn, kind)
     cfg = base["config"]
     ctx = T.Ctx(conn=conn, user=user, today=today)
-    AG.start(ctx, "workflow", f"{kind} workflow from: {', '.join(d['name'] for d in docs)}"[:1000])
+    AG.start(ctx, "workflow", say("{kind} workflow from: {docs}", kind=kind,
+                                  docs=", ".join(d["name"] for d in docs))[:1000])
     out = {"engine": "model", "model": model.model, "tool_calls": [], "verified": True, "unverified": [], "usage": {}}
     try:
         resp = model.create(
@@ -148,11 +149,13 @@ def propose(conn, user: dict, kind: str, docs: list[dict], model: L.Anthropic | 
             raise L.LlmError(say("the model's proposal has no list of changes"))
         p = WP.store(conn, kind, user["email"], docs, result, ctx.run_id, base["id"])
         got = WP.items(conn, p["id"])
-        bad = [f"change {i['seq']}: {'; '.join(i['problems'])}" for i in got if i["problems"]]
+        bad = [say("change {seq}: {problems}", seq=i["seq"], problems="; ".join(i["problems"])) for i in got
+               if i["problems"]]
         out.update(usage=resp.get("usage", {}), answer=json.dumps(result, ensure_ascii=False)[:8000],
                    verified=not bad, unverified=bad,
                    tool_calls=[{"tool": "propose_workflow_changes", "args": {"documents": [d["id"] for d in docs]},
-                                "ok": True, "summary": f"{len(got)} changes, {len(bad)} with problems"}])
+                                "ok": True, "summary": say("{n} changes, {bad} with problems", n=len(got),
+                                                           bad=len(bad))}])
         AG.finish(ctx, out)
         return p
     except Exception as exc:                    # the run is closed whatever went wrong, then the error goes on

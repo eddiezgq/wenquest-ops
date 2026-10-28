@@ -74,15 +74,15 @@ def new_draft(conn, kind: str, email: str) -> dict:
         row = conn.execute("insert into workflow_versions (kind, version, config, status, created_by, edited_by, note) "
                            "values (%s, %s, %s, 'draft', %s, %s, %s) returning *",
                            (kind, nxt, Json(copy.deepcopy(base["config"])), email, [email],
-                            f"from version {base['version']}")).fetchone()
-        log(conn, row["id"], email, "draft made", f"from version {base['version']}")
+                            say("from version {version}", version=base["version"]))).fetchone()
+        log(conn, row["id"], email, say("draft made"), say("from version {version}", version=base["version"]))
     return row
 
 
 def save(conn, vid: int, email: str, cfg: dict, note: str | None = None) -> dict:
     """Store a changed draft. It may still break red lines (they are shown); it cannot be enabled until it does not."""
     if not isinstance(cfg, dict) or W.well_formed(cfg):
-        raise AdminError("the workflow is not well formed: " + "; ".join(W.well_formed(cfg)))
+        raise AdminError(say("the workflow is not well formed: {list}", list="; ".join(W.well_formed(cfg))))
     with conn.transaction():
         row = conn.execute("select * from workflow_versions where id = %s for update", (vid,)).fetchone()
         if row is None:
@@ -96,7 +96,7 @@ def save(conn, vid: int, email: str, cfg: dict, note: str | None = None) -> dict
         out = conn.execute("update workflow_versions set config = %s, edited_by = (select array(select distinct "
                            "unnest(edited_by || %s::text[]))), note = coalesce(%s, note) where id = %s and "
                            "status = 'draft' returning *", (Json(cfg), [email], note, vid)).fetchone()
-        log(conn, vid, email, "changed", "; ".join(changes) or "no change")
+        log(conn, vid, email, say("changed"), "; ".join(changes) or say("no change"))
     return out
 
 
@@ -109,7 +109,7 @@ def enable(conn, vid: int, user: dict, password: str) -> dict:
         raise PermissionError(say("someone who did not change this draft must enable it"))
     errors = W.validate(row["config"], in_use(conn, row["kind"]))
     if errors:
-        raise AdminError("fix these first: " + "; ".join(errors))
+        raise AdminError(say("fix these first: {list}", list="; ".join(errors)))
     if not W.diff(W.ensure(conn, row["kind"])["config"], row["config"]):
         raise AdminError(say("this draft changes nothing; discard it instead"))
     checked = W.fingerprint(row["config"])
@@ -128,10 +128,13 @@ def enable(conn, vid: int, user: dict, password: str) -> dict:
         out = conn.execute("update workflow_versions set status = 'enabled', fingerprint = %s, enabled_by = %s, "
                            "enabled_at = now() where id = %s and status = 'draft' returning *",
                            (checked, user["email"], vid)).fetchone()
-        Q._sign(conn, user, "Workflow version enabled", "workflow", vid, f"{row['kind']} workflow v{row['version']}")
-        log(conn, vid, user["email"], "enabled", f"replaces version {old['version']}" if old else "")
+        Q._sign(conn, user, say("Workflow version enabled"), "workflow", vid,
+                say("{kind} workflow v{version}", kind=row["kind"], version=row["version"]))
+        log(conn, vid, user["email"], say("enabled"),
+            say("replaces version {version}", version=old["version"]) if old else "")
         if old:
-            log(conn, old["id"], user["email"], "retired", f"replaced by version {row['version']}")
+            log(conn, old["id"], user["email"], say("retired"), say("replaced by version {version}",
+                                                                    version=row["version"]))
     return out
 
 
@@ -147,5 +150,5 @@ def discard(conn, vid: int, email: str, reason: str) -> dict:
                                  version=row['version'], status=row['status']))
         out = conn.execute("update workflow_versions set status = 'discarded', discarded_reason = %s where id = %s "
                            "returning *", (reason.strip(), vid)).fetchone()
-        log(conn, vid, email, "discarded", reason.strip())
+        log(conn, vid, email, say("discarded"), reason.strip())
     return out

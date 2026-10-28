@@ -16,6 +16,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from starlette.datastructures import UploadFile
 
+from wqops import i18n as I18N
 from wqops.hub import db as DB
 from wqops.hub import permissions as P
 from wqops.hub.docs import ai_classify as AIC
@@ -45,7 +46,7 @@ def _zip(c, imp_id: int, up: UploadFile, taken: list[int]) -> None:
     try:
         z = zipfile.ZipFile(up.file)
     except zipfile.BadZipFile:
-        LIB.skip(c, imp_id, up.filename or "archive.zip", "not a readable zip file")
+        LIB.skip(c, imp_id, up.filename or "archive.zip", say("not a readable zip file"))
         return
     total = 0
     with z:
@@ -54,10 +55,10 @@ def _zip(c, imp_id: int, up: UploadFile, taken: list[int]) -> None:
             if info.is_dir() or "__MACOSX" in name or name.rsplit("/", 1)[-1].startswith("."):
                 continue
             if taken[0] >= MAX_FILES:
-                LIB.skip(c, imp_id, name, f"more than {MAX_FILES} files in one import")
+                LIB.skip(c, imp_id, name, say("more than {n} files in one import", n=MAX_FILES))
                 continue
             if info.file_size > F.MAX_BYTES or total + info.file_size > MAX_ZIP_TOTAL:
-                LIB.skip(c, imp_id, name, "too large")
+                LIB.skip(c, imp_id, name, say("too large"))
                 continue
             total += info.file_size
             try:
@@ -68,7 +69,7 @@ def _zip(c, imp_id: int, up: UploadFile, taken: list[int]) -> None:
             except LIB.DocError as exc:
                 LIB.skip(c, imp_id, name, str(exc))
             except (zipfile.BadZipFile, RuntimeError, NotImplementedError) as exc:  # encrypted or unknown method
-                LIB.skip(c, imp_id, name, f"could not unpack: {exc}")
+                LIB.skip(c, imp_id, name, say("could not unpack: {error}", error=exc))
 
 
 def resume(db_url: str) -> None:
@@ -91,7 +92,8 @@ def resume(db_url: str) -> None:
 def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) -> None:  # noqa: PLR0915, PLR0917
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                           PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def run(fn):
         try:
@@ -117,8 +119,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         except Exception:
             log.exception("taking text from import %s failed", imp_id)
             with DB.connect(db_url) as c:
-                c.execute("update doc_imports set status = 'ready', error = 'taking the text stopped early; see the "
-                          "hub log' where id = %s", (imp_id,))
+                c.execute("update doc_imports set status = 'ready', error = %s where id = %s",
+                          (say("taking the text stopped early; see the hub log"), imp_id))
 
     def classify_job(imp_id: int, user: dict, use_ai: bool) -> None:
         m = company()[0]
@@ -129,8 +131,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         except Exception:
             log.exception("classifying import %s failed", imp_id)
             with DB.connect(db_url) as c:
-                c.execute("update doc_imports set status = 'done', error = 'classification stopped early; see the "
-                          "hub log' where id = %s", (imp_id,))
+                c.execute("update doc_imports set status = 'done', error = %s where id = %s",
+                          (say("classification stopped early; see the hub log"), imp_id))
 
     def import_view(c, r: dict) -> dict:
         counts = {x["status"]: x["n"] for x in c.execute(
@@ -144,10 +146,10 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
     @app.get("/api/docs/meta")
     def meta(u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "documents:view")
-        return {"types": K.TYPES, "controlled": sorted(K.CONTROLLED), "processes": LIB.processes(c),
+        return {"types": K.type_names(), "controlled": sorted(K.CONTROLLED), "processes": LIB.process_names(c),
                 "ai": ai_on(), "model": model.model if ai_on() else None,
                 "can_edit": P.allows(u["roles"], "documents:edit"), "max_mb": F.MAX_BYTES // (1024 * 1024),
-                "batch_rule": "high confidence and every quote found in the file"}
+                "batch_rule": say("high confidence and every quote found in the file")}
 
     @app.post("/api/docs/imports", status_code=201)
     async def upload(request: Request, background: BackgroundTasks, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -166,7 +168,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
                     _zip(c, imp["id"], up, taken)
                     continue
                 if taken[0] >= MAX_FILES:
-                    LIB.skip(c, imp["id"], name, f"more than {MAX_FILES} files in one import")
+                    LIB.skip(c, imp["id"], name, say("more than {n} files in one import", n=MAX_FILES))
                     continue
                 data = await up.read(F.MAX_BYTES + 1)
                 try:
@@ -199,7 +201,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         d = await body(request)
         imp = run(lambda: LIB.get_import(c, imp_id))
         if imp["status"] not in ("ready", "done"):
-            raise HTTPException(409, say("this import is {status}; wait until its text is taken", status=imp['status']))
+            raise HTTPException(409, say("this import is {status}; wait until its text is taken",
+                                         status=I18N.label(f"import status::{imp['status']}")))
         if not c.execute("select 1 from documents where import_id = %s and status = 'to_classify'",
                          (imp_id,)).fetchone():
             raise HTTPException(409, say("nothing in this import is waiting for classification"))
@@ -236,7 +239,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         docs = {d["id"]: {"label": CK.label(d), "status": d["status"], "file": d["original_name"],
                           "path": d["path"], "number": d["number"]} for d in st["docs"] if d["id"] in seen}
         return {"issues": found, "docs": docs, "conventions": st["conventions"], "codes": st["codes"],
-                "processes": st["processes"]}
+                "processes": I18N.localize(st["processes"], keys=frozenset({"name"}))}
 
     @app.put("/api/docs/numbering/{doc_type}")
     async def set_numbering(doc_type: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -282,7 +285,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
             "revisions": [_iso(r) for r in family], "import": _iso(imp) if imp else None,
             "same_file": same, "batch_ok": K.batch_ok(doc), "controlled": doc["doc_type"] in K.CONTROLLED,
             "involved": sorted(LIB.involved(c, doc)),
-            "process_name": LIB.processes(c).get(doc["process"] or "", None),
+            "process_name": LIB.process_names(c).get(doc["process"] or "", None),
             "suggest": LIB.suggestions(c, doc),
             "next_review": nxt.isoformat() if nxt else None,
             "review_overdue": bool(nxt and nxt < OA.today(company()[0])),
@@ -438,7 +441,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, model, db_url: str | None) 
         LIB.take_effect_due(c, today_())
         return {"reviews": CTL.review_list(c, today_()), "training": CTL.training(c, today=today_()),
                 "mine": CTL.training(c, email=u["email"], today=today_()), "types": CTL.type_settings(c),
-                "doc_types": K.TYPES, "can_configure": P.allows(u["roles"], "qms:configure")}
+                "doc_types": K.type_names(), "can_configure": P.allows(u["roles"], "qms:configure")}
 
     @app.get("/api/my-reading")
     def mine(u=Depends(user_dep), c=Depends(conn_dep)):

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from wqops import i18n as I18N
 from wqops.hub.quality import causes_rules as CR
 from wqops.hub.quality import complaints as CP
 from wqops.hub.quality import records as Q
@@ -29,6 +30,10 @@ CONTEXT_DAYS = 365
 
 def _iso(row: dict) -> dict:
     return {k: v.isoformat() if hasattr(v, "isoformat") else v for k, v in row.items()}
+
+
+def _method(m: str) -> str:
+    return I18N.label(CR.METHODS[m])
 
 
 def log(conn, aid: int, email: str | None, action: str, note: str = "") -> None:
@@ -227,17 +232,17 @@ def start(conn, email: str, kind: str, ref_id: int, method: str, *, problem: str
         raise CauseError(say("an analysis is on a nonconformance report, a CAPA or a complaint"))
     s = subject(conn, kind, ref_id)
     if s["status"] not in OPEN[kind] or s["locked"]:
-        why = "its 8D is complete" if s["locked"] else f"it is {s['status'].replace('_', ' ')}"
+        why = say("its 8D is complete") if s["locked"] else say("it is {status}", status=s["status"].replace("_", " "))
         raise CauseError(say("{name} cannot take a new root cause: {why}", name=s['name'], why=why))
     cats = CR.categories(categories) if method == "fishbone" else []
-    p = CR.text(problem or s["title"], "the problem", 1000)
+    p = CR.text(problem or s["title"], say("the problem"), 1000)
     with conn.transaction():
         name = Q._next_name(conn, "cause_analyses", "RCA")
         row = conn.execute("insert into cause_analyses (name, method, ref_kind, ref_id, ref_name, problem, categories, "
                            "created_by) values (%s, %s, %s, %s, %s, %s, %s, %s) returning *",
                            (name, method, kind, ref_id, s["name"], p, cats, email)).fetchone()
-        log(conn, row["id"], email, "started", f"{CR.METHODS[method]} on {s['name']}")
-        _note(conn, s, email, "cause analysis started", f"{name} ({CR.METHODS[method]})")
+        log(conn, row["id"], email, say("started"), say("{method} on {name}", method=_method(method), name=s["name"]))
+        _note(conn, s, email, say("cause analysis started"), f"{name} ({_method(method)})")
     return row
 
 
@@ -275,7 +280,8 @@ def add(conn, email: str, aid: int, data: dict) -> dict:
         row = conn.execute("insert into cause_items (analysis_id, category, level, text, refs, origin, status, "
                            "decided_by, decided_at, created_by) values (%s, %s, %s, %s, %s, 'person', 'accepted', %s, "
                            "now(), %s) returning *", (aid, cat, lv, t, refs, email, email)).fetchone()
-        log(conn, aid, email, "cause added", f"{cat or f'why {lv}'}: {t}" + (f" [{', '.join(refs)}]" if refs else ""))
+        log(conn, aid, email, say("cause added"), f"{cat or say('why {level}', level=lv)}: {t}"
+            + (f" [{', '.join(refs)}]" if refs else ""))
     return row
 
 
@@ -291,7 +297,7 @@ def propose(conn, aid: int, run_id: int, email: str, proposals: list[dict]) -> l
                 (aid, p.get("category") if a["method"] == "fishbone" else None,
                  p.get("level") if a["method"] == "five_why" else None, p["text"], p["refs"], run_id,
                  email)).fetchone())
-        log(conn, aid, email, "AI suggested", f"{len(out)} causes (run {run_id})")
+        log(conn, aid, email, say("AI suggested"), say("{n} causes (run {run})", n=len(out), run=run_id))
     return out
 
 
@@ -316,21 +322,21 @@ def decide(conn, email: str, aid: int, iid: int, action: str, *, new_text: str |
             CR.can_remove(a, its, it)
             row = conn.execute("update cause_items set status = 'removed', decided_by = %s, decided_at = now() "
                                "where id = %s returning *", (email, iid)).fetchone()
-            log(conn, aid, email, "cause removed", it["text"])
+            log(conn, aid, email, say("cause removed"), it["text"])
             return row
         CR.can_accept(a, its, it)
         t = CR.text(new_text) if action == "edit" else it["text"]
         edited = it["edited"] or t != it["text"]
         row = conn.execute("update cause_items set status = 'accepted', text = %s, edited = %s, decided_by = %s, "
                            "decided_at = now() where id = %s returning *", (t, edited, email, iid)).fetchone()
-        log(conn, aid, email, "cause edited" if t != it["text"] else "cause accepted",
+        log(conn, aid, email, say("cause edited") if t != it["text"] else say("cause accepted"),
             f"{it['text']} -> {t}" if t != it["text"] else t)
     return row
 
 
 def conclude(conn, user: dict, aid: int, conclusion: str, password: str, *, today: dt.date) -> dict:
     """Sign the conclusion and add it to the record's root cause. Kept as it was from then on."""
-    c = CR.text(conclusion, "the conclusion", 2000)
+    c = CR.text(conclusion, say("the conclusion"), 2000)
     a = get(conn, aid)
     left = CR.ready(a, items(conn, aid))
     if left:
@@ -345,22 +351,27 @@ def conclude(conn, user: dict, aid: int, conclusion: str, password: str, *, toda
         try:
             if a["ref_kind"] == "ncr":
                 Q.save_8d(conn, a["ref_id"], user["email"], {"d4": text})
+                # stored in English: the page reads it (CauseAnalysis.vue writtenTo) and says it in its language
                 where = f"8D D4 of {a['ref_name']}"
+                where_text = say("8D D4 of {name}", name=a["ref_name"])
             elif a["ref_kind"] == "capa":
                 Q.update_capa(conn, a["ref_id"], user["email"], root_cause=text)
                 where = f"root cause of {a['ref_name']}"
+                where_text = say("root cause of {name}", name=a["ref_name"])
             else:
                 CP.update(conn, user, a["ref_id"], {"root_cause": text}, today=today)
                 where = f"root cause of {a['ref_name']}"
+                where_text = say("root cause of {name}", name=a["ref_name"])
         except (Q.QualityError, CP.ComplaintError) as exc:
             raise CauseError(say("the root cause of {ref_name} cannot be written now: {exc}",
                                  ref_name=a['ref_name'], exc=exc)) from exc
         row = conn.execute("update cause_analyses set status = 'concluded', conclusion = %s, written_to = %s, "
                            "concluded_by = %s, concluded_at = now() where id = %s returning *",
                            (c, where, user["email"], aid)).fetchone()
-        Q._sign(conn, user, "Root cause concluded", "cause_analysis", aid, a["name"])
-        log(conn, aid, user["email"], "concluded", f"{c} (written to {where})")
-        _note(conn, s, user["email"], "root cause concluded", f"{a['name']}: {c}")
+        Q._sign(conn, user, say("Root cause concluded"), "cause_analysis", aid, a["name"])
+        log(conn, aid, user["email"], say("concluded"), say("{conclusion} (written to {where})", conclusion=c,
+                                                             where=where_text))
+        _note(conn, s, user["email"], say("root cause concluded"), f"{a['name']}: {c}")
     return row
 
 
@@ -368,20 +379,21 @@ def addendum(conn, email: str, aid: int, text: str) -> dict:
     a = get(conn, aid)
     if a["status"] == "open":
         raise CauseError(say("the analysis is open: change it directly"))
-    t = CR.text(text, "the addendum", 2000)
+    t = CR.text(text, say("the addendum"), 2000)
     with conn.transaction():
         row = conn.execute("insert into cause_addenda (analysis_id, text, email) values (%s, %s, %s) returning *",
                            (aid, t, email)).fetchone()
-        log(conn, aid, email, "addendum", t)
+        log(conn, aid, email, say("addendum"), t)
     return row
 
 
 def cancel(conn, email: str, aid: int, reason: str) -> dict:
-    r = CR.text(reason, "why it is cancelled", 1000)
+    r = CR.text(reason, say("why it is cancelled"), 1000)
     with conn.transaction():
         a = _open(conn, aid)
         row = conn.execute("update cause_analyses set status = 'cancelled', cancel_reason = %s where id = %s "
                            "returning *", (r, aid)).fetchone()
-        log(conn, aid, email, "cancelled", r)
-        _note(conn, subject(conn, a["ref_kind"], a["ref_id"]), email, "cause analysis cancelled", f"{a['name']}: {r}")
+        log(conn, aid, email, say("cancelled"), r)
+        _note(conn, subject(conn, a["ref_kind"], a["ref_id"]), email, say("cause analysis cancelled"),
+              f"{a['name']}: {r}")
     return row

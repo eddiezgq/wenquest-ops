@@ -51,7 +51,8 @@ function edit(e) {
 }
 const sign = (e) => call(`/api/register-entries/${e.id}/sign`, 'POST', { password: password.value }, t('Approved and locked.'))
 const doVoid = (e) => call(`/api/register-entries/${e.id}/void`, 'POST', { reason: reason.value, password: password.value }, t('Entry void.'))
-const show = (f, v) => (v === undefined || v === null ? '' : f.type === 'yesno' ? (v ? t('yes') : t('no')) : String(v))
+const show = (f, v) => (v === undefined || v === null ? '' : f.type === 'yesno' ? (v ? t('yes') : t('no'))
+  : f.type === 'choice' ? t(`choice::${v}`) : String(v))
 </script>
 
 <template>
@@ -70,7 +71,7 @@ const show = (f, v) => (v === undefined || v === null ? '' : f.type === 'yesno' 
           <span>{{ f.label }}<span v-if="f.required" class="text-ink-red-6"> *</span></span>
           <textarea v-if="f.type === 'longtext'" v-model="form[k]" rows="2" class="wq-input" />
           <select v-else-if="f.type === 'choice'" v-model="form[k]" class="wq-select"><option value="" />
-            <option v-for="c in f.choices" :key="c" :value="c">{{ c }}</option></select>
+            <option v-for="c in f.choices" :key="c" :value="c">{{ t(`choice::${c}`) }}</option></select>
           <select v-else-if="f.type === 'yesno'" v-model="form[k]" class="wq-select"><option value="" /><option value="yes">{{ t('yes') }}</option><option value="no">{{ t('no') }}</option></select>
           <input v-else v-model="form[k]" :type="f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'" class="wq-input">
         </label>

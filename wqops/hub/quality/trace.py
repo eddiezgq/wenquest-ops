@@ -14,6 +14,7 @@ import datetime as dt
 
 from wqops.hub.ont import metrics as M
 from wqops.hub.quality import trace_rules as TR
+from wqops.i18n import say
 
 
 def _iso(row: dict) -> dict:
@@ -116,11 +117,13 @@ def from_complaint(conn, cid: int) -> dict:
         raise KeyError(cid)
     start = {"kind": "complaint", **_iso(c)}
     if not c["item_code"] or not c["lot_no"].strip():
-        return {"start": start, "note": "the complaint does not name both the item and the lot: nothing to match",
+        return {"start": start, "note": say("the complaint does not name both the item and the lot: nothing to match"),
                 **_summary([], [], [])}
     recs = _records(conn, "item_code = %s and lower(btrim(lot_no)) = %s", (c["item_code"], TR.lot_key(c["lot_no"])))
     if not recs:
-        return {"start": start, "note": f"no production record of {c['item_code']} lot {c['lot_no']}",
+        return {"start": start,
+                "note": say("no production record of {item_code} lot {lot_no}", item_code=c["item_code"],
+                            lot_no=c["lot_no"]),
                 **_summary([], [], [])}
     back = from_record(conn, recs[0]["id"])
     return {**back, "start": start}

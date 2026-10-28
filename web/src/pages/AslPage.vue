@@ -112,7 +112,7 @@ const approvable = (e) => ['draft', 'suspended', 'approved', 'conditional'].incl
                 <Button v-if="e.status === 'disqualified'" :label="t('Qualify again (to a draft)')" :disabled="!act.reason.trim()" @click="move(e, 'requalify')" />
               </div>
             </template>
-            <ul v-if="hist[e.id]" class="mt-3 text-ink-gray-6"><li v-for="(x, i) in hist[e.id].history" :key="i">{{ ago(x.at) }} · {{ x.email }} · {{ x.action }}{{ x.note ? `: ${x.note}` : '' }}</li>
+            <ul v-if="hist[e.id]" class="mt-3 text-ink-gray-6"><li v-for="(x, i) in hist[e.id].history" :key="i">{{ ago(x.at) }} · {{ x.email }} · {{ t(x.action) }}{{ x.note ? `: ${x.note}` : '' }}</li>
               <li v-for="(s, i) in hist[e.id].signatures" :key="`s${i}`">{{ ago(s.at) }} · {{ t('signed by {name}', { name: s.name }) }}: {{ s.meaning }}</li></ul>
           </td></tr>
         </template></tbody></table></div>

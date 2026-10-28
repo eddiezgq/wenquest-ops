@@ -51,7 +51,7 @@ async function show(code) { open.value = open.value === code ? '' : code; hist.v
         <td><RouterLink :to="objectPath('Item', i.item_code)" class="wq-link">{{ i.item_code }}</RouterLink></td>
         <td><Badge :label="i.agency === 'gs1' ? 'GS1' : 'HIBCC'" /></td><td class="font-mono">{{ i.di }}</td>
         <td>{{ i.set_by }}</td><td><Button size="sm" variant="ghost" :label="t('History')" @click="show(i.item_code)" /></td></tr>
-        <tr v-if="open === i.item_code"><td colspan="5" class="bg-surface-gray-1"><p v-for="h in hist" :key="h.at" class="text-sm">{{ h.at.slice(0, 16).replace('T', ' ') }} {{ h.email }} {{ h.action }}: {{ h.note }}</p></td></tr>
+        <tr v-if="open === i.item_code"><td colspan="5" class="bg-surface-gray-1"><p v-for="h in hist" :key="h.at" class="text-sm">{{ h.at.slice(0, 16).replace('T', ' ') }} {{ h.email }} {{ t(h.action) }}: {{ h.note }}</p></td></tr>
       </template></tbody></table>
   </section>
 </template>

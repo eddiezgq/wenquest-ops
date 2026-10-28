@@ -18,7 +18,7 @@ from wqops.i18n import say
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.describe(perm)))
 
     def run(fn):
         try:

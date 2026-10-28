@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from wqops import i18n as I18N
 from wqops.hub import permissions as P
 from wqops.hub.ont import api as OA
 from wqops.hub.quality import asl as A
@@ -18,7 +19,8 @@ from wqops.i18n import say
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
     def need(u: dict, perm: str) -> None:
         if not P.allows(u["roles"], perm):
-            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}", PERMISSIONS=P.PERMISSIONS[perm]))
+            raise HTTPException(403, say("your role does not allow: {PERMISSIONS}",
+                                         PERMISSIONS=I18N.label(P.PERMISSIONS[perm])))
 
     def run(fn):
         try:
@@ -43,7 +45,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:
                         "status <> 'void'").fetchone()["n"]
         return {"entries": A.listing(c, today()), "suppliers": I.suppliers(c), "items": I.items(c),
                 "settings": {k: v for k, v in I.settings(c).items() if k.startswith("asl_")},
-                "setting_labels": {k: v[1] for k, v in I.SETTINGS.items() if k.startswith("asl_")},
+                "setting_labels": {k: I18N.label(v[1]) for k, v in I.SETTINGS.items()
+                                   if k.startswith("asl_")},
                 "register_entries": reg, "can_configure": P.allows(u["roles"], "qms:configure")}
 
     def ident(v: int) -> int:
