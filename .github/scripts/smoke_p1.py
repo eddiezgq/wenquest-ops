@@ -38,6 +38,7 @@ BASE, OWNER, OWNER_PW = sys.argv[1], sys.argv[2], sys.argv[3]
 HOST = BASE.split("://", 1)[1].split("/")[0]
 PW = "Smoke pass 2026"
 NO_TOUR = "try { localStorage.setItem('wqo-tour-done', '1') } catch (e) {}"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))   # permissions.py reads wqops.i18n (standard library only)
 spec = importlib.util.spec_from_file_location(
     "permissions", Path(__file__).resolve().parents[2] / "wqops" / "hub" / "permissions.py")
 P = importlib.util.module_from_spec(spec)
