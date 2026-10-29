@@ -30,7 +30,17 @@ envset() {
 
 rand() { tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "${1:-24}" || true; }
 
-dc() { docker compose -p wqo --env-file .env -f docker-compose.yml "$@"; }
+# The compose project and files (ADR-0024): install.sh keeps them in .env (WQO_PROJECT, WQO_COMPOSE_FILES with ":"
+# between files) for a module on a shared server, e.g. qms with docker-compose.edge.yml and docker-compose.small.yml.
+project() { local p; p=$(envval WQO_PROJECT); printf '%s' "${p:-wqo}"; }
+dc() {
+    local list one dc_files=() dc_args=()
+    list=$(envval WQO_COMPOSE_FILES)
+    IFS=: read -ra dc_files <<< "${list:-docker-compose.yml}"
+    for one in "${dc_files[@]}"; do dc_args+=(-f "$one"); done
+    docker compose -p "$(project)" --env-file .env "${dc_args[@]}" "$@"
+}
+small() { case ":$(envval WQO_COMPOSE_FILES):" in *:docker-compose.small.yml:*) return 0 ;; *) return 1 ;; esac; }
 
 # Run a Python function inside ERPNext (bench execute) and print its return value
 bench_exec() { dc exec -T erp-backend bench --site frontend execute "$@"; }

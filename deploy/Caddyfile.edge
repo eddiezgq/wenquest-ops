@@ -1,0 +1,19 @@
+# WenQuest Ops as a module behind another Caddy (ADR-0024, install.sh --edge): that Caddy (on the WenQuest server)
+# holds ports 80/443 and the certificates and forwards both names here over the external network qms-edge; this one
+# only splits them by name. The outer Caddy is trusted for X-Forwarded-Proto, so the hub knows the page is https.
+{
+	auto_https off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+http://{$WQO_DOMAIN} {
+	encode gzip
+	reverse_proxy hub:8100
+}
+
+http://{$WQO_ERP_DOMAIN} {
+	encode gzip
+	reverse_proxy erp-frontend:8080
+}

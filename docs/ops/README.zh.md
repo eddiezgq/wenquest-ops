@@ -297,3 +297,24 @@ WQO_HUB_IMAGE=wenquest-ops-hub:local ./install.sh --company company.yaml --domai
 - 只有 Caddy 对外开放；数据库和 Redis 只在 Docker 内部网络里。
 - `.env`、`company/` 和 `backups/` 里有密码和企业数据：只放在本服务器上，权限 600。
 - 没有人确认，WenQuest Ops 不会往 ERPNext 写任何东西（ADR-0001、ADR-0002）。
+
+## 作为模块装在问渠国内服务器上（ADR-0024）
+
+问渠的国内服务器上，WenQuest Ops 由 GitHub Actions 的“Deploy to the WenQuest server in China”自动部署，不需要在服务器上
+手工运行 `install.sh`：
+
+1. 项目负责人用 root 建目录：`install -d -o deploy -g deploy /opt/qms`；按问渠仓库《国内服务器加模块（质量ERP等）》第二节
+   第 5 条生成本模块专用的 SSH 钥匙，填进本仓库的 Secrets `CN_DEPLOY_HOST`、`CN_DEPLOY_SSH_KEY`。
+2. 在 GitHub 上手动运行一次该部署流程（以后每次中枢镜像更新后自动运行）。第一次会装好并导入国内演示企业，约 20–30 分钟。
+3. 在服务器上设老板（王丹）的密码，并填 DeepSeek 钥匙（都会在终端里问，不显示）：
+   ```bash
+   cd /opt/qms
+   ./owner-password.sh
+   ./ai-key.sh
+   ```
+4. 告诉问渠主仓库在 `deploy/caddy-extra/cn/qms.caddy` 里把 `qms.<主域名>` 和 `qms-erp.<主域名>` 都转给 `qms-demo-edge:80`；
+   备案号下来、域名解析后即可访问。
+
+这里的装法是 `--china --edge --small --project qms --mirror 127.0.0.1:5000/qms`：不占 80/443，由问渠的 Caddy 办证书；每个容器
+有内存上限（合计约 2.4 GB，实测导入演示数据后约 0.9 GB）；镜像从服务器自带的仓库拉。日常命令里的 `-p wqo` 换成 `-p qms`；
+`status.sh`、`backup.sh`（每天 04:10 自动，留 7 份）照常可用。
