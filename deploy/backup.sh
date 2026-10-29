@@ -16,7 +16,7 @@ log "Backing up ERPNext..."
 dc exec -T erp-backend bench --site frontend backup --with-files >/dev/null
 dc exec -T erp-backend bash -c 'cd sites/frontend/private/backups && tar -cf - $(ls -t | head -n 4)' > "$work/erpnext.tar"
 cp .env "$work/env"
-tar -cf "$work/config.tar" company Caddyfile docker-compose.yml 2>/dev/null || true
+tar -cf "$work/config.tar" company Caddyfile* docker-compose*.yml 2>/dev/null || true
 tar -czf "backups/wqo-$ts.tar.gz" -C "$work" .
 chmod 600 "backups/wqo-$ts.tar.gz"
 ls -1t backups/wqo-*.tar.gz | tail -n +"$(( ${WQO_KEEP:-14} + 1 ))" | xargs -r rm -f

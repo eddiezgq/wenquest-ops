@@ -1,0 +1,16 @@
+# WenQuest Ops behind another Caddy (ADR-0024; install.sh --edge). Added to docker-compose.yml: our Caddy takes no host
+# ports and no certificates; it is the container qms-demo-edge on the external network qms-edge, port 80, which the
+# server's own Caddy (WenQuest) forwards qms.<domain> and qms-erp.<domain> to.
+services:
+  caddy:
+    container_name: qms-demo-edge
+    ports: !reset []
+    volumes: !override
+      - ./Caddyfile.edge:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [default, erp, qms-edge]
+
+networks:
+  qms-edge:
+    external: true

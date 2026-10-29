@@ -14,10 +14,15 @@
 #   --mirror REGISTRY   pull every image from this registry instead of Docker Hub and ghcr.io (in China, where those
 #                       cannot be reached; the images are copied there by .github/workflows/images.yml), e.g.
 #                       registry.cn-hangzhou.aliyuncs.com/wenquest
+#   --edge              a module behind the server's own Caddy (ADR-0024): no ports 80/443, no certificates; our
+#                       Caddy is qms-demo-edge on the external network qms-edge
+#   --small             memory limits on every container, about 2.4 GB in all (ADR-0024)
+#   --project NAME      the compose project name (default wqo; qms on the WenQuest server)
+# --china, --mirror, --edge, --small and --project are kept in .env: running again needs only the other options.
 # The first owner in the manifest gets a password: from WQO_OWNER_PASSWORD, or asked for when run in a terminal.
 . "$(dirname "$0")/lib.sh"
 
-COMPANY="" DOMAIN="" ERP_DOMAIN="" EMAIL="" TLS_INTERNAL=0 TAG=latest PULL=1 REG_TOKEN="${WQO_REGISTRY_TOKEN:-}" CHINA=0 MIRROR=""
+COMPANY="" DOMAIN="" ERP_DOMAIN="" EMAIL="" TLS_INTERNAL=0 TAG=latest PULL=1 REG_TOKEN="${WQO_REGISTRY_TOKEN:-}" CHINA=0 MIRROR="" EDGE=0 SMALL=0 PROJ=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --company) COMPANY=$(abspath "$2"); shift 2 ;;
@@ -30,7 +35,10 @@ while [ $# -gt 0 ]; do
         --registry-token) REG_TOKEN=$2; shift 2 ;;
         --china) CHINA=1; shift ;;
         --mirror) MIRROR=${2%/}; shift 2 ;;
-        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        --edge) EDGE=1; shift ;;
+        --small) SMALL=1; shift ;;
+        --project) PROJ=$2; shift 2 ;;
+        -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
         *) die "unknown option: $1 (see --help)" ;;
     esac
 done
@@ -54,7 +62,16 @@ disk_gb=$(df -Pk "$WD" | awk 'NR==2 {printf "%d", $4/1024/1024}')
 [ -n "$ERP_DOMAIN" ] || ERP_DOMAIN="erp.$DOMAIN"
 envset WQO_DOMAIN "$DOMAIN"
 envset WQO_ERP_DOMAIN "$ERP_DOMAIN"
-if [ "$TLS_INTERNAL" = 1 ]; then envset WQO_TLS internal
+# the compose project and files; what an earlier run chose stays unless given again
+[ -z "$PROJ" ] || envset WQO_PROJECT "$PROJ"
+files=$(envval WQO_COMPOSE_FILES); files=${files:-docker-compose.yml}
+if [ "$EDGE" = 1 ] && [[ ":$files:" != *:docker-compose.edge.yml:* ]]; then files="$files:docker-compose.edge.yml"; fi
+if [ "$SMALL" = 1 ] && [[ ":$files:" != *:docker-compose.small.yml:* ]]; then files="$files:docker-compose.small.yml"; fi
+envset WQO_COMPOSE_FILES "$files"
+if [[ ":$files:" == *:docker-compose.edge.yml:* ]]; then
+    envset WQO_TLS edge                     # the server's own Caddy holds the certificates
+    docker network inspect qms-edge >/dev/null 2>&1 || docker network create qms-edge >/dev/null
+elif [ "$TLS_INTERNAL" = 1 ]; then envset WQO_TLS internal
 elif [ -n "$EMAIL" ]; then envset WQO_TLS "$EMAIL"
 elif [ -z "$(envval WQO_TLS)" ]; then die "give --email (Let's Encrypt) or --tls-internal"
 fi
@@ -89,9 +106,15 @@ log "Domains: $DOMAIN and $ERP_DOMAIN; certificate: $(envval WQO_TLS)"
 
 # ---------------------------------------------------------------- 4 ERPNext
 log "Starting ERPNext..."
+workers=(erp-queue-short erp-queue-long)
+if small; then
+    workers=(erp-queue-long)                 # one worker takes every queue (docker-compose.small.yml)
+    # creating the site and the setup wizard need more memory than ERPNext needs afterwards
+    if ! dc exec -T erp-backend test -f sites/frontend/site_config.json 2>/dev/null; then export WQO_ERP_BACKEND_MEM=1536m; fi
+fi
 dc up -d erp-db erp-redis-cache erp-redis-queue
 dc up -d erp-configurator
-dc up -d erp-backend erp-websocket erp-queue-short erp-queue-long erp-scheduler erp-frontend
+dc up -d erp-backend erp-websocket "${workers[@]}" erp-scheduler erp-frontend
 for _ in $(seq 1 60); do dc exec -T erp-backend true 2>/dev/null && break; sleep 3; done
 if ! dc exec -T erp-backend test -d sites/frontend; then
     log "Creating the ERPNext site (3-5 minutes)..."
@@ -107,6 +130,12 @@ if [ "$setup" != "true" ] && [ "$setup" != "True" ] && [ "$setup" != "1" ]; then
     bench_exec frappe.desk.page.setup_wizard.setup_wizard.initialize_system_settings_and_user \
         --kwargs "$(printf '%s\n' "$wiz" | sed -n 1p)"
     bench_exec frappe.desk.page.setup_wizard.setup_wizard.setup_complete --kwargs "$(printf '%s\n' "$wiz" | sed -n 2p)"
+fi
+if [ -n "${WQO_ERP_BACKEND_MEM:-}" ]; then
+    unset WQO_ERP_BACKEND_MEM
+    log "Back to the small memory limit for ERPNext..."
+    dc up -d erp-backend
+    for _ in $(seq 1 60); do dc exec -T erp-backend true 2>/dev/null && break; sleep 3; done
 fi
 dc exec -T erp-backend bench --site frontend set-config host_name "https://$ERP_DOMAIN" >/dev/null
 if [ -z "$(envval WQO_ERP_API_KEY)" ]; then
@@ -148,7 +177,7 @@ if [ "$has_pw" != 1 ]; then
         printf '%s\n' "$pw" | dc exec -T hub python -m wqops.hub.accounts set-owner-password || die "could not set the owner password"
     else
         log "No owner password set yet. Set it with:"
-        log "  echo 'the password' | docker compose -p wqo exec -T hub python -m wqops.hub.accounts set-owner-password"
+        log "  echo 'the password' | docker compose -p $(project) exec -T hub python -m wqops.hub.accounts set-owner-password"
     fi
 fi
 

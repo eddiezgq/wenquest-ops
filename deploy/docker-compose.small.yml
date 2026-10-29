@@ -1,0 +1,40 @@
+# WenQuest Ops on a shared small server (ADR-0024; install.sh --small): every container has a memory limit, about
+# 2.4 GB in all, for a demonstration or a small company's trial, not for heavy production use.
+#   ERPNext: one worker for all queues; MariaDB with a small buffer pool; Redis capped.
+#   WQO_ERP_BACKEND_MEM is raised by install.sh while the ERPNext site is created and set up, then put back.
+services:
+  caddy:
+    mem_limit: 48m
+  db:
+    mem_limit: 192m
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=40", "-c", "work_mem=4MB"]
+  hub:
+    mem_limit: 400m
+  erp-configurator:
+    mem_limit: 256m
+  erp-backend:
+    mem_limit: ${WQO_ERP_BACKEND_MEM:-600m}
+  erp-frontend:
+    mem_limit: 48m
+  erp-websocket:
+    mem_limit: 96m
+  erp-queue-short:
+    profiles: ["off"]               # the long worker below also takes the short and default queues
+  erp-queue-long:
+    mem_limit: 320m
+  erp-scheduler:
+    mem_limit: 160m
+  erp-db:
+    mem_limit: 448m
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --innodb-buffer-pool-size=192M
+      - --performance-schema=OFF
+      - --max-connections=60
+  erp-redis-queue:
+    mem_limit: 48m
+  erp-redis-cache:
+    mem_limit: 48m
+    command: ["redis-server", "--maxmemory", "32mb", "--maxmemory-policy", "allkeys-lru"]
