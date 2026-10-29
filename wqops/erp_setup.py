@@ -17,6 +17,11 @@ from wqops.erp import ErpClient, ErpError
 from wqops.i18n import say
 
 ADDRESS_TYPES = {"office": "Office", "warehouse": "Warehouse", "plant": "Plant", "store": "Shop"}
+# the manifest's language -> ERPNext's language code and the name its setup wizard expects (frappe/geo/languages.csv)
+ERP_LANGUAGES = {"en": ("en", "English"), "zh": ("zh", "中文")}
+# ERPNext v16 has a China chart of accounts only among its unverified charts, which the setup wizard does not offer;
+# the standard chart is used everywhere, its account names in the system language (ADR-0023, step 23e)
+CHART = "Standard"
 
 
 def fiscal_year(fy_start: str, today: dt.date) -> tuple[dt.date, dt.date]:
@@ -34,12 +39,13 @@ def wizard_args(m: dict, today: dt.date) -> tuple[dict, dict]:
     c = m["company"]
     start, end = fiscal_year(c["fiscal_year_start"], today)
     date_format = c["date_format"]
-    system = {"system_settings_data": {"language": "en", "country": c["country"], "currency": c["currency"],
+    code, name = ERP_LANGUAGES[c.get("language") or "en"]
+    system = {"system_settings_data": {"language": code, "country": c["country"], "currency": c["currency"],
                                        "time_zone": c["timezone"], "date_format": date_format},
               "user_data": {}}
-    setup = {"args": {"language": "English", "country": c["country"], "timezone": c["timezone"],
+    setup = {"args": {"language": name, "lang": name, "country": c["country"], "timezone": c["timezone"],
                       "currency": c["currency"], "company_name": c["name"],
-                      "company_abbr": c["abbr"], "chart_of_accounts": "Standard",
+                      "company_abbr": c["abbr"], "chart_of_accounts": CHART,
                       "fy_start_date": start.isoformat(), "fy_end_date": end.isoformat(),
                       "setup_demo": 0, "enable_telemetry": 0}}
     return system, setup
@@ -57,13 +63,17 @@ def apply(m: dict, erp: ErpClient) -> list[str]:
         raise ErpError(say("company {company} does not exist in ERPNext; run the setup wizard first",
                            company=repr(company)))
     done = []
+    # the root warehouse's name is in ERPNext's language ("All Warehouses - X" or "所有仓库 - X"): look it up
+    roots = erp.list("Warehouse", filters=[["company", "=", company], ["is_group", "=", 1],
+                                           ["parent_warehouse", "is", "not set"]], limit=1)
+    root = roots[0]["name"] if roots else f"All Warehouses - {abbr}"
     for w in m["warehouses"]:
         name = warehouse_name(m, w)
         if erp.get("Warehouse", name) is not None:
             done.append(f"warehouse {name}: exists")
             continue
         doc = {"doctype": "Warehouse", "warehouse_name": w["name"], "company": company,
-               "parent_warehouse": f"All Warehouses - {abbr}"}
+               "parent_warehouse": root}
         if w["kind"] == "transit":
             doc["warehouse_type"] = "Transit"
         erp.insert(doc)

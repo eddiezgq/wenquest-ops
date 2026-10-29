@@ -14,7 +14,8 @@ import csv
 import datetime as dt
 import io
 import re
-from dataclasses import dataclass, field
+import unicodedata
+from dataclasses import dataclass, field, replace
 
 from wqops import i18n as I18N
 from wqops.hub.docs import classify as K
@@ -185,6 +186,178 @@ TARGETS.update({
 })
 
 
+# ---------------------------------------------------------------- Chinese column names (ADR-0023, 23e-3)
+# Old Chinese spreadsheets name their columns in Chinese. The names are added to each field's synonyms here; the
+# quality registers' Chinese names are kept here too, not in packs/registers.yaml, which is part of the adopted packs.
+_ITEM_ZH = ("物料编码", "物料编号", "物料代码", "料号", "品号", "存货编码", "商品编码", "产品编码", "零件号",
+            "零件编号", "物料")
+_QTY_ZH = ("数量", "订购数量", "订单数量", "采购数量")
+_RATE_ZH = ("单价", "价格", "含税单价", "不含税单价")
+_TAX_ZH = ("税号", "纳税人识别号", "统一社会信用代码")
+_MAIL_ZH = ("邮箱", "电子邮件", "电子邮箱", "邮件")
+_PHONE_ZH = ("电话", "手机", "联系电话", "手机号")
+ZH_SYNONYMS: dict[str, dict[str, tuple[str, ...]]] = {
+    "ncr": {
+        "external_no": ("不合格编号", "不合格品编号", "不合格报告编号", "ncr编号", "报告编号", "编号", "单号"),
+        "reported_on": ("发现日期", "报告日期", "发生日期", "开单日期", "登记日期", "检验日期", "日期"),
+        "title": ("标题", "主题", "问题", "摘要"),
+        "description": ("问题描述", "不合格描述", "不合格内容", "不合格情况", "缺陷描述", "异常描述", "描述", "缺陷",
+                        "详细描述"),
+        "item_code": (*_ITEM_ZH, "品名", "产品"),
+        "supplier": ("供应商", "供应商名称", "供方", "厂商", "厂家"),
+        "quantity": ("不合格数量", "不良数量", "数量"),
+        "severity": ("严重程度", "严重度", "缺陷等级", "等级", "分类", "类别"),
+        "disposition": ("处置", "处置方式", "处理方式", "处置结果", "处置决定", "处理结果"),
+        "status": ("状态", "处理状态", "结案状态", "是否关闭"),
+        "closed_on": ("关闭日期", "结案日期", "完成日期", "关闭时间"),
+        "owner": ("负责人", "责任人", "处理人", "提出人", "报告人", "发现人"),
+        "containment": ("围堵措施", "遏制措施", "临时措施", "应急措施", "隔离措施", "纠正"),
+    },
+    "capa": {
+        "external_no": ("纠正措施编号", "capa编号", "car编号", "编号", "单号"),
+        "reported_on": ("开立日期", "提出日期", "发起日期", "发现日期", "日期"),
+        "kind": ("类型", "措施类型", "类别", "纠正/预防"),
+        "title": ("标题", "主题", "问题"),
+        "description": ("问题描述", "描述", "详细描述"),
+        "ncr": ("不合格编号", "不合格报告编号", "关联不合格", "相关不合格", "关联ncr", "来源"),
+        "root_cause": ("根本原因", "原因分析", "根因", "原因"),
+        "containment": ("临时措施", "围堵措施", "遏制措施", "应急措施"),
+        "action": ("纠正措施", "整改措施", "改进措施", "采取的措施", "行动计划", "措施"),
+        "owner": ("负责人", "责任人"),
+        "risk": ("风险", "风险等级", "优先级"),
+        "status": ("状态", "处理状态"),
+        "closed_on": ("关闭日期", "结案日期", "完成日期"),
+    },
+    "supplier": {
+        "supplier_name": ("供应商", "供应商名称", "供方", "供方名称", "厂商", "厂家", "公司名称", "名称"),
+        "country": ("国家", "国家/地区"),
+        "website": ("网站", "网址", "官网"),
+        "supplies": ("供应产品", "供货范围", "主营产品", "供应物料", "物料类别", "产品", "类别"),
+        "approved_on": ("批准日期", "审批日期", "认可日期", "评定日期", "准入日期"),
+        "certificate": ("证书", "认证", "资质", "体系认证"),
+        "approval": ("状态", "审批状态", "批准状态", "评定结果"),
+    },
+    "erp_item": {
+        "item_code": (*_ITEM_ZH, "编码"),
+        "item_name": ("物料名称", "品名", "存货名称", "商品名称", "产品名称", "名称"),
+        "description": ("描述", "规格", "规格型号"),
+        "item_group": ("物料组", "物料类别", "物料分类", "存货分类", "类别"),
+        "stock_uom": ("单位", "计量单位", "库存单位"),
+        "is_stock_item": ("是否库存", "库存物料", "是否库存物料"),
+        "standard_rate": ("售价", "销售价", "销售价格", "销售单价"),
+        "valuation_rate": ("成本", "成本价", "采购价", "进价", "单位成本"),
+    },
+    "erp_customer": {
+        "customer_name": ("客户", "客户名称", "公司名称", "名称"),
+        "customer_group": ("客户分类", "客户类别", "客户组"),
+        "territory": ("地区", "区域", "销售区域"),
+        "tax_id": _TAX_ZH, "email_id": _MAIL_ZH, "mobile_no": _PHONE_ZH,
+    },
+    "erp_supplier": {
+        "supplier_name": ("供应商", "供应商名称", "厂商", "公司名称", "名称"),
+        "supplier_group": ("供应商分类", "供应商类别", "供应商组"),
+        "country": ("国家", "国家/地区"),
+        "tax_id": _TAX_ZH,
+        "website": ("网站", "网址", "官网"),
+        "email_id": _MAIL_ZH, "mobile_no": _PHONE_ZH,
+    },
+    "erp_opening_stock": {
+        "item_code": _ITEM_ZH,
+        "warehouse": ("仓库", "库位", "仓位", "存放地点"),
+        "qty": ("库存数量", "结存数量", "在库数量", "现存量", *_QTY_ZH),
+        "valuation_rate": ("成本", "单位成本", "成本单价", "单价"),
+        "batch_no": ("批号", "批次", "批次号", "生产批号"),
+    },
+    "erp_sales_order": {
+        "order_no": ("销售订单号", "订单号", "订单编号", "单据编号", "单号"),
+        "customer": ("客户", "客户名称"),
+        "transaction_date": ("订单日期", "下单日期", "单据日期", "日期"),
+        "delivery_date": ("交货日期", "交期", "发货日期", "预计交货日期", "到期日"),
+        "item_code": _ITEM_ZH, "qty": _QTY_ZH, "rate": _RATE_ZH,
+    },
+    "erp_purchase_order": {
+        "order_no": ("采购订单号", "订单号", "订单编号", "单据编号", "单号"),
+        "supplier": ("供应商", "供应商名称"),
+        "transaction_date": ("订单日期", "采购日期", "下单日期", "单据日期", "日期"),
+        "schedule_date": ("要求到货日期", "到货日期", "交货日期", "需求日期", "交期", "到期日"),
+        "item_code": _ITEM_ZH, "qty": _QTY_ZH, "rate": _RATE_ZH,
+    },
+}
+ZH_REGISTER_SYNONYMS: dict[str, dict[str, tuple[str, ...]]] = {
+    "training": {
+        "person": ("姓名", "员工姓名", "人员", "员工", "受训人", "参训人员", "学员"),
+        "topic": ("培训内容", "培训课程", "培训项目", "培训主题", "课程", "技能", "内容"),
+        "trained_on": ("培训日期", "培训时间", "完成日期", "日期"),
+        "result": ("结果", "培训结果", "考核结果", "评估结果", "考核"),
+        "trainer": ("培训人", "培训师", "讲师", "评估人", "考核人"),
+        "valid_until": ("有效期至", "有效期", "复训日期", "下次培训日期", "到期日"),
+    },
+    "calibration": {
+        "equipment": ("设备编号", "器具编号", "量具编号", "仪器编号", "管理编号", "编号"),
+        "description": ("设备名称", "器具名称", "仪器名称", "名称", "规格型号"),
+        "calibrated_on": ("校准日期", "检定日期", "上次校准日期", "日期"),
+        "next_due": ("下次校准日期", "下次检定日期", "有效期至", "到期日"),
+        "result": ("结果", "校准结果", "检定结果", "结论"),
+        "by": ("校准机构", "校准单位", "检定单位", "校准人"),
+        "certificate": ("证书编号", "校准证书", "证书", "报告编号"),
+    },
+    "audits": {
+        "audit_date": ("审核日期", "日期"),
+        "area": ("受审部门", "受审核部门", "审核范围", "审核区域", "部门", "过程"),
+        "auditor": ("审核员", "审核人", "内审员", "审核组长"),
+        "findings": ("审核发现", "发现", "观察项", "审核结果"),
+        "nonconformities": ("不符合项数", "不符合项", "不合格项数"),
+        "followed_up": ("跟踪验证", "验证情况", "是否关闭", "跟踪"),
+    },
+    "management_reviews": {
+        "review_date": ("评审日期", "会议日期", "日期"),
+        "attendees": ("参加人员", "出席人员", "参会人员"),
+        "inputs": ("评审输入", "输入", "议程", "议题"),
+        "decisions": ("评审输出", "决定", "决议", "输出", "会议纪要", "措施"),
+    },
+    "objectives": {
+        "objective": ("质量目标", "目标", "指标"),
+        "target": ("目标值", "指标值"),
+        "actual": ("实际值", "实际", "完成情况", "达成值"),
+        "status": ("状态", "达成情况", "是否达成"),
+        "reviewed_on": ("评审日期", "统计日期", "截止日期", "日期"),
+    },
+    "risks": {
+        "title": ("风险", "机遇", "风险/机遇", "风险描述", "事项", "描述"),
+        "kind": ("类型", "类别"),
+        "action": ("应对措施", "控制措施", "措施"),
+        "owner": ("负责人", "责任人"),
+        "reviewed_on": ("评审日期", "日期"),
+    },
+    "complaints": {
+        "received_on": ("接收日期", "投诉日期", "收到日期", "日期"),
+        "customer": ("客户", "顾客", "客户名称"),
+        "kind": ("类型", "类别"),
+        "description": ("投诉内容", "问题描述", "反馈内容", "描述", "内容"),
+        "response": ("回复", "答复", "处理结果", "处理措施"),
+        "answered_on": ("回复日期", "答复日期", "关闭日期"),
+        "investigation": ("调查结果", "原因分析", "调查"),
+        "reportable": ("是否上报", "需上报", "是否需要上报"),
+        "reportable_reason": ("上报判定理由", "判定理由"),
+        "reportable_by": ("判定人",),
+        "reported_on": ("上报日期",),
+        "report_ref": ("上报编号", "报告编号"),
+    },
+    "suppliers": {
+        "supplier": ("供应商", "供应商名称", "供方", "名称"),
+        "supplies": ("供应产品", "供货范围", "产品"),
+        "status": ("状态", "评定结果", "审批状态"),
+        "approved_on": ("批准日期", "评定日期", "评价日期", "日期"),
+        "next_review": ("下次评审日期", "下次评价日期", "复评日期"),
+        "basis": ("评定依据", "评价方法", "依据", "证书"),
+    },
+}
+for _tg, _zh in ZH_SYNONYMS.items():
+    for _f, _syn in _zh.items():
+        _spec = TARGETS[_tg]["fields"][_f]
+        TARGETS[_tg]["fields"][_f] = replace(_spec, synonyms=(*_spec.synonyms, *_syn))
+
+
 REGISTER_KINDS = {"text": "text", "longtext": "text", "number": "number", "date": "date", "choice": "choice",
                   "yesno": "text"}
 
@@ -197,7 +370,8 @@ def add_registers(regs: dict[str, dict]) -> None:
                                   "fields": {
             f: Field(x["label"], REGISTER_KINDS.get(x.get("type"), "text"), bool(x.get("required")),
                      tuple(x.get("choices") or ()),
-                     tuple(x.get("synonyms") or ())) for f, x in r["fields"].items()}}
+                     (*(x.get("synonyms") or ()), *ZH_REGISTER_SYNONYMS.get(name, {}).get(f, ())))
+            for f, x in r["fields"].items()}}
 
 
 def target_label(target: str) -> str:
@@ -272,7 +446,7 @@ def _text(data: bytes) -> str:
         pass
     try:
         text = data.decode("gb18030")
-        if re.search(r"[\u4e00-\u9fff]", text):
+        if X.looks_chinese(text):                # not Western bytes that happen to decode as rare characters
             return text
     except UnicodeDecodeError:
         pass
@@ -344,8 +518,18 @@ def table(name: str, data: bytes, sheet: str = "", header_row: int = 0) -> Table
 
 # ---------------------------------------------------------------- mapping
 
+_HAN = re.compile(r"[\u3400-\u9fff]")
+# Chinese words too general to find inside a longer column name ("编号" is in "物料编号"); they still match exactly.
+_ZH_EXACT_ONLY = {"编号", "单号", "名称", "来源", "产品", "物料", "问题", "内容", "过程", "发现", "输入", "输出",
+                  "实际", "调查", "跟踪", "考核", "措施", "风险", "机遇", "目标", "人员", "员工", "客户", "顾客",
+                  "纠正"}
+
+
 def _norm(s: str) -> str:
-    return re.sub(r"[^a-z0-9/#]+", " ", s.lower()).strip()
+    """A column name or value for comparing: lower case, letters, digits, "/" and "#", and Chinese characters
+    (full-width forms such as "（" and "：" are folded first)."""
+    s = unicodedata.normalize("NFKC", s).lower()
+    return re.sub(r"[^a-z0-9/#\u3400-\u9fff]+", " ", s).strip()
 
 
 CHOICE_WORDS = {
@@ -364,6 +548,34 @@ CHOICE_WORDS = {
     "use_as_is": ("use as is", "use-as-is", "uai", "accept", "concession"), "rework": ("rework", "repair", "sort"),
     "return_to_supplier": ("return to supplier", "rts", "return", "returned"), "scrap": ("scrap", "scrapped"),
 }
+CHOICE_WORDS_ZH = {          # the usual words of Chinese ledgers; a word not here stays unknown
+    "minor": ("一般", "轻微", "次要", "轻"), "major": ("严重", "主要", "重大", "致命", "重"),
+    "open": ("未关闭", "进行中", "处理中", "待处理", "打开", "开启", "新建", "未完成"),
+    "closed": ("已关闭", "关闭", "已完成", "完成", "已结案", "结案", "已验证"),
+    "cancelled": ("已取消", "取消", "作废", "已作废", "撤销"),
+    "draft": ("草稿", "新建"), "investigation": ("调查中", "分析中", "原因分析"),
+    "implementation": ("实施中", "整改中", "执行中", "进行中"),
+    "effectiveness": ("效果验证", "有效性验证", "验证中"),
+    "corrective": ("纠正", "纠正措施"), "preventive": ("预防", "预防措施"),
+    "low": ("低",), "medium": ("中",), "high": ("高",),
+    "yes": ("是", "有", "库存"), "no": ("否", "无", "服务"),
+    "use_as_is": ("让步接收", "让步", "特采", "特采放行", "照用", "原样使用"),
+    "rework": ("返工", "返修", "挑选", "挑选使用"),
+    "return_to_supplier": ("退货", "退回供应商", "退供应商", "退回"), "scrap": ("报废",),
+    # the quality registers' choices (packs/registers.yaml)
+    "competent": ("合格", "胜任", "通过", "考核合格"), "needs follow-up": ("不合格", "需跟进", "待提高", "未通过"),
+    "pass": ("合格", "通过", "正常"), "adjusted": ("已调整", "调整后合格", "校准后合格"), "fail": ("不合格", "失效"),
+    "on track": ("正常", "按计划"), "off track": ("滞后", "落后"), "met": ("达成", "已达成", "完成"),
+    "missed": ("未达成", "未完成"), "risk": ("风险",), "opportunity": ("机遇", "机会"),
+    "complaint": ("投诉", "客诉"), "feedback": ("反馈", "建议"), "survey": ("满意度调查", "调查", "问卷"),
+    "approved": ("合格", "批准", "已批准", "认可"), "conditional": ("有条件", "有条件批准", "试用"),
+    "removed": ("取消", "已取消", "淘汰", "不合格"),
+}
+
+
+def _choice_hit(v: str, c: str) -> bool:
+    w = _norm(v)
+    return w in CHOICE_WORDS.get(c, (c,)) or w == c or w in CHOICE_WORDS_ZH.get(c, ())
 
 
 def rules_mapping(target: str, t: Table, flds: dict[str, Field]) -> dict:
@@ -371,6 +583,8 @@ def rules_mapping(target: str, t: Table, flds: dict[str, Field]) -> dict:
     mapping, used = {}, set()
 
     def phrase(syn: str, h: str) -> bool:
+        if _HAN.search(syn):                    # Chinese names end in their noun: 发现日期, 来料数量, 数量（件）
+            return any(w.endswith(syn) for w in _norm(h).split())
         return f" {syn} " in f" {_norm(h)} "
 
     for exact in (True, False):                 # exact names first, then names containing a telling phrase
@@ -378,8 +592,8 @@ def rules_mapping(target: str, t: Table, flds: dict[str, Field]) -> dict:
             if f in mapping:
                 continue
             for syn in spec.synonyms:
-                if not exact and len(syn) < 7 and " " not in syn:
-                    continue                    # "number" alone must not catch "Part number"
+                if not exact and (syn in _ZH_EXACT_ONLY if _HAN.search(syn) else len(syn) < 7 and " " not in syn):
+                    continue                    # "number" alone must not catch "Part number", nor 编号 物料编号
                 col = next((h for h in t.headers if h and h not in used and
                             (_norm(h) == syn if exact else phrase(syn, h))), None)
                 if col:
@@ -395,7 +609,7 @@ def rules_mapping(target: str, t: Table, flds: dict[str, Field]) -> dict:
         seen = sorted({r[m["column"]] for _, r in rows if r.get(m["column"])})
         vm = {}
         for v in seen:
-            hit = next((c for c in spec.choices if _norm(v) in CHOICE_WORDS.get(c, (c,)) or _norm(v) == c), None)
+            hit = next((c for c in spec.choices if _choice_hit(v, c)), None)
             if hit:
                 vm[v] = hit
         values[f] = vm
@@ -461,7 +675,8 @@ def parse_number(s: str) -> float | None:
     """A plain quantity: 12, 12.5, 1,200 or 1,200.5 (a comma only between groups of three digits), with an optional
     currency sign before it and an optional unit after it; "12,5" could be twelve and a half or a typo, so it is not
     read."""
-    m = re.fullmatch(r"\s*[$€£¥]?\s*(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([a-zA-Z]{0,5})\s*", s or "")
+    m = re.fullmatch(r"\s*[$€£¥￥]?\s*(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([a-zA-Z\u3400-\u9fff]{0,5})\s*",
+                     s or "")                    # also "12件", "3 个"
     return float(m.group(1).replace(",", "")) if m else None
 
 
