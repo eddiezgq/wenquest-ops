@@ -202,3 +202,27 @@ def test_the_chinese_business_has_the_same_problems_on_any_day():
             assert {d.data["item"] for d in docs if d.kind == "receipt_draft"} == {"CBL-12-50"}
     finally:
         S.activate(None)
+
+
+def test_a_deadlock_in_erpnext_is_tried_again(monkeypatch):
+    """ERPNext's own background jobs may deadlock with the demo's writes (seen on the small server): the rolled-back
+    write is tried again; other errors are not."""
+    from wqops.erp import ErpError
+
+    monkeypatch.setattr(LD.time, "sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ErpError("ERPNext PUT /api/resource/Purchase Receipt/X -> 500: frappe.exceptions.QueryDeadlockError: "
+                           "(1020, \"Record has changed since last read in table 'tabItem'\")")
+        return {"name": "X"}
+
+    assert LD.Loader._again(flaky) == {"name": "X"} and calls["n"] == 3
+
+    def broken():
+        raise ErpError("ERPNext POST -> 417: LinkValidationError")
+
+    with pytest.raises(ErpError, match="LinkValidationError"):
+        LD.Loader._again(broken)

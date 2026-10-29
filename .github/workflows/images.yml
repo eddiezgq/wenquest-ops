@@ -1,12 +1,12 @@
 name: Images
 
-# The hub image that installations pull (docs/ops/README.md). Built when its sources change on main or on a version
+# The hub image that installations pull (docs/ops/README.md), with the web workspace built in (web/** too).
 # tag; private, like the repository. Old untagged versions are cleaned up to keep package storage small.
 on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths: ["Dockerfile", ".dockerignore", "pyproject.toml", "wqops/**", "companies/**", ".github/workflows/images.yml"]
+    paths: ["Dockerfile", ".dockerignore", "pyproject.toml", "wqops/**", "web/**", "companies/**", ".github/workflows/images.yml"]
   workflow_dispatch:
 
 permissions:

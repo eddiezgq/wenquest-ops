@@ -17,12 +17,13 @@ import datetime as dt
 import json
 import os
 import sys
+import time
 from collections.abc import Callable
 
 from wqops import company as C
 from wqops import i18n as I18N
 from wqops.demo import scenario as S
-from wqops.erp import ErpClient
+from wqops.erp import ErpClient, ErpError
 from wqops.erp_setup import fiscal_year, warehouse_name
 from wqops.i18n import say as _say
 
@@ -53,11 +54,26 @@ class Loader:
         self.main, self.hold = whs["stores"], whs["quarantine"]
         self.names: dict[str, dict] = {}          # local ref -> {"name": ERPNext name, "rows": [row names]}
 
+    @staticmethod
+    def _again(fn):
+        """ERPNext's background jobs may lock the same rows (a deadlock: the transaction was rolled back, nothing was
+        written); the write is then tried again, up to three times."""
+        for attempt in range(4):
+            try:
+                return fn()
+            except ErpError as exc:
+                text = str(exc)
+                if attempt == 3 or not ("QueryDeadlockError" in text or "Deadlock found" in text
+                                        or "Record has changed since last read" in text):
+                    raise
+                time.sleep(2 * (attempt + 1))
+        return None
+
     def submit(self, doctype: str, name: str) -> None:
-        self.erp.update(doctype, name, {"docstatus": 1})
+        self._again(lambda: self.erp.update(doctype, name, {"docstatus": 1}))
 
     def make(self, doc: dict, ref: str | None = None, submit: bool = True) -> dict:
-        out = self.erp.insert(doc)
+        out = self._again(lambda: self.erp.insert(doc))
         if submit:
             self.submit(doc["doctype"], out["name"])
         if ref:
