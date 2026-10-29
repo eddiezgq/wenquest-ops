@@ -13,6 +13,7 @@ import re
 
 from psycopg.types.json import Jsonb
 
+from wqops import i18n as I18N
 from wqops.hub.ai import llm as L
 from wqops.hub.ai import tools as T
 from wqops.i18n import say
@@ -20,8 +21,9 @@ from wqops.i18n import say
 MAX_ROUNDS = 8
 HISTORY = 6        # earlier questions and answers of the conversation sent with a follow-up (ADR-0021)
 MAX_RESULT = 20000
-DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
-NUM = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?")
+# ASCII boundaries: in Chinese text a number sits right next to characters ("缺 63" or "缺63", "2026-10-26到货")
+DATE = re.compile(r"(?<![0-9A-Za-z])\d{4}-\d{2}-\d{2}(?![0-9A-Za-z])")
+NUM = re.compile(r"(?<![0-9A-Za-z_.])-?\d[\d,]*(?:\.\d+)?")
 SMALL = 10  # small counts ("3 orders") may be counted by the model itself
 
 
@@ -43,7 +45,7 @@ def system_prompt(ctx: T.Ctx, page: dict | None = None) -> str:
     company = (ctx.manifest or {}).get("company", {}).get("name", "the company")
     return (
         f"You are the operations assistant of {company}, inside WenQuest Ops. Today is {ctx.today}. "
-        "Answer in English, briefly and concretely, for a busy operations person.\n"
+        "Answer briefly and concretely, for a busy operations person.\n"
         "Rules:\n"
         "- Get every fact from the tools. Never guess or invent numbers, names or dates; if the tools do not say, "
         "say it is unknown.\n"
@@ -73,7 +75,7 @@ def verify(answer: str, corpus: str) -> list[str]:
     known = [v for v in (_value(n) for n in NUM.findall(DATE.sub(" ", corpus))) if v is not None]
     known += [float(p) for d in dates for p in d.split("-")]
     bad = []
-    for sentence in re.split(r"(?<=[.!?])\s+|\n+", answer):
+    for sentence in re.split(r"(?<=[.!?])\s+|(?<=[。！？；])|\n+", answer):
         for n in _numbers(sentence):
             if DATE.fullmatch(n):
                 if n not in dates:
@@ -91,7 +93,7 @@ def verify(answer: str, corpus: str) -> list[str]:
 
 
 def _summary(result: dict) -> str:
-    s = json.dumps(result, default=str)
+    s = json.dumps(result, default=str, ensure_ascii=False)
     return s[:300] + ("..." if len(s) > 300 else "")
 
 
@@ -130,7 +132,7 @@ def _run_tool(ctx, tools, name, args, calls, corpus):  # noqa: PLR0917 - interna
         ok = True
     except T.ToolError as exc:
         result, ok = {"error": str(exc)}, False
-    text = json.dumps(result, default=str)[:MAX_RESULT]
+    text = json.dumps(result, default=str, ensure_ascii=False)[:MAX_RESULT]
     corpus.append(text)
     calls.append({"tool": name, "args": args, "ok": ok, "summary": _summary(result)})
     return text, ok
@@ -186,14 +188,14 @@ HELP = (
     "purchase order or supplier (name it by its number)."
 )
 TOPICS = [
-    (("supplier", "vendor"), "supplier_on_time"),
-    (("late", "overdue", "behind"), "late"),
-    (("short", "shortage", "stockout", "out of stock"), "shortages"),
-    (("on-time", "on time", "otd"), "on_time_delivery"),
-    (("days of inventory", "days of stock", "doi"), "days_of_inventory"),
-    (("inventory value", "stock value", "worth"), "inventory_value"),
-    (("nonconform", "rejected", "inspection"), "open_nonconformances"),
-    (("anomal", "problem", "attention", "issue", "wrong today"), "anomalies"),
+    (("supplier", "vendor", "供应商"), "supplier_on_time"),
+    (("late", "overdue", "behind", "迟交", "逾期", "延迟", "晚了"), "late"),
+    (("short", "shortage", "stockout", "out of stock", "缺货", "短缺", "不够", "不足"), "shortages"),
+    (("on-time", "on time", "otd", "准时", "按时"), "on_time_delivery"),
+    (("days of inventory", "days of stock", "doi", "库存天数", "周转天数"), "days_of_inventory"),
+    (("inventory value", "stock value", "worth", "库存价值", "库存金额"), "inventory_value"),
+    (("nonconform", "rejected", "inspection", "不合格", "拒收", "检验"), "open_nonconformances"),
+    (("anomal", "problem", "attention", "issue", "wrong today", "异常", "问题", "关注"), "anomalies"),
 ]
 
 
@@ -206,11 +208,29 @@ def _cite(ref: str, title: str) -> str:
 
 def _fmt(v, unit) -> str:
     if v is None:
-        return "unknown"
-    return {"%": f"{v:g}%", "currency": f"{v:,.2f}", "days": f"{v:g} days"}.get(unit, f"{v:g}")
+        return say("unknown")
+    if unit == "days":
+        return say("{n} days", n=format(v, "g"))
+    return {"%": f"{v:g}%", "currency": f"{v:,.2f}"}.get(unit, f"{v:g}")
 
 
-THIS = ("this", "here", "summar", "status of it", "what is it")
+def _end(text: str) -> str:
+    """A line of the rule engine's answer ends with a full stop of the reader's language."""
+    return text + ("。" if I18N.current() == "zh" else ".")
+
+
+# the record fields the rule engine reads out, with their names in both languages (wqops/locales/zh.json)
+FIELD_NAMES = {"title": "record field::Title", "product": "record field::Product",
+               "item_code": "record field::Item code",
+               "lot_no": "record field::Lot no", "customer": "record field::Customer",
+               "supplier": "record field::Supplier", "status": "record field::Status",
+               "severity": "record field::Severity", "owner": "record field::Owner", "due": "record field::Due",
+               "result": "record field::Result", "description": "record field::Description",
+               "conclusion": "record field::Conclusion"}
+
+
+THIS = ("this", "here", "summar", "status of it", "what is it",
+        "这个", "这条", "这份", "本页", "总结", "概括", "怎么样")
 SHOWN = ("name", "title", "product", "item_code", "lot_no", "customer", "supplier", "status", "severity", "owner",
          "due", "result", "description", "conclusion")
 
@@ -232,13 +252,14 @@ def with_rules(ctx: T.Ctx, question: str, tools: dict[str, T.Tool], page: dict |
             lines.append(calls[-1]["summary"])
         else:
             r = got["record"]
-            lines.append(f"{got['ref']}.")
-            lines += [f"{k.replace('_', ' ').capitalize()}: {str(r[k]).rstrip('.')}." for k in SHOWN[1:]
-                      if r.get(k) not in (None, "")]
+            lines.append(_end(got["ref"]))
+            shown = lambda k: I18N.label(str(r[k])) if k in ("status", "severity") else str(r[k])  # noqa: E731
+            lines += [_end(say("{field}: {value}", field=say(FIELD_NAMES[k]), value=shown(k).rstrip(".")))
+                      for k in SHOWN[1:] if r.get(k) not in (None, "")]
             return {"engine": "rules", "model": None, "answer": "\n".join(lines), "tool_calls": calls,
                     "corpus": corpus}
     # a named object: answer about it first
-    for word in re.findall(r"[A-Za-z0-9][\w./-]*\d[\w./-]*", question):
+    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9_./-]*\d[A-Za-z0-9_./-]*", question):
         found = ctx.conn.execute(
             "select type, key, title from ont_objects where not deleted and lower(key) = %s "
             "and type = any(%s) order by type limit 1",
@@ -247,12 +268,13 @@ def with_rules(ctx: T.Ctx, question: str, tools: dict[str, T.Tool], page: dict |
         if found:
             obj = use("get_object", type=found["type"], key=found["key"])
             ex = use("explain", type=found["type"], key=found["key"])
-            lines.append(f"{_cite(obj['ref'], obj['title'])}.")
-            lines += [f"Open: {a['title']} ({a['severity']})." for a in obj["open_anomalies"]]
-            lines += [f"Cause: {s['why']}" for s in ex["causes"]]
-            lines += [f"Affects: {s['why']}" for s in ex["impact"]]
+            lines.append(_end(_cite(obj["ref"], obj["title"])))
+            lines += [_end(say("Open: {title} ({severity})", title=a["title"], severity=I18N.label(a["severity"])))
+                      for a in obj["open_anomalies"]]
+            lines += [say("Cause: {why}", why=s["why"]) for s in ex["causes"]]
+            lines += [say("Affects: {why}", why=s["why"]) for s in ex["impact"]]
             if not obj["open_anomalies"] and not ex["causes"]:
-                lines.append("No open problems and no causes found in the synced data.")
+                lines.append(say("No open problems and no causes found in the synced data."))
             break
     if not lines:
         for words, topic in TOPICS:
@@ -262,31 +284,38 @@ def with_rules(ctx: T.Ctx, question: str, tools: dict[str, T.Tool], page: dict |
                 m = use("get_metric", name="on_time_delivery")
                 a = use("list_anomalies")
                 late = [x for x in (a or {}).get("anomalies", []) if x["rule"].startswith("Sales order past")]
-                lines += [f"{_cite(x['about'], x['title'])}." for x in late] or [
-                    "No sales order is past its delivery date."
+                lines += [_end(_cite(x["about"], x["title"])) for x in late] or [
+                    say("No sales order is past its delivery date.")
                 ]
                 if m:
-                    lines.append(f"On-time delivery over 30 days: {_fmt(m['value'], '%')}.")
+                    lines.append(_end(say("On-time delivery over 30 days: {value}", value=_fmt(m["value"], "%"))))
             elif topic == "anomalies":
                 a = use("list_anomalies")
                 lines += [
-                    f"{x['severity']}: {_cite(x['about'], x['title'])}." for x in (a or {}).get("anomalies", [])
-                ] or ["No open anomalies."]
+                    _end(say("{severity}: {anomaly}", severity=I18N.label(x["severity"]),
+                             anomaly=_cite(x["about"], x["title"])))
+                    for x in (a or {}).get("anomalies", [])
+                ] or [say("No open anomalies.")]
             else:
                 m = use("get_metric", name=topic)
                 if m is None:
                     lines.append(calls[-1]["summary"])
                     break
-                lines.append(f"{m['label']}: {_fmt(m['value'], m['unit'])}. {m['definition']}")
+                lines.append(say("{label}: {value}. {definition}", label=m["label"],
+                                 value=_fmt(m["value"], m["unit"]), definition=m["definition"]))
                 lines += [
-                    f"{_cite('[Item:' + i['item'] + ']', i['title'])} short {i['short']:g}." for i in m.get("items", [])
+                    _end(say("{item} short {n}", item=_cite("[Item:" + i["item"] + "]", i["title"]),
+                             n=format(i["short"], "g")))
+                    for i in m.get("items", [])
                 ]
                 lines += [
-                    f"{s['supplier']}: {_fmt(s['value'], '%')} ({s['on_time']} of {s['total']})."
+                    _end(say("{supplier}: {value} ({on_time} of {total})", supplier=s["supplier"],
+                             value=_fmt(s["value"], "%"), on_time=s["on_time"], total=s["total"]))
                     for s in m.get("suppliers", [])
                 ]
             break
-    return {"engine": "rules", "model": None, "answer": "\n".join(lines) or HELP, "tool_calls": calls, "corpus": corpus}
+    return {"engine": "rules", "model": None, "answer": "\n".join(lines) or say(HELP), "tool_calls": calls,
+            "corpus": corpus}
 
 
 def ask(ctx: T.Ctx, question: str, model: L.Anthropic | None = None,

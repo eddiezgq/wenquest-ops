@@ -358,7 +358,7 @@ def main() -> int:
         return 1
     with DB.connect(os.environ["WQO_DB"]) as conn:
         DB.migrate(conn)
-        print(json.dumps(load(conn, manifest, OA.today(manifest), L.Anthropic()), indent=2))
+        print(json.dumps(load(conn, manifest, OA.today(manifest), L.from_env()), indent=2))
     return 0
 
 

@@ -109,11 +109,12 @@ def generate(conn, today: dt.date, manifest: dict | None, model: L.Anthropic | N
     if model is not None and model.configured():
         try:
             resp = model.create(
-                "Rewrite this operations brief for a small business owner: friendly, short, plain English, keep every "
+                "Rewrite this operations brief for a small business owner: friendly, short, plain words, keep every "
                 "number and date exactly as given, add nothing that is not in the facts.",
-                [{"role": "user", "content": f"Facts (JSON):\n{json.dumps(f)}\n\nBrief:\n{rule_text}"}], [], 800)
+                [{"role": "user", "content": "Facts (JSON):\n" + json.dumps(f, ensure_ascii=False)
+                                             + f"\n\nBrief:\n{rule_text}"}], [], 800)
             draft = "\n".join(b["text"] for b in resp.get("content", []) if b.get("type") == "text").strip()
-            bad = AG.verify(draft, json.dumps(f) + "\n" + rule_text)
+            bad = AG.verify(draft, json.dumps(f, ensure_ascii=False) + "\n" + rule_text)
             out.update(model=model.model, usage=resp.get("usage", {}), unverified=bad, verified=not bad)
             if draft and not bad:
                 model_text, out["engine"], out["answer"] = draft, "model", draft

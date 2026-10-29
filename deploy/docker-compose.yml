@@ -64,7 +64,10 @@ services:
       WQO_ERP_API_KEY: ${WQO_ERP_API_KEY:-}
       WQO_ERP_API_SECRET: ${WQO_ERP_API_SECRET:-}
       WQO_SYNC_SECONDS: ${WQO_SYNC_SECONDS:-300}      # pull ERPNext changes this often; 0 turns it off (ADR-0006)
+      WQO_DEPLOYMENT: ${WQO_DEPLOYMENT:-us}              # cn: a deployment in China, AI only through DeepSeek (ADR-0023)
+      WQO_AI_PROVIDER: ${WQO_AI_PROVIDER:-}              # claude or deepseek; empty = claude (us) / deepseek (cn)
       WQO_ANTHROPIC_API_KEY: ${WQO_ANTHROPIC_API_KEY:-}   # the company's own key; empty = rule engine (ADR-0008)
+      WQO_DEEPSEEK_API_KEY: ${WQO_DEEPSEEK_API_KEY:-}     # the company's own DeepSeek key (ADR-0023)
       WQO_AI_MODEL: ${WQO_AI_MODEL:-}
       WQO_SECRET: ${WQO_SECRET:?}
       WQO_ERP_PUBLIC_URL: https://${WQO_ERP_DOMAIN:?}
