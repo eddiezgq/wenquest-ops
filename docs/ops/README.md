@@ -1,3 +1,5 @@
+中文版：[README.zh.md](README.zh.md)
+
 # WenQuest Ops - Operations Runbook
 
 For the IT department or managed service provider (MSP) that installs and runs WenQuest Ops for a business.

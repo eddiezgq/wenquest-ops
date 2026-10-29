@@ -14,7 +14,9 @@ while [ $# -gt 0 ]; do
 done
 [ -z "$COMPANY" ] || [ -f "$COMPANY" ] || die "no such company manifest: $COMPANY"
 "$WD/backup.sh" >/dev/null && log "Backed up before upgrading"
-envset WQO_HUB_IMAGE "ghcr.io/eddiezgq/wenquest-ops-hub:$tag"
+cur=$(envval WQO_HUB_IMAGE)                # keep the registry the installation pulls from (a mirror in China)
+envset WQO_HUB_IMAGE "${cur%/wenquest-ops-hub:*}/wenquest-ops-hub:$tag"
+[ -n "$cur" ] || envset WQO_HUB_IMAGE "ghcr.io/eddiezgq/wenquest-ops-hub:$tag"
 [ "${WQO_NO_PULL:-0}" = 1 ] || dc pull --quiet hub
 [ -z "$COMPANY" ] || company_put "$COMPANY"
 dc up -d

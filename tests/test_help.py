@@ -107,3 +107,52 @@ def test_progress_api(db_url):
         assert c.post("/api/help/progress", json=bad).status_code == 400, bad
     assert c.post("/api/help/progress", content=b"{", headers={"content-type": "application/json"}).status_code == 400
     c.__exit__(None, None, None)
+
+
+def zh_topics():
+    out = {}
+    for p in sorted((HELP / "topics" / "zh").glob("*.md")):
+        text = p.read_text(encoding="utf-8")
+        m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+        assert m, f"zh/{p.name}: no head"
+        out[p.stem] = (yaml.safe_load(m.group(1)), text[m.end():])
+    return out
+
+
+def _shape(t: dict, body: str) -> dict:
+    """What must be the same in both languages: the codes, the steps and where they go, the tours' elements, the
+    tests behind "What WenQuest Ops stops", the number of questions and sections, the pictures and the links."""
+    return {"keys": sorted(t), **{k: t.get(k) for k in ("group", "order", "needs", "video")},
+            "try": [(x["id"], x.get("to"), x.get("demo"), sorted(x),
+                     [(s["target"], s.get("click"), s.get("path"), "elsewhere" in s) for s in x.get("tour", [])])
+                    for x in t.get("try", [])],
+            "blocks": [b["test"] for b in t.get("blocks", [])], "questions": len(t.get("questions", [])),
+            "sections": len(re.findall(r"^## ", body, re.M)),
+            "images": re.findall(r"!\[[^\]]*\]\(([^)]+)\)", body),
+            "links": re.findall(r"\]\((/help/[^)]+|#[^)]+)\)", body)}
+
+
+def test_every_topic_has_a_chinese_twin_with_the_same_steps():
+    en = {p.stem: p.read_text(encoding="utf-8") for p in sorted((HELP / "topics").glob("*.md"))}
+    zh = zh_topics()
+    assert set(zh) == set(en), set(en) ^ set(zh)
+    cjk = re.compile(r"[一-鿿]")
+    for slug, text in en.items():
+        m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+        t_zh, body_zh = zh[slug]
+        assert _shape(yaml.safe_load(m.group(1)), text[m.end():]) == _shape(t_zh, body_zh), slug
+        assert cjk.search(t_zh["title"] + t_zh["summary"]) and cjk.search(body_zh), slug   # a title may be a code
+        for x in t_zh.get("try", []):
+            assert cjk.search(x["text"]), (slug, x["id"])
+            for s in x.get("tour", []):
+                assert cjk.search(s["text"]), (slug, x["id"], s["target"])
+        for q in t_zh.get("questions", []):
+            assert cjk.search(q["q"]) and cjk.search(q["a"]), slug
+
+
+def test_the_chinese_help_names_the_chinese_demo():
+    english_people = re.compile(r"\b(Dana|Jordan|Riley|Harbor Lane|Gulf Fasteners|Bayline|Coastal Packaging|"
+                                r"Summit Tools)\b")
+    for slug, (t, body) in zh_topics().items():
+        text = yaml.safe_dump(t, allow_unicode=True) + body
+        assert not english_people.search(text), (slug, english_people.search(text).group(0))

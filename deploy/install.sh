@@ -10,10 +10,14 @@
 #   --tls-internal      self-signed certificate instead (intranet, testing)
 #   --image TAG         hub image tag (default latest); --no-pull uses images already on this machine
 #   --registry-token T  token for pulling the private hub image
+#   --china             a deployment in China (ADR-0023): AI only through DeepSeek, no Microsoft/Google sign-in
+#   --mirror REGISTRY   pull every image from this registry instead of Docker Hub and ghcr.io (in China, where those
+#                       cannot be reached; the images are copied there by .github/workflows/images.yml), e.g.
+#                       registry.cn-hangzhou.aliyuncs.com/wenquest
 # The first owner in the manifest gets a password: from WQO_OWNER_PASSWORD, or asked for when run in a terminal.
 . "$(dirname "$0")/lib.sh"
 
-COMPANY="" DOMAIN="" ERP_DOMAIN="" EMAIL="" TLS_INTERNAL=0 TAG=latest PULL=1 REG_TOKEN="${WQO_REGISTRY_TOKEN:-}"
+COMPANY="" DOMAIN="" ERP_DOMAIN="" EMAIL="" TLS_INTERNAL=0 TAG=latest PULL=1 REG_TOKEN="${WQO_REGISTRY_TOKEN:-}" CHINA=0 MIRROR=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --company) COMPANY=$(abspath "$2"); shift 2 ;;
@@ -24,7 +28,9 @@ while [ $# -gt 0 ]; do
         --image) TAG=$2; shift 2 ;;
         --no-pull) PULL=0; shift ;;
         --registry-token) REG_TOKEN=$2; shift 2 ;;
-        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        --china) CHINA=1; shift ;;
+        --mirror) MIRROR=${2%/}; shift 2 ;;
+        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
         *) die "unknown option: $1 (see --help)" ;;
     esac
 done
@@ -52,7 +58,20 @@ if [ "$TLS_INTERNAL" = 1 ]; then envset WQO_TLS internal
 elif [ -n "$EMAIL" ]; then envset WQO_TLS "$EMAIL"
 elif [ -z "$(envval WQO_TLS)" ]; then die "give --email (Let's Encrypt) or --tls-internal"
 fi
-envset WQO_HUB_IMAGE "${WQO_HUB_IMAGE:-ghcr.io/eddiezgq/wenquest-ops-hub:$TAG}"
+[ -n "$MIRROR" ] || MIRROR=$(envval WQO_MIRROR)      # running again keeps the registry chosen the first time
+if [ -n "$MIRROR" ]; then
+    envset WQO_MIRROR "$MIRROR"
+    # the same images under one registry (images.yml copies them); the names keep their tags
+    envset WQO_HUB_IMAGE "${WQO_HUB_IMAGE:-$MIRROR/wenquest-ops-hub:$TAG}"
+    envset WQO_ERP_IMAGE "$MIRROR/erpnext:v16.34.1"
+    envset WQO_CADDY_IMAGE "$MIRROR/caddy:2.10-alpine"
+    envset WQO_DB_IMAGE "$MIRROR/postgres:16-alpine"
+    envset WQO_MARIADB_IMAGE "$MIRROR/mariadb:11.8"
+    envset WQO_REDIS_IMAGE "$MIRROR/redis:6.2-alpine"
+else
+    envset WQO_HUB_IMAGE "${WQO_HUB_IMAGE:-ghcr.io/eddiezgq/wenquest-ops-hub:$TAG}"
+fi
+if [ "$CHINA" = 1 ]; then envset WQO_DEPLOYMENT cn; fi
 for k in WQO_DB_PASSWORD WQO_SECRET WQO_ERP_SSO_SECRET ERP_DB_ROOT_PASSWORD; do
     [ -n "$(envval "$k")" ] || envset "$k" "$(rand 32)"
 done
@@ -60,7 +79,8 @@ done
 
 # ---------------------------------------------------------------- 3 images and the company manifest
 if [ "$PULL" = 1 ]; then
-    [ -z "$REG_TOKEN" ] || printf '%s' "$REG_TOKEN" | docker login ghcr.io -u "${WQO_REGISTRY_USER:-wqo}" --password-stdin >/dev/null
+    host=ghcr.io; [ -z "$MIRROR" ] || host=${MIRROR%%/*}
+    [ -z "$REG_TOKEN" ] || printf '%s' "$REG_TOKEN" | docker login "$host" -u "${WQO_REGISTRY_USER:-wqo}" --password-stdin >/dev/null
     log "Pulling images (5-10 minutes the first time)..."
     dc pull --quiet
 fi
