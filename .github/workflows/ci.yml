@@ -389,7 +389,11 @@ jobs:
         if: failure()
         run: |
           for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log" "$RUNNER_TEMP/demo.log"; do
-            [ -f "$f" ] && echo "::error title=cn $(basename "$f")::$(tail -n 40 "$f" | tr -d '\r' | sed ':a;N;$!ba;s/\n/%0A/g')"
+            [ -f "$f" ] || continue
+            # long JSON lines would fill the annotation: short lines, problems first, then the end of the log
+            { grep -E 'DIFF|Error|Traceback|assert|differ' "$f" | tail -n 15; echo ---; tail -n 25 "$f"; } \
+              | cut -c 1-300 | tr -d '\r' > "$f.short"
+            echo "::error title=cn $(basename "$f")::$(sed ':a;N;$!ba;s/\n/%0A/g' "$f.short")"
           done
           docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" ps -a || true
           docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" logs --tail 60 hub || true
