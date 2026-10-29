@@ -258,7 +258,7 @@ _ZH_SUP = {
 }
 _ZG, _ZB, _ZC, _ZS = _ZH_SUP
 ZH = {
-    "SEED": 20261028,
+    "SEED": 20261056,          # chosen so that late sales orders show on any day, like the US business
     "SUPPLIERS": _ZH_SUP,
     "ITEMS": [
         ("HX-BOLT-M8", "六角螺栓 M8×40 镀锌（100 只/盒）", "紧固件", _ZG, 38.00, 68.00, 10),

@@ -2,6 +2,7 @@
 documents as Harbor Lane, in Chinese, made by its own people with its own suppliers, customers and items; Harbor
 Lane's output stays as it was. Fictional data only; no network, no model."""
 
+import datetime as dt
 import hashlib
 import io
 import re
@@ -181,3 +182,23 @@ def test_chinese_quality_samples(zh_demo):
     # a second run finds the records and changes nothing
     assert all(v.startswith("已跳过") for v in DQ.load(c, ZH, TODAY).values())
 
+
+
+def test_the_chinese_business_has_the_same_problems_on_any_day():
+    """Late sales orders, a rejected lot and a receipt waiting for inspection, whatever day the demo is loaded."""
+    S.activate(C.load(C.DEMO_DIR / "demo-haigang.yaml"))
+    try:
+        for k in range(0, 28, 3):
+            today = dt.date(2026, 10, 1) + dt.timedelta(days=k)
+            docs = S.build(today)
+            shipped: dict[str, set] = {}
+            for d in docs:
+                if d.kind == "delivery":
+                    shipped.setdefault(d.data["so"], set()).update(ln["line"] for ln in d.data["lines"])
+            late = [d for d in docs if d.kind == "so" and d.data["due"] < today
+                    and len(shipped.get(d.ref, ())) < len(d.data["lines"])]
+            assert len(late) >= 2, (today, len(late))
+            assert sum(1 for d in docs if d.kind == "inspection" and d.data["rejected"]) == 1
+            assert {d.data["item"] for d in docs if d.kind == "receipt_draft"} == {"CBL-12-50"}
+    finally:
+        S.activate(None)
