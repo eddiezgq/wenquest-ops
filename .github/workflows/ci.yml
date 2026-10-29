@@ -288,3 +288,78 @@ jobs:
           done
           docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" ps -a || true
           docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" logs --tail 60 hub || true
+
+  install-cn:
+    # ADR-0023 step 23e: the same one-command install for a company in China (Chinese, CNY, Asia/Shanghai, metric):
+    # ERPNext set up in Chinese, the business in ERPNext, the hub's texts in Chinese.
+    needs: [test, scope]
+    if: needs.scope.outputs.install == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install directory
+        run: echo "WQO_DIR=$RUNNER_TEMP/wqo" >> "$GITHUB_ENV"
+      - name: Free disk (ERPNext images are large)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - name: Build the hub image (same Dockerfile as the published one; not pushed)
+        run: docker build -q -t wenquest-ops-hub:ci .
+      - name: Install with one command (Chinese demo company)
+        env:
+          WQO_HUB_IMAGE: wenquest-ops-hub:ci
+          WQO_MIN_DISK_GB: "8"
+          WQO_OWNER_PASSWORD: Ci-owner-pass-2026
+        run: |
+          set -o pipefail
+          mkdir -p "$WQO_DIR" && cp -r deploy/. "$WQO_DIR/"
+          "$WQO_DIR/install.sh" --company companies/demo-haigang.yaml --domain ops.localtest.me --tls-internal --no-pull \
+            2>&1 | tee "$RUNNER_TEMP/install.log"
+      - name: Check ERPNext in Chinese, the business, and the hub in Chinese
+        run: |
+          exec > >(tee "$RUNNER_TEMP/check.log") 2>&1
+          set -x
+          R=(--resolve ops.localtest.me:443:127.0.0.1 --resolve erp.ops.localtest.me:443:127.0.0.1)
+          cjk() { python3 -c "import sys; t=sys.stdin.read(); print(t[:400]); assert any('一' <= c <= '鿿' for c in t), 'no Chinese'"; }
+          curl -fsk "${R[@]}" https://ops.localtest.me/api/health | python3 -c "
+          import json,sys; h=json.load(sys.stdin); assert h['ok'], h"
+          curl -fsk "${R[@]}" https://ops.localtest.me/login | tee login.html | grep -q "海港五金供应（演示）"
+          grep -q "lang='zh-CN'" login.html
+          curl -sk "${R[@]}" -H 'content-type: application/json' -d '{"email":"wangdan@demo.example","password":"wrong pass 1"}' \
+               https://ops.localtest.me/api/login | cjk
+          curl -fsk "${R[@]}" -c jar -H 'content-type: application/json' \
+               -d '{"email":"wangdan@demo.example","password":"Ci-owner-pass-2026"}' https://ops.localtest.me/api/login
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/users | python3 -c "
+          import json,sys; u=json.load(sys.stdin); assert len(u)==7, u"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/workspace | python3 -c "
+          import json,sys; w=json.load(sys.stdin); print(w); assert w['language']=='zh' and w['currency']=='CNY', w"
+          erp() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" exec -T erp-backend \
+                  bench --site frontend execute "$@" 2>/dev/null | tail -n 1; }
+          [ "$(erp frappe.db.get_value --args "['Company', '海港五金供应（演示）', 'default_currency']")" = CNY ]
+          [ "$(erp frappe.db.get_single_value --args "['System Settings', 'language']")" = zh ]
+          [ "$(erp frappe.db.get_single_value --args "['System Settings', 'time_zone']")" = Asia/Shanghai ]
+          root=$(erp frappe.db.get_value --args "['Warehouse', {'company': '海港五金供应（演示）', 'is_group': 1, 'parent_warehouse': ['is', 'not set']}]")
+          echo "root warehouse: $root"
+          for w in "收货区 - HGWJ" "主仓 - HGWJ" "质检隔离仓 - HGWJ" "发货区 - HGWJ"; do
+            [ "$(erp frappe.db.get_value --args "['Warehouse', '$w', 'parent_warehouse']")" = "$root" ]
+          done
+          [ -n "$(erp frappe.db.exists --args "['Department', {'department_name': '质量部', 'company': '海港五金供应（演示）'}]")" ]
+          erp frappe.db.get_value --args "['Account', {'company': '海港五金供应（演示）', 'account_type': 'Receivable'}]" | cjk
+          for _ in $(seq 1 20); do
+            code=$(curl -sk "${R[@]}" -b jar -o sync.json -w '%{http_code}' -X POST https://ops.localtest.me/api/sync/run)
+            [ "$code" = 409 ] || break; sleep 3
+          done
+          cat sync.json; [ "$code" = 200 ]
+          curl -fsk "${R[@]}" -b jar -H 'content-type: application/json' -d '{"question":"库存价值是多少？"}' \
+            https://ops.localtest.me/api/ai/ask | python3 -c "import json,sys
+          a=json.load(sys.stdin); print(a['answer']); assert a['engine'] == 'rules', a
+          assert any('一' <= c <= '鿿' for c in a['answer']), a"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/qms | cjk
+          "$WQO_DIR/status.sh"
+      - name: Show the end of the logs as one annotation on failure
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log"; do
+            [ -f "$f" ] && echo "::error title=cn $(basename "$f")::$(tail -n 40 "$f" | tr -d '\r' | sed ':a;N;$!ba;s/\n/%0A/g')"
+          done
+          docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" ps -a || true
+          docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" logs --tail 60 hub || true

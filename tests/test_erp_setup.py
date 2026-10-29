@@ -17,8 +17,11 @@ from wqops.erp import ErpClient, ErpError
 class FakeErp:
     """Just enough of the ERPNext REST API: resources by name, list with equality filters, insert."""
 
-    def __init__(self, company="Harbor Lane Supply (Demo)"):
+    def __init__(self, company="Harbor Lane Supply (Demo)", abbr="HLS", root=None):
         self.docs = {"Company": {company: {"name": company}}}
+        self.abbr = abbr
+        if root:                     # the root warehouse the setup wizard made, in ERPNext's language
+            self.docs["Warehouse"] = {root: {"name": root, "company": company, "is_group": 1}}
         self.inserted = []
         self.seen_headers = []
 
@@ -33,12 +36,13 @@ class FakeErp:
             name = parts[4]
             return httpx.Response(200, json={"data": store[name]}) if name in store else httpx.Response(404, json={})
         if request.method == "GET":
-            flt = json.loads(request.url.params["filters"])
-            rows = [d for d in store.values() if all(d.get(f[1]) == f[3] for f in flt)]
+            flt = [f if len(f) == 4 else [doctype, *f] for f in json.loads(request.url.params["filters"])]
+            rows = [d for d in store.values()
+                    if all((not d.get(f[1])) if f[2:] == ["is", "not set"] else d.get(f[1]) == f[3] for f in flt)]
             return httpx.Response(200, json={"data": [{"name": d["name"]} for d in rows]})
         doc = json.loads(request.content)
         if doctype == "Warehouse":
-            doc["name"] = f"{doc['warehouse_name']} - HLS"
+            doc["name"] = f"{doc['warehouse_name']} - {self.abbr}"
         elif doctype == "Department":
             doc["name"] = f"{doc['department_name']} - HLS"
         elif doctype == "Social Login Key":
@@ -93,6 +97,21 @@ def test_apply_creates_once_and_is_idempotent():
     assert len(erp.inserted) == n and all("exists" in x for x in again)
     h = erp.seen_headers[0]
     assert h["authorization"] == "token key:secret" and h["host"] == "frontend"
+
+
+def test_a_chinese_company_is_set_up_in_chinese():
+    m = C.load(C.DEMO_DIR / "demo-haigang.yaml")
+    system, setup = S.wizard_args(m, dt.date(2026, 10, 12))
+    assert system["system_settings_data"] == {"language": "zh", "country": "China", "currency": "CNY",
+                                              "time_zone": "Asia/Shanghai", "date_format": "yyyy-mm-dd"}
+    a = setup["args"]
+    assert a["language"] == a["lang"] == "中文" and a["company_name"] == "海港五金供应（演示）"
+    assert a["currency"] == "CNY" and a["chart_of_accounts"] == "Standard"
+    erp = FakeErp("海港五金供应（演示）", "HGWJ", root="所有仓库 - HGWJ")
+    S.apply(m, erp.client())
+    wh = {d["name"]: d for d in erp.inserted if d["doctype"] == "Warehouse"}
+    assert set(wh) == {"收货区 - HGWJ", "主仓 - HGWJ", "质检隔离仓 - HGWJ", "发货区 - HGWJ"}
+    assert all(d["parent_warehouse"] == "所有仓库 - HGWJ" for d in wh.values())
 
 
 def test_apply_needs_the_company_and_reports_erp_errors():

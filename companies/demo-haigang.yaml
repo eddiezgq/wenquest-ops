@@ -1,0 +1,44 @@
+# 虚构演示企业（FICTIONAL demo company, ADR-0023）。企业名、地址、人员都是编的，如有雷同纯属巧合。
+# 国内版演示：中文界面、人民币、北京时间、公制；数据结构与 Harbor Lane Supply 相同，数字另编。
+version: 1
+demo: true
+company:
+  name: 海港五金供应（演示）
+  abbr: HGWJ
+  country: China
+  currency: CNY
+  timezone: Asia/Shanghai
+  fiscal_year_start: "01-01"
+  date_format: yyyy-mm-dd
+  language: zh
+  units:
+    weight: kg
+    length: cm
+sites:
+  - id: hq
+    name: 总部
+    kind: office
+    address: {line1: 演示路 100 号, city: 宁波, state: 浙江, postal_code: "000000", country: China}
+  - id: dc-ningbo
+    name: 宁波配送中心
+    kind: warehouse
+    address: {line1: 演示路 200 号, city: 宁波, state: 浙江, postal_code: "000000", country: China}
+warehouses:
+  - {id: receiving, name: 收货区, site: dc-ningbo, kind: receiving}
+  - {id: main, name: 主仓, site: dc-ningbo, kind: stores}
+  - {id: quarantine, name: 质检隔离仓, site: dc-ningbo, kind: quarantine}
+  - {id: shipping, name: 发货区, site: dc-ningbo, kind: shipping}
+departments:
+  - {id: leadership, name: 管理层}
+  - {id: operations, name: 运营部}
+  - {id: sales, name: 销售部}
+  - {id: quality, name: 质量部}
+people:
+  - {name: 王丹, email: wangdan@demo.example, roles: [owner], department: leadership}
+  - {name: 孙明, email: sunming@demo.example, roles: [ops_manager], department: operations}
+  - {name: 李强, email: liqiang@demo.example, roles: [warehouse], department: operations}
+  - {name: 潘悦, email: panyue@demo.example, roles: [purchasing], department: operations}
+  - {name: 赵磊, email: zhaolei@demo.example, roles: [sales], department: sales}
+  - {name: 周静, email: zhoujing@demo.example, roles: [quality], department: quality}
+  - {name: 林智, email: linzhi@demo.example, roles: [ai_specialist], department: operations}
+modules: [core, hub, ai, quality]
