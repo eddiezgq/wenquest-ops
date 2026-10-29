@@ -20,7 +20,7 @@ GitHub Actions 经 SSH 推过去；自带只监听本机的镜像仓库 `127.0.0
    和 5 个基础镜像（ERPNext、MariaDB、Redis、PostgreSQL、Caddy）复制成 `127.0.0.1:5000/qms/<名字>:<标签>`。这正好是
    ADR-0023 `install.sh --mirror` 的命名（`--mirror 127.0.0.1:5000/qms`），不用另写一套。复制失败重试；不运行
    `garbage-collect`；中枢镜像只留最近 3 个版本。
-2. **目录和项目名**：装在 `/opt/qms`，compose 项目名 `qms`（容器名不和问渠平台冲突）；`--china`（只用 DeepSeek、不显示
+2. **目录和项目名**：装在 `/opt/wenquest/qms`，compose 项目名 `qms`（容器名不和问渠平台冲突）；`--china`（只用 DeepSeek、不显示
    Microsoft/Google 登录）。
 3. **网址**：`install.sh` 新增 `--edge`：不再自己办证书、不占 80/443；我们的 Caddy 改名 `qms-demo-edge`，只在容器内
    监听 80，接到外部网络 `qms-edge`，按访问的域名分给中枢和 ERPNext。**ERPNext 需要自己的网址**（中枢的“打开 ERPNext”
@@ -46,9 +46,9 @@ GitHub Actions 经 SSH 推过去；自带只监听本机的镜像仓库 `127.0.0
 5. **部署**：推送到 main 后自动部署（与问渠平台相同），也可手动运行；在服务器上先拿锁
    `flock -w 1500 /tmp/wenquest-deploy.lock`，第一次 `install.sh`、以后 `upgrade.sh`。第一次装时导入国内演示企业。
 6. **密钥**：SSH 钥匙用模块专用一把（Secrets `CN_DEPLOY_HOST`、`CN_DEPLOY_SSH_KEY`，由项目负责人在服务器上生成）。
-   DeepSeek 钥匙由项目负责人自己写进 `/opt/qms/.env`（`WQO_DEEPSEEK_API_KEY`），不经过聊天；没填时助手用规则引擎回答。
+   DeepSeek 钥匙由项目负责人自己写进 `/opt/wenquest/qms/.env`（`WQO_DEEPSEEK_API_KEY`），不经过聊天；没填时助手用规则引擎回答。
    老板账号的密码同样由项目负责人在服务器上设一次（给出命令），不放进仓库和 Actions 日志。
-7. **备份**：每天 04:10 用 `backup.sh` 在服务器上备份（错开问渠 03:30），留最近 7 份，放 `/opt/qms/backups`，不传出境。
+7. **备份**：每天 04:10 用 `backup.sh` 在服务器上备份（错开问渠 03:30），留最近 7 份，放 `/opt/wenquest/qms/backups`，不传出境。
 8. **备案期间**：可以部署、在服务器内部测（SSH 通道打开看），不对外。
 
 ## 分步与验收
@@ -73,9 +73,13 @@ GitHub Actions 经 SSH 推过去；自带只监听本机的镜像仓库 `127.0.0
   275 MB、中枢 80 MB、队列 52 MB、定时任务 51 MB、PostgreSQL 40 MB、其余各十几 MB 以下，合计约 0.87 GB，远低于 2.4 GB 上限；
   没有容器因内存被杀。
 - **24b（2026-10-29）**：`.github/workflows/deploy-cn.yml`：中枢镜像构建完（或手动运行）后，SSH 通道 + skopeo 把中枢和 5 个
-  基础镜像复制成 `127.0.0.1:5000/qms/...`（失败重试，不做 garbage-collect，中枢只留最近 3 个版本）；文件传到 `/opt/qms`；
+  基础镜像复制成 `127.0.0.1:5000/qms/...`（失败重试，不做 garbage-collect，中枢只留最近 3 个版本）；文件传到 `/opt/wenquest/qms`；
   拿问渠的部署锁后第一次 `install.sh`（国内演示企业、`--china --edge --small --project qms --mirror 127.0.0.1:5000/qms`）
   并导入演示数据，以后 `upgrade.sh`；每天 04:10 备份留 7 份（deploy 用户的 crontab）；最后报告状态和内存。网址取服务器上
   问渠平台 `.env` 的 `SITE_DOMAIN`：`qms.<主域名>` 和 `qms-erp.<主域名>`，也可用仓库变量 `CN_QMS_DOMAIN` 指定。
   另加两个服务器上用的小脚本：`owner-password.sh`（设老板密码）、`ai-key.sh`（填 DeepSeek 钥匙并重启中枢，先拿部署锁），
   都在终端里问、不回显、不进命令历史。没有 Secrets `CN_DEPLOY_HOST`、`CN_DEPLOY_SSH_KEY` 时部署流程什么也不做。
+- **目录调整（2026-10-29）**：约定里的 `/opt/qms` 要 root 建，而 deploy 用户没有 sudo 密码、root 也不能直接登录。改装在
+  问渠平台目录下的 `/opt/wenquest/qms`（deploy 用户本来就是 `/opt/wenquest` 的主人，部署流程自己建，不用 root）。问渠的部署
+  只往 `/opt/wenquest` 解包自己的文件、不清空目录，不会碰到这里；compose 项目名仍是 qms，不和问渠平台冲突。SSH 钥匙也由
+  deploy 用户自己生成（写进自己的 `~/.ssh/authorized_keys`），同样不用 root。

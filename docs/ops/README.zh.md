@@ -303,12 +303,12 @@ WQO_HUB_IMAGE=wenquest-ops-hub:local ./install.sh --company company.yaml --domai
 问渠的国内服务器上，WenQuest Ops 由 GitHub Actions 的“Deploy to the WenQuest server in China”自动部署，不需要在服务器上
 手工运行 `install.sh`：
 
-1. 项目负责人用 root 建目录：`install -d -o deploy -g deploy /opt/qms`；按问渠仓库《国内服务器加模块（质量ERP等）》第二节
+1. 目录 `/opt/wenquest/qms` 由部署流程用 deploy 用户自己建，不需要 root；按问渠仓库《国内服务器加模块（质量ERP等）》第二节
    第 5 条生成本模块专用的 SSH 钥匙，填进本仓库的 Secrets `CN_DEPLOY_HOST`、`CN_DEPLOY_SSH_KEY`。
 2. 在 GitHub 上手动运行一次该部署流程（以后每次中枢镜像更新后自动运行）。第一次会装好并导入国内演示企业，约 20–30 分钟。
 3. 在服务器上设老板（王丹）的密码，并填 DeepSeek 钥匙（都会在终端里问，不显示）：
    ```bash
-   cd /opt/qms
+   cd /opt/wenquest/qms
    ./owner-password.sh
    ./ai-key.sh
    ```
