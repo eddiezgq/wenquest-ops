@@ -98,6 +98,9 @@ class FakeErp:
         rows = list(store.values())
         for f in json.loads(q.get("filters", "[]")):
             field, op, value = f[-3:]
+            if op == "is":                                   # "set" / "not set", as ERPNext
+                rows = [r for r in rows if bool(r.get(field)) == (value == "set")]
+                continue
             rows = [r for r in rows if field in r and OPS[op](r[field], value)]
         for key in reversed([k.strip() for k in q.get("order_by", "modified desc").split(",")]):
             field, _, direction = key.partition(" ")

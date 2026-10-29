@@ -4,6 +4,10 @@ ERPNext documents to create, in date order. Nothing here talks to ERPNext; ``loa
 All names are invented. Typical problems are built in so the ops hub has something to show: a supplier that is often
 late, a key item running out (late and at-risk orders), a purchase order still not delivered, a rejected incoming lot
 (moved to QC Hold), and an inspection parameter drifting upwards (control chart signal).
+
+Two businesses with the same structure (ADR-0023, step 23e): Harbor Lane Supply in the US (the module's constants)
+and Haigang Hardware Supply in China (``ZH``: Chinese names, prices in yuan, numbers of its own). ``activate(manifest)``
+switches the module to the one of the company's language; the item codes are the same in both.
 """
 
 from __future__ import annotations
@@ -58,6 +62,12 @@ REQUIRED_BEFORE_RECEIPT = set(INSPECTED)   # ERPNext asks for the inspection bef
 WAITING_ITEM = "CBL-12-50"                  # its last receipt waits for inspection
 REJECT_FROM_DAY = 45              # the first bolt lot received from this day on is rejected
 DRIFT_FROM_DAY = 55               # bolt pitch diameter drifts upwards from here (still inside the limits)
+PEOPLE = {"owner": "dana@demo.example", "ops_manager": "sam@demo.example", "warehouse": "lee@demo.example",
+          "purchasing": "pat@demo.example", "sales": "alex@demo.example", "quality": "jordan@demo.example",
+          "ai_specialist": "riley@demo.example"}
+NAMES = {"dana@demo.example": "Dana Owner", "sam@demo.example": "Sam Ops", "lee@demo.example": "Lee Warehouse",
+         "pat@demo.example": "Pat Buyer", "alex@demo.example": "Alex Sales", "jordan@demo.example": "Jordan Quality",
+         "riley@demo.example": "Riley AI"}
 
 
 @dataclass
@@ -83,7 +93,8 @@ def _business(d: dt.date) -> bool:
     return d.weekday() < 5
 
 
-def build(today: dt.date, seed: int = SEED) -> list[Doc]:  # noqa: PLR0912, PLR0915 - one simulation loop
+def build(today: dt.date, seed: int | None = None) -> list[Doc]:  # noqa: PLR0912, PLR0915 - one simulation loop
+    seed = SEED if seed is None else seed
     rng = random.Random(seed)  # noqa: S311 - repeatable demo data, not security
     start = today - dt.timedelta(days=DAYS - 1)
     items = {i[0]: i for i in ITEMS}
@@ -202,13 +213,13 @@ BILLING = ("sales_invoice", "purchase_invoice", "payment_in", "payment_out")
 SLOW_PAYER = "Osprey Contracting (Demo)"   # pays late: overdue receivables to show (ADR-0018)
 
 
-def billing(docs: list[Doc], today: dt.date, seed: int = SEED) -> list[Doc]:
+def billing(docs: list[Doc], today: dt.date, seed: int | None = None) -> list[Doc]:
     """Invoices for every delivery and every submitted receipt (30 days' terms), and the payments made by today.
 
     Its own random numbers, so the goods simulation above stays exactly as it was. Most customers pay within a few
     days of the due date; one pays late; the business pays its suppliers on the due date.
     """
-    rng = random.Random(seed + 18)  # noqa: S311 - a reproducible simulation, not security
+    rng = random.Random((SEED if seed is None else seed) + 18)  # noqa: S311 - a reproducible simulation, not security
     out: list[Doc] = []
     for d in [x for x in docs if x.kind in ("delivery", "receipt")]:
         due = d.day + dt.timedelta(days=TERMS_DAYS)
@@ -235,3 +246,73 @@ def summary(docs: list[Doc]) -> dict[str, int]:
     for d in docs:
         out[d.kind] = out.get(d.kind, 0) + 1
     return out
+
+
+# ---------------------------------------------------------------- the business in China (ADR-0023, step 23e)
+
+_ZH_SUP = {
+    "海湾紧固件（演示）": (6, 0.5, (3, 8)),
+    "滨海电气（演示）": (4, 0.10, (1, 2)),
+    "沿海包装（演示）": (3, 0.05, (1, 1)),
+    "峰顶工具（演示）": (9, 0.15, (2, 4)),
+}
+_ZG, _ZB, _ZC, _ZS = _ZH_SUP
+ZH = {
+    "SEED": 20261028,
+    "SUPPLIERS": _ZH_SUP,
+    "ITEMS": [
+        ("HX-BOLT-M8", "六角螺栓 M8×40 镀锌（100 只/盒）", "紧固件", _ZG, 38.00, 68.00, 10),
+        ("HX-NUT-M8", "六角螺母 M8 镀锌（100 只/盒）", "紧固件", _ZG, 12.50, 24.00, 7),
+        ("WSHR-M8", "平垫圈 M8（100 只/盒）", "紧固件", _ZG, 7.20, 15.00, 5),
+        ("SCRW-WD-2", "自攻木螺钉 4×50（100 只/盒）", "紧固件", _ZG, 18.00, 36.00, 4),
+        ("ANCHOR-38", "膨胀螺栓 M10×100（25 只/盒）", "紧固件", _ZG, 45.00, 85.00, 2),
+        ("CBL-12-50", "BV 2.5 平方电线（100 米/卷）", "电气", _ZB, 168.00, 258.00, 3),
+        ("OUTLET-DUP", "五孔插座 10 A", "电气", _ZB, 6.50, 16.00, 6),
+        ("SWITCH-SP", "单控开关", "电气", _ZB, 5.20, 13.00, 5),
+        ("WIRENUT-Y", "接线端子 黄色（50 只/袋）", "电气", _ZB, 15.00, 32.00, 3),
+        ("CONDUIT-34", "PVC 线管 20 mm（3 米）", "电气", _ZB, 8.60, 16.00, 2),
+        ("BOX-12", "纸箱 30×30×30 cm", "包装", _ZC, 4.80, 9.50, 11),
+        ("BOX-18", "纸箱 45×45×45 cm", "包装", _ZC, 7.90, 15.00, 6),
+        ("TAPE-48", "封箱胶带 48 mm（6 卷）", "包装", _ZC, 22.00, 42.00, 4),
+        ("WRAP-20", "缠绕膜 50 cm（卷）", "包装", _ZC, 65.00, 118.00, 2),
+        ("LABEL-4X6", "快递面单 100×150（500 张/卷）", "包装", _ZC, 21.00, 39.00, 3),
+        ("DRILL-BIT-SET", "麻花钻套装（21 支）", "工具", _ZS, 52.00, 98.00, 1),
+        ("TAPE-MEAS-25", "钢卷尺 7.5 米", "工具", _ZS, 24.00, 46.00, 2),
+        ("LEVEL-24", "水平尺 60 cm", "工具", _ZS, 38.00, 72.00, 1),
+        ("GLOVE-L", "劳保手套 大号（双）", "工具", _ZS, 6.00, 13.50, 6),
+        ("GLASSES-CLR", "防护眼镜 透明", "工具", _ZS, 7.50, 16.00, 4),
+    ],
+    "CUSTOMERS": ["湾畔五金（演示）", "海鸥建筑（演示）", "阳光电工（演示）", "红树林家居（演示）", "潮汐建材（演示）",
+                  "鱼鹰装饰工程（演示）", "海景物业（演示）", "基线维修（演示）", "棕榈装修配件（演示）",
+                  "柏木装修（演示）"],
+    "LINE_QTY": 40,
+    "INSPECTED": {"HX-BOLT-M8": ("中径（mm）", 7.160, 7.212, 7.186, 0.004),
+                  "CBL-12-50": ("绝缘厚度（mm）", 0.70, 0.90, 0.80, 0.02)},
+    "SLOW_PAYER": "鱼鹰装饰工程（演示）",
+}
+ZH["GULF"], ZH["BAYLINE"], ZH["COASTAL"], ZH["SUMMIT"] = _ZG, _ZB, _ZC, _ZS
+
+_NAMES = ("SEED", "SUPPLIERS", "ITEMS", "CUSTOMERS", "LINE_QTY", "INSPECTED", "SLOW_PAYER", "GULF", "BAYLINE",
+          "COASTAL", "SUMMIT")
+EN = {k: globals()[k] for k in _NAMES}
+EN.update(PEOPLE=dict(PEOPLE), NAMES=dict(NAMES))
+
+
+def activate(manifest: dict | None) -> str:
+    """Switch the module to the business of the company's language ('en' or 'zh'); the people come from the manifest
+    (by role), so the demo records are made by the company's own demo people. Returns the language."""
+    lang = ((manifest or {}).get("company") or {}).get("language") or "en"
+    prof = ZH if lang == "zh" else EN
+    g = globals()
+    for k in _NAMES:
+        g[k] = prof[k]
+    g["REQUIRED_BEFORE_RECEIPT"] = set(prof["INSPECTED"])
+    people, names = dict(EN["PEOPLE"]), dict(EN["NAMES"])
+    if manifest and manifest.get("people"):
+        people, names = {}, {}
+        for p in manifest["people"]:
+            for r in p.get("roles") or ():
+                people.setdefault(r, p["email"])
+            names[p["email"]] = p["name"]
+    g["PEOPLE"], g["NAMES"] = people, names
+    return lang

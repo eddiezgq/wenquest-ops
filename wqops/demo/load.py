@@ -20,6 +20,7 @@ import sys
 from collections.abc import Callable
 
 from wqops import company as C
+from wqops import i18n as I18N
 from wqops.demo import scenario as S
 from wqops.erp import ErpClient
 from wqops.erp_setup import fiscal_year, warehouse_name
@@ -44,6 +45,7 @@ class Loader:
         if not manifest.get("demo"):
             raise DemoError(_say("demo data is only loaded into a company manifest marked demo: true"))
         self.erp, self.m, self.today, self.say = erp, manifest, today, say
+        S.activate(manifest)                          # the business of the company's language (ADR-0023)
         self.company = manifest["company"]["name"]
         whs = {w["kind"]: warehouse_name(manifest, w) for w in manifest["warehouses"]}
         if "stores" not in whs or "quarantine" not in whs:
@@ -76,10 +78,20 @@ class Loader:
         # a rejected incoming lot is still received and then moved to QC Hold; ERPNext's default would refuse the
         # receipt, so the demo site warns instead (demo sites only)
         self.erp.update("Stock Settings", "Stock Settings", {"action_if_quality_inspection_is_rejected": "Warn"})
+        # names ERPNext made in its own language ("All Item Groups" / "所有物料组", "Material Receipt" / ...) are
+        # looked up, not assumed
+        roots = self.erp.list("Item Group", filters=[["is_group", "=", 1], ["parent_item_group", "is", "not set"]],
+                              limit=1)
+        root = roots[0]["name"] if roots else "All Item Groups"
+        self.entry_type = {}
+        for purpose in ("Material Receipt", "Material Transfer"):
+            rows = self.erp.list("Stock Entry Type", filters=[["purpose", "=", purpose]], order_by="name asc", limit=5)
+            names = [r["name"] for r in rows]
+            self.entry_type[purpose] = purpose if purpose in names or not names else names[0]
         for group in sorted({i[2] for i in S.ITEMS}):
             if self.erp.get("Item Group", group) is None:
                 self.erp.insert({"doctype": "Item Group", "item_group_name": group,
-                                 "parent_item_group": "All Item Groups", "is_group": 0})
+                                 "parent_item_group": root, "is_group": 0})
         for param, *_ in S.INSPECTED.values():
             if self.erp.get("Quality Inspection Parameter", param) is None:
                 self.erp.insert({"doctype": "Quality Inspection Parameter", "parameter": param})
@@ -100,7 +112,8 @@ class Loader:
         day, x = str(d.day), d.data
         posting = {"posting_date": day, "set_posting_time": 1}
         if d.kind == "opening":
-            self.make({"doctype": "Stock Entry", "stock_entry_type": "Material Receipt", "company": self.company,
+            self.make({"doctype": "Stock Entry", "stock_entry_type": self.entry_type["Material Receipt"],
+                       "company": self.company,
                        **posting, "items": [{"item_code": ln["item"], "qty": ln["qty"], "t_warehouse": self.main,
                                              "basic_rate": ln["rate"]} for ln in x["lines"]]}, d.ref)
         elif d.kind == "po":
@@ -130,7 +143,8 @@ class Loader:
                 self.submit("Purchase Receipt", pr["name"])
                 self.pending_receipt = None
         elif d.kind == "hold":
-            self.make({"doctype": "Stock Entry", "stock_entry_type": "Material Transfer", "company": self.company,
+            self.make({"doctype": "Stock Entry", "stock_entry_type": self.entry_type["Material Transfer"],
+                       "company": self.company,
                        **posting, "items": [{"item_code": x["item"], "qty": x["qty"], "s_warehouse": self.main,
                                              "t_warehouse": self.hold, "basic_rate": x["rate"]}]}, d.ref)
         elif d.kind == "so":
@@ -206,20 +220,22 @@ def quality_records(conn, manifest: dict, rejected_qi: str | None, today: dt.dat
                       (p.get("reference_name"),)).fetchone()
     qty = sum(ln.get("qty") or 0 for ln in (pr["props"].get("lines", []) if pr else [])
               if ln.get("item_code") == p["item_code"]) or None
-    n = Q.create_ncr(conn, quality, title=f"Rejected {p['item_code']} ({rejected_qi})", severity="major",
-                     description=f"Pitch diameter over the upper limit on all 5 samples of the lot received on "
-                                 f"{p.get('reference_name')}.", inspection=rejected_qi, item_code=p["item_code"],
+    n = Q.create_ncr(conn, quality, title=_say("Rejected {item} ({inspection})", item=p["item_code"],
+                                               inspection=rejected_qi), severity="major",
+                     description=_say("Pitch diameter over the upper limit on all 5 samples of the lot received on "
+                                      "{receipt}.", receipt=p.get("reference_name")),
+                     inspection=rejected_qi, item_code=p["item_code"],
                      receipt=p.get("reference_name"), supplier=sup["dst_key"] if sup else None, quantity=qty)
-    Q.contain(conn, n["id"], quality, "Lot moved to QC Hold; open orders for this item checked.")
+    Q.contain(conn, n["id"], quality, _say("Lot moved to QC Hold; open orders for this item checked."))
     if qty:
-        Q.submit_disposition(conn, n["id"], quality, "return_to_supplier", qty, "Return the lot for credit.")
-    c = Q.create_capa(conn, quality, kind="corrective", title="Supplier thread rolling out of tolerance",
-                      ncr_ids=[n["id"]], description="Thread pitch diameter over the limit on a full lot.",
+        Q.submit_disposition(conn, n["id"], quality, "return_to_supplier", qty, _say("Return the lot for credit."))
+    c = Q.create_capa(conn, quality, kind="corrective", title=_say("Supplier thread rolling out of tolerance"),
+                      ncr_ids=[n["id"]], description=_say("Thread pitch diameter over the limit on a full lot."),
                       risk="medium", owner=buyer)
     Q.submit_capa(conn, c["id"], quality)
-    Q.update_capa(conn, c["id"], quality, containment="Lot quarantined and returned.",
-                  root_cause="Supplier did not adjust rolling dies after maintenance (supplier 8D).")
-    Q.add_action(conn, c["id"], quality, "Supplier to send 8D and first-article data", buyer,
+    Q.update_capa(conn, c["id"], quality, containment=_say("Lot quarantined and returned."),
+                  root_cause=_say("Supplier did not adjust rolling dies after maintenance (supplier 8D)."))
+    Q.add_action(conn, c["id"], quality, _say("Supplier to send 8D and first-article data"), buyer,
                  str(day + dt.timedelta(days=10)), today=day)
     Q.plan_actions(conn, c["id"], quality)
     return [n["name"], c["name"]]
@@ -237,6 +253,8 @@ def main(argv=None) -> int:
     from wqops.hub.ont import project as OP  # noqa: PLC0415
 
     manifest = C.load(os.environ["WQO_COMPANY_FILE"])
+    I18N.set_company_language(manifest["company"].get("language"))   # the demo records in the company's language
+    S.activate(manifest)
     today = a.today or OA.today(manifest)
     with DB.connect(os.environ["WQO_DB"]) as conn:
         DB.migrate(conn)
@@ -255,10 +273,10 @@ def main(argv=None) -> int:
         from wqops.hub.ai import brief as BR  # noqa: PLC0415
         from wqops.hub.ai import llm as L  # noqa: PLC0415
 
-        out["brief"] = str(BR.generate(conn, today, manifest, L.Anthropic())["day"])
+        out["brief"] = str(BR.generate(conn, today, manifest, L.from_env())["day"])
         from wqops.demo import documents as DOCS  # noqa: PLC0415
 
-        out["documents"] = DOCS.load(conn, manifest, today, L.Anthropic())
+        out["documents"] = DOCS.load(conn, manifest, today, L.from_env())
         from wqops.demo import quality as DQ  # noqa: PLC0415
         from wqops.hub import accounts as Acc  # noqa: PLC0415
 
