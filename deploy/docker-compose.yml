@@ -9,7 +9,7 @@ x-logging: &logging
   options: { max-size: "10m", max-file: "5" }
 
 x-erpnext: &erpnext
-  image: frappe/erpnext:v16.34.1
+  image: ${WQO_ERP_IMAGE:-frappe/erpnext:v16.34.1}
   restart: unless-stopped
   networks: [erp]
   logging: *logging
@@ -23,7 +23,7 @@ x-erp-redis-env: &erp-redis-env
 
 services:
   caddy:
-    image: caddy:2.10-alpine
+    image: ${WQO_CADDY_IMAGE:-caddy:2.10-alpine}
     restart: unless-stopped
     logging: *logging
     ports: ["80:80", "443:443"]
@@ -39,7 +39,7 @@ services:
     depends_on: [hub]
 
   db:
-    image: postgres:16-alpine
+    image: ${WQO_DB_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     logging: *logging
     environment:
@@ -151,7 +151,7 @@ services:
       erp-configurator: { condition: service_completed_successfully }
 
   erp-db:
-    image: mariadb:11.8
+    image: ${WQO_MARIADB_IMAGE:-mariadb:11.8}
     restart: unless-stopped
     logging: *logging
     networks: [erp]
@@ -171,14 +171,14 @@ services:
     volumes: [erp-db-data:/var/lib/mysql]
 
   erp-redis-queue:
-    image: redis:6.2-alpine
+    image: ${WQO_REDIS_IMAGE:-redis:6.2-alpine}
     restart: unless-stopped
     logging: *logging
     networks: [erp]
     volumes: [erp-redis-queue-data:/data]
 
   erp-redis-cache:
-    image: redis:6.2-alpine
+    image: ${WQO_REDIS_IMAGE:-redis:6.2-alpine}
     restart: unless-stopped
     logging: *logging
     networks: [erp]

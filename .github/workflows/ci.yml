@@ -290,12 +290,14 @@ jobs:
           docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" logs --tail 60 hub || true
 
   install-cn:
-    # ADR-0023 step 23e: the same one-command install for a company in China (Chinese, CNY, Asia/Shanghai, metric):
-    # ERPNext set up in Chinese, the business in ERPNext, the hub's texts in Chinese.
+    # ADR-0023 steps 23e-23f: the same one-command install for a company in China (Chinese, CNY, Asia/Shanghai,
+    # metric): ERPNext set up in Chinese, the business in ERPNext, the hub's texts in Chinese, the Chinese help tours.
     needs: [test, scope]
     if: needs.scope.outputs.install == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
+    permissions:
+      contents: write   # only used by the save_help_media step on manual runs
     steps:
       - uses: actions/checkout@v5
       - name: Install directory
@@ -385,10 +387,34 @@ jobs:
             https://ops.localtest.me/api/ai/ask | python3 -c "import json,sys; a=json.load(sys.stdin); print(a['answer'])
           assert '[SalesOrder:' in a['answer'] and '按时交付率' in a['answer'], a"
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/docs/imports | head -c 800
+      - name: Play every Chinese help tour on the Chinese demo company; record the videos on manual runs (ADR-0023)
+        env:
+          HELP_LANG: zh
+          HELP_FAST: ${{ (github.event_name == 'workflow_dispatch' && inputs.save_help_media) && '0' || '1' }}
+        run: |
+          exec > >(tee "$RUNNER_TEMP/tours.log") 2>&1
+          set -x -o pipefail
+          python3 -m venv "$RUNNER_TEMP/pw"
+          "$RUNNER_TEMP/pw/bin/pip" install -q playwright==1.56.0 pyyaml==6.0.3
+          "$RUNNER_TEMP/pw/bin/playwright" install --with-deps --only-shell chromium
+          sudo apt-get install -y -qq fonts-noto-cjk > /dev/null      # Chinese glyphs in the recorded pages
+          if [ "$HELP_FAST" = 0 ]; then sudo apt-get install -y -qq ffmpeg > /dev/null; fi
+          "$RUNNER_TEMP/pw/bin/python" -I .github/scripts/help_tours.py https://ops.localtest.me wangdan@demo.example \
+            Ci-owner-pass-2026 "$RUNNER_TEMP/help-media-zh/topics"
+      - name: Push the Chinese help videos to ci/help-media-zh (manual runs only)
+        if: github.event_name == 'workflow_dispatch' && inputs.save_help_media
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          d="$RUNNER_TEMP/media-branch-zh"; mkdir -p "$d" && cp -r "$RUNNER_TEMP/help-media-zh/." "$d/" && cd "$d"
+          git init -q -b ci/help-media-zh && git add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Chinese help videos from run $GITHUB_RUN_ID ($GITHUB_SHA)"
+          git push -q -f "https://x-access-token:$TOKEN@github.com/$GITHUB_REPOSITORY" HEAD:ci/help-media-zh
       - name: Show the end of the logs as one annotation on failure
         if: failure()
         run: |
-          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log" "$RUNNER_TEMP/demo.log"; do
+          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log" "$RUNNER_TEMP/demo.log" "$RUNNER_TEMP/tours.log"; do
             [ -f "$f" ] || continue
             # long JSON lines would fill the annotation: short lines, problems first, then the end of the log
             { grep -E 'DIFF|Error|Traceback|assert|differ' "$f" | tail -n 15; echo ---; tail -n 25 "$f"; } \

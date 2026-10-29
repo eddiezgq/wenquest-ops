@@ -25,6 +25,7 @@ COMPANY_ROWS = [
     ("company.timezone", "Time zone", "e.g. America/New_York, America/Chicago, America/Los_Angeles"),
     ("company.fiscal_year_start", "Fiscal year starts", "MM-DD, e.g. 01-01"),
     ("company.date_format", "Date format", " / ".join(C.DATE_FORMATS)),
+    ("company.language", "Language", "en = English, zh = Chinese (ADR-0023): the workspace, the hub's texts, ERPNext"),
     ("company.units.weight", "Weight unit", " / ".join(C.WEIGHT_UNITS)),
     ("company.units.length", "Length unit", " / ".join(C.LENGTH_UNITS)),
 ]

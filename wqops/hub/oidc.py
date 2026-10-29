@@ -11,6 +11,8 @@ Configure with environment variables (only configured providers are offered):
 Redirect URI to register with the provider: <WQO_PUBLIC_URL>/auth/oidc/<microsoft|google>/callback
 
 Only people in the company manifest can sign in; the email from the identity provider must match theirs.
+A deployment in China (WQO_DEPLOYMENT=cn, ADR-0023) offers neither: they cannot be reached reliably there; people sign
+in with their WenQuest Ops password (WeCom and DingTalk sign-in are decided later).
 """
 
 from __future__ import annotations
@@ -53,6 +55,8 @@ class Provider:
 def providers(env=None) -> dict[str, Provider]:
     env = os.environ if env is None else env
     out = {}
+    if (env.get("WQO_DEPLOYMENT") or "").strip().lower() == "cn":
+        return out
     tenant = env.get("WQO_OIDC_MICROSOFT_TENANT")
     if tenant and env.get("WQO_OIDC_MICROSOFT_CLIENT_ID") and env.get("WQO_OIDC_MICROSOFT_CLIENT_SECRET"):
         out["microsoft"] = Provider("microsoft", f"https://login.microsoftonline.com/{tenant}/v2.0",

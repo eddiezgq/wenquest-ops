@@ -197,7 +197,7 @@ function showPareto(form) { par.value = { ...par.value, source: 'check_sheet', b
             <g v-for="(b, i) in pBars" :key="b.key" class="bar" @click="sel = i">
               <rect :x="b.x" :y="b.y" :width="b.w" :height="PH - PP.b - b.y" :class="[sel === i ? 'on' : '', i < pareto.vital_few ? 'few' : '', b.key === 'not recorded' ? 'nr' : '']" />
               <text :x="b.cx" :y="b.y - 4" class="val">{{ n(b.count) }}</text>
-              <text :x="b.cx" :y="PH - PP.b + 14" class="cat" :transform="`rotate(28 ${b.cx} ${PH - PP.b + 14})`">{{ b.key.length > 18 ? b.key.slice(0, 17) + '…' : b.key }}</text>
+              <text :x="b.cx" :y="PH - PP.b + 14" class="cat" :transform="`rotate(28 ${b.cx} ${PH - PP.b + 14})`">{{ (b.key === 'not recorded' ? t('not recorded') : b.key).length > 18 ? (b.key === 'not recorded' ? t('not recorded') : b.key).slice(0, 17) + '…' : (b.key === 'not recorded' ? t('not recorded') : b.key) }}</text>
             </g>
             <path :d="cumPath" class="cum" />
             <circle v-for="b in pBars" :key="'c' + b.key" :cx="b.cx" :cy="b.cy" r="3" class="cumpt" />
@@ -221,7 +221,7 @@ function showPareto(form) { par.value = { ...par.value, source: 'check_sheet', b
   <template v-if="tab === 'histogram'">
     <p v-if="!params.length" class="wq-muted">{{ t('No measured values yet: they come from signed incoming inspections and production measurements.') }}</p>
     <div v-else data-help="hist-pick" class="mb-4 flex flex-wrap items-end gap-3">
-      <label class="wq-field">{{ t('Characteristic') }}<select v-model="hpick" class="wq-input"><option v-for="p in params" :key="p.source + p.item_code + p.parameter" :value="p">{{ p.item_code }} · {{ p.parameter }} ({{ p.source }})</option></select></label>
+      <label class="wq-field">{{ t('Characteristic') }}<select v-model="hpick" class="wq-input"><option v-for="p in params" :key="p.source + p.item_code + p.parameter" :value="p">{{ p.item_code }} · {{ p.parameter }} ({{ t(`source::${p.source}`) }})</option></select></label>
     </div>
     <template v-if="hist">
       <p v-if="!hist.enough_data" class="wq-muted">{{ hist.note }}</p>

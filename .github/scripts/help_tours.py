@@ -13,6 +13,8 @@ such a step and the rest of its tour are left out of the video. Steps that only 
 themselves (no `to` and no `demo`) are left out too.
 
 HELP_FAST=1 plays the tours quickly without recording: the check alone, for every pull request.
+HELP_LANG=zh plays the Chinese topics (web/src/help/topics/zh, ADR-0023) on a Chinese company; the tour's buttons are
+found by their Chinese labels.
 """
 
 from __future__ import annotations
@@ -31,7 +33,15 @@ from playwright.sync_api import Page, sync_playwright
 
 BASE, EMAIL, PASSWORD, OUT = sys.argv[1], sys.argv[2], sys.argv[3], Path(sys.argv[4])
 ONLY = set(sys.argv[5:])
-TOPICS = Path(__file__).resolve().parents[2] / "web" / "src" / "help" / "topics"
+WEB = Path(__file__).resolve().parents[2] / "web" / "src"
+LANG = os.environ.get("HELP_LANG", "en")
+TOPICS = WEB / "help" / "topics" / ("zh" if LANG == "zh" else "")
+_ZH = json.loads((WEB / "locales" / "zh.json").read_text(encoding="utf-8")) if LANG == "zh" else {}
+
+
+def label(s: str) -> str:
+    """A button's text in the interface's language."""
+    return _ZH.get(s, s)
 VIEW = {"width": 1280, "height": 800}
 FAST = os.environ.get("HELP_FAST") == "1"
 STEP_S = 0.2 if FAST else 3.2                  # how long each tour step stays on screen
@@ -68,7 +78,7 @@ OVERLAY = """
 def topics() -> dict[str, dict]:
     out = {}
     for p in sorted(TOPICS.glob("*.md")):
-        m = re.match(r"^---\n(.*?)\n---\n", p.read_text(), re.S)
+        m = re.match(r"^---\n(.*?)\n---\n", p.read_text(encoding="utf-8"), re.S)
         out[p.stem] = yaml.safe_load(m.group(1)) if m else {}
     return out
 
@@ -108,10 +118,10 @@ def play(page: Page, slug: str, t: dict, misses: list[str]) -> int:
             if not found:
                 if "elsewhere" not in item["tour"][k]:
                     misses.append(f"{slug}: step {n} ({item['id']}), tour {k + 1}: {s['target']} not on {where}")
-                page.locator(".tour button", has_text="Close").click()
+                page.locator(".tour button", has_text=label("Close")).click()
                 break
             time.sleep(STEP_S)
-            page.locator(".tour button", has_text="Done" if k == len(steps) - 1 else "Next").click()
+            page.locator(".tour button", has_text=label("Done" if k == len(steps) - 1 else "Next")).click()
         shown += 1
         caption(page, "")
     return shown

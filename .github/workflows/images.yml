@@ -51,3 +51,43 @@ jobs:
           package-type: container
           min-versions-to-keep: 10
           ignore-versions: '^(latest|v?\d+\.\d+\.\d+)$'
+
+  mirror-cn:
+    # ADR-0023 step 23f: installations in China cannot reach Docker Hub or ghcr.io. The hub image and every base image
+    # the deployment uses are copied to a registry in China (install.sh --mirror). Runs when the repository variable
+    # CN_REGISTRY is set (e.g. registry.cn-hangzhou.aliyuncs.com/wenquest) with the secrets CN_REGISTRY_USER and
+    # CN_REGISTRY_PASSWORD, the same way the WenQuest platform copies its images.
+    needs: hub
+    if: vars.CN_REGISTRY != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Copy the images to the China registry
+        env:
+          CN: ${{ vars.CN_REGISTRY }}
+          CN_USER: ${{ secrets.CN_REGISTRY_USER }}
+          CN_PASS: ${{ secrets.CN_REGISTRY_PASSWORD }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [ -n "$CN_USER" ] && [ -n "$CN_PASS" ] || { echo "::error::CN_REGISTRY is set but CN_REGISTRY_USER / CN_REGISTRY_PASSWORD are not"; exit 1; }
+          CN="${CN%/}"
+          printf '%s' "$CN_PASS" | docker login "${CN%%/*}" -u "$CN_USER" --password-stdin
+          copy() { for i in 1 2 3; do docker buildx imagetools create --tag "$2" "$1" && return 0; echo "retry $i: $1"; sleep 20; done; return 1; }
+          HUB="ghcr.io/${{ github.repository_owner }}/wenquest-ops-hub"
+          copy "$HUB:sha-${SHA::7}" "$CN/wenquest-ops-hub:sha-${SHA::7}"
+          if [ "${GITHUB_REF}" = refs/heads/main ]; then copy "$HUB:latest" "$CN/wenquest-ops-hub:latest"; fi
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then copy "$HUB:${GITHUB_REF_NAME#v}" "$CN/wenquest-ops-hub:${GITHUB_REF_NAME#v}"; fi
+          # the base images, with the tags deploy/docker-compose.yml uses (install.sh --mirror maps them)
+          for b in frappe/erpnext:v16.34.1 library/caddy:2.10-alpine library/postgres:16-alpine library/mariadb:11.8 \
+                   library/redis:6.2-alpine; do
+            copy "docker.io/$b" "$CN/${b##*/}"
+          done
+          echo "Copied to $CN"
