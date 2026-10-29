@@ -154,6 +154,10 @@ the ontology that defines them is in `wqops/ontology/`.
 The assistant answers questions about orders, stock, suppliers and quality using only the hub's own tools, with the
 permissions of the person asking. To use Claude, put the company's Anthropic API key in `.env` as
 `WQO_ANTHROPIC_API_KEY` (optionally `WQO_AI_MODEL`) and restart the hub (`docker compose -p wqo up -d hub`).
+To use DeepSeek instead, set `WQO_AI_PROVIDER=deepseek` and `WQO_DEEPSEEK_API_KEY`. A deployment in China sets
+`WQO_DEPLOYMENT=cn`: the hub then uses only DeepSeek (a model filed for use in China) and sends nothing to Anthropic,
+even when an Anthropic key is present; asking for another provider there stops the hub with a clear message
+(ADR-0023). The model answers in the language of the person asking (the company's language for documents it drafts).
 Without a key a built-in rule engine answers common questions. Every run (question, tools used, answer, number
 check, token use) is kept and visible to people with "Configure the AI assistant" (`GET /api/ai/runs?everyone=true`).
 

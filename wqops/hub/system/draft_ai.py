@@ -139,17 +139,18 @@ def draft(conn, user: dict, standard: str, control: str, model: L.Anthropic | No
                                   requirement=I18N.label(c["summary"]))[:1000])
     out = {"engine": "model", "model": model.model, "tool_calls": [], "verified": True, "unverified": [], "usage": {}}
     try:
-        resp = model.create(
-            f"You help {company} set up its quality management system. Write a short, plain draft document that "
-            "shows how the company meets one requirement. Keep it practical: purpose, scope, responsibilities, what "
-            "is done, which records are kept. Never invent facts about the company (names, numbers, dates, products, "
-            "sites): write [to fill: ...] where they belong and list them under to_fill. Refer to the company's "
-            "existing documents by number where they fit. A person reviews and approves the draft; you never make "
-            "it effective.",
-            [{"role": "user", "content": f"Requirement ({std} {', '.join(c['clauses'])}): {c['summary']}\n"
-                                         f"Usually shown by: {c.get('hint') or 'a procedure'}\n\n"
-                                         f"The company's documents:\n{known}"}],
-            [tool()], 4000, tool_choice={"type": "tool", "name": "write_document"})
+        with I18N.use(I18N.company_language()):        # a company document: written in the company's language
+            resp = model.create(
+                f"You help {company} set up its quality management system. Write a short, plain draft document "
+                "that shows how the company meets one requirement. Keep it practical: purpose, scope, "
+                "responsibilities, what is done, which records are kept. Never invent facts about the company "
+                "(names, numbers, dates, products, sites): write [to fill: ...] where they belong and list them "
+                "under to_fill. Refer to the company's existing documents by number where they fit. A person "
+                "reviews and approves the draft; you never make it effective.",
+                [{"role": "user", "content": f"Requirement ({std} {', '.join(c['clauses'])}): {c['summary']}\n"
+                                             f"Usually shown by: {c.get('hint') or 'a procedure'}\n\n"
+                                             f"The company's documents:\n{known}"}],
+                [tool()], 4000, tool_choice={"type": "tool", "name": "write_document"})
         if resp.get("stop_reason") == "max_tokens":
             raise L.LlmError(say("the model's draft was cut off"))
         use = next((b for b in resp.get("content", []) if b.get("type") == "tool_use"), None)

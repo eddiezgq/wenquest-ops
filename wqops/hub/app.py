@@ -113,7 +113,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     if ai is None:
         from wqops.hub.ai import llm as L  # noqa: PLC0415
 
-        ai = L.Anthropic()
+        ai = L.from_env()
     ai_model = ai
 
     def sync_now(trigger: str) -> dict:
