@@ -63,3 +63,19 @@ GitHub Actions 经 SSH 推过去；自带只监听本机的镜像仓库 `127.0.0
 
 - 本仓库多一种部署方式（在别人的服务器上当模块），美国和独立部署的默认行为不变。
 - 内存上限下 ERPNext 只能少量并发，适合演示和小企业试用，不适合真实生产负载。
+
+## 施工记录
+
+- **24a（2026-10-29）**：`install.sh --edge`（`docker-compose.edge.yml`、`Caddyfile.edge`）、`--small`
+  （`docker-compose.small.yml`）、`--project`，选过的写进 `.env`，`lib.sh` 按它拼 compose 命令；`status.sh` 在 `--edge`
+  下经边缘 Caddy 按域名检查。CI `install-cn` 改成与服务器完全相同的装法（项目 qms、`--china --edge --small`，前面放一个
+  替身 Caddy 占 443），导入国内演示企业、走完中文帮助演示。**实测内存**（导入演示数据后）：ERPNext 后台 318 MB、MariaDB
+  275 MB、中枢 80 MB、队列 52 MB、定时任务 51 MB、PostgreSQL 40 MB、其余各十几 MB 以下，合计约 0.87 GB，远低于 2.4 GB 上限；
+  没有容器因内存被杀。
+- **24b（2026-10-29）**：`.github/workflows/deploy-cn.yml`：中枢镜像构建完（或手动运行）后，SSH 通道 + skopeo 把中枢和 5 个
+  基础镜像复制成 `127.0.0.1:5000/qms/...`（失败重试，不做 garbage-collect，中枢只留最近 3 个版本）；文件传到 `/opt/qms`；
+  拿问渠的部署锁后第一次 `install.sh`（国内演示企业、`--china --edge --small --project qms --mirror 127.0.0.1:5000/qms`）
+  并导入演示数据，以后 `upgrade.sh`；每天 04:10 备份留 7 份（deploy 用户的 crontab）；最后报告状态和内存。网址取服务器上
+  问渠平台 `.env` 的 `SITE_DOMAIN`：`qms.<主域名>` 和 `qms-erp.<主域名>`，也可用仓库变量 `CN_QMS_DOMAIN` 指定。
+  另加两个服务器上用的小脚本：`owner-password.sh`（设老板密码）、`ai-key.sh`（填 DeepSeek 钥匙并重启中枢，先拿部署锁），
+  都在终端里问、不回显、不进命令历史。没有 Secrets `CN_DEPLOY_HOST`、`CN_DEPLOY_SSH_KEY` 时部署流程什么也不做。
