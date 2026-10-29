@@ -53,7 +53,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install
         run: |
-          sudo apt-get install -y --no-install-recommends tesseract-ocr >/dev/null   # OCR of scans (ADR-0014)
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-chi-sim >/dev/null   # OCR of scans (ADR-0014, 0023)
           pip install -e ".[dev]"
           npm ci --prefix web --no-audit --no-fund
       - name: Lint
@@ -343,7 +343,9 @@ jobs:
             [ "$(erp frappe.db.get_value --args "['Warehouse', '$w', 'parent_warehouse']")" = "$root" ]
           done
           [ -n "$(erp frappe.db.exists --args "['Department', {'department_name': '质量部', 'company': '海港五金供应（演示）'}]")" ]
-          erp frappe.db.get_value --args "['Account', {'company': '海港五金供应（演示）', 'account_type': 'Receivable'}]" | cjk
+          # bench prints non-ASCII as \uXXXX escapes
+          erp frappe.db.get_value --args "['Account', {'company': '海港五金供应（演示）', 'account_type': 'Receivable'}]" \
+            | python3 -c "import sys; print(sys.stdin.read().encode().decode('unicode_escape'))" | cjk
           for _ in $(seq 1 20); do
             code=$(curl -sk "${R[@]}" -b jar -o sync.json -w '%{http_code}' -X POST https://ops.localtest.me/api/sync/run)
             [ "$code" = 409 ] || break; sleep 3
@@ -355,10 +357,38 @@ jobs:
           assert any('一' <= c <= '鿿' for c in a['answer']), a"
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/qms | cjk
           "$WQO_DIR/status.sh"
+      - name: Load the Chinese demo business and check the ops hub shows its problems in Chinese
+        run: |
+          exec > >(tee "$RUNNER_TEMP/demo.log") 2>&1
+          set -x -o pipefail
+          R=(--resolve ops.localtest.me:443:127.0.0.1)
+          dc() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" "$@"; }
+          time dc exec -T hub python -m wqops.demo.load | tee demo.json
+          python3 -c "import json; t = open('demo.json').read().splitlines(); o = json.loads(chr(10).join(t[t.index('{'):]))
+          q = o['quality_samples']; print(q); print(o['documents'], o['quality'])
+          bad = {k: v for k, v in q.items() if v.startswith(('未导入', '已跳过'))}; assert not bad, bad
+          assert o['documents']['files'] == 22, o['documents']"
+          dc exec -T hub python - < .github/scripts/erp_consistency.py
+          curl -fsk "${R[@]}" -c jar -H 'content-type: application/json' \
+               -d '{"email":"wangdan@demo.example","password":"Ci-owner-pass-2026"}' https://ops.localtest.me/api/login
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/anomalies | python3 -c "import json,sys
+          a = json.load(sys.stdin); rules = {x['rule'] for x in a}; print(sorted(rules)); print([x['title'] for x in a][:5])
+          need = {'order_late', 'item_short', 'po_late', 'supplier_on_time_low', 'capa_overdue'}
+          assert need <= rules, need - rules
+          assert all(any('\u4e00' <= c <= '\u9fff' for c in x['title']) for x in a), 'titles not in Chinese'"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/dashboard | python3 -c "import json,sys
+          m = {x['name']: x['value'] for x in json.load(sys.stdin)['metrics']}; print(m)
+          assert m['on_time_delivery'] is not None and m['inventory_value'] and m['supplier_on_time'] is not None, m"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/quality/incoming | grep -q CBL-12-50
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/quality/spc/parameters | grep -q HX-BOLT-M8
+          curl -fsk "${R[@]}" -b jar -H 'content-type: application/json' -d '{"question":"哪些订单迟交了？"}' \
+            https://ops.localtest.me/api/ai/ask | python3 -c "import json,sys; a=json.load(sys.stdin); print(a['answer'])
+          assert '[SalesOrder:' in a['answer'] and '按时交付率' in a['answer'], a"
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/docs/imports | head -c 800
       - name: Show the end of the logs as one annotation on failure
         if: failure()
         run: |
-          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log"; do
+          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/check.log" "$RUNNER_TEMP/demo.log"; do
             [ -f "$f" ] && echo "::error title=cn $(basename "$f")::$(tail -n 40 "$f" | tr -d '\r' | sed ':a;N;$!ba;s/\n/%0A/g')"
           done
           docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" ps -a || true

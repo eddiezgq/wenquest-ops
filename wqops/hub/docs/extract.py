@@ -1,5 +1,6 @@
 """Text from imported files (ADR-0014 item 2): local code only, no network. PDF, Word, Excel, CSV and text are read
-directly; scanned pages and images go through local OCR (Tesseract, English). A file that yields no text is marked
+directly; scanned pages and images go through local OCR (Tesseract: Chinese and English when the Chinese language
+data is installed, else English). A file that yields no text is marked
 ``no_text`` and can still be classified by a person.
 """
 
@@ -10,6 +11,7 @@ import io
 import mimetypes
 import re
 from dataclasses import dataclass
+from functools import cache
 from pathlib import PurePosixPath
 
 from wqops.i18n import say
@@ -50,13 +52,59 @@ def clean(s: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", s).strip()[:MAX_CHARS]
 
 
-def _decode(data: bytes) -> str:
-    for enc in ("utf-8-sig", "cp1252"):
+_HAN = re.compile(r"[\u3400-\u9fff]")
+
+
+def looks_chinese(text: str) -> bool:
+    """Text decoded as GB18030 that is really Chinese: Western Windows-1252 bytes also decode as GB18030 ("Müller"
+    becomes a rare character), but then the characters are lone and outside the common GB2312 set. Real Chinese has
+    characters side by side, nearly all of them common."""
+    han = _HAN.findall(text)
+    if not han or not re.search(r"[\u3400-\u9fff]{2}", text):
+        return False
+    common = 0
+    for ch in han:
         try:
-            return data.decode(enc)
+            ch.encode("gb2312")
+            common += 1
+        except UnicodeEncodeError:
+            pass
+    return common >= 0.9 * len(han)
+
+
+def _decode(data: bytes) -> str:
+    """UTF-16 with its mark, UTF-8 (with or without the mark Excel writes), Chinese GBK/GB18030 (what Excel in China
+    saves as CSV) when the bytes read cleanly as Chinese, else Windows-1252 and finally Latin-1."""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        try:
+            return data.decode("utf-16")
         except UnicodeDecodeError:
-            continue
-    return data.decode("latin-1")
+            pass
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+    try:
+        text = data.decode("gb18030")
+        if looks_chinese(text):
+            return text
+    except UnicodeDecodeError:
+        pass
+    try:
+        return data.decode("cp1252")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
+
+
+@cache
+def ocr_lang() -> str:
+    """Tesseract's languages: Chinese and English when the simplified-Chinese data (chi_sim) is installed."""
+    try:
+        import pytesseract  # noqa: PLC0415
+
+        return "chi_sim+eng" if "chi_sim" in pytesseract.get_languages(config="") else "eng"
+    except Exception:
+        return "eng"
 
 
 def ocr_image(img) -> str:
@@ -69,7 +117,12 @@ def ocr_image(img) -> str:
     k = min(1000 / min(w, h), (MAX_OCR_PIXELS / (w * h)) ** 0.5, 4.0)
     if k > 1:                                           # small scans read better enlarged, within a memory cap
         img = img.resize((int(w * k), int(h * k)))
-    return pytesseract.image_to_string(img, lang="eng")
+    lang = ocr_lang()
+    out = pytesseract.image_to_string(img, lang=lang)
+    if "chi_sim" in lang:                               # Tesseract puts spaces between Chinese characters
+        out = re.sub(r"(?<=[\u3400-\u9fff\u3000-\u303f\uff00-\uffef]) +(?=[\u3400-\u9fff\u3000-\u303f\uff00-\uffef])",
+                     "", out)
+    return out
 
 
 def _ocr_ready() -> bool:
