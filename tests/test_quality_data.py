@@ -107,7 +107,12 @@ def test_awaiting_inspection(conn):
         ("PR-4", "BOLT-B", False), ("PR-3", "BOLT-B", False), ("PR-5", "BOLT-B", True)]
 
 
-def test_quality_data_api(db_url):
+def test_quality_data_api(db_url, monkeypatch):
+    # the endpoints read "today" from the clock; the fixture's receipts are dated around AS_OF, so pin it there
+    # (from 2026-10-30 the real clock pushed Acme's 2026-08-01 receipt out of the 90-day window)
+    from wqops.hub.ont import api as OA
+
+    monkeypatch.setattr(OA, "today", lambda manifest: AS_OF)
     f = business()
     c = TestClient(create_app({}, lambda: (DEMO, "ok"), db_url=db_url,
                               erp=ErpClient("http://erp", transport=f.transport()), ai=L.Anthropic("", env={})))
