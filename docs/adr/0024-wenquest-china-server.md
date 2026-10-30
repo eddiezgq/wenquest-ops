@@ -83,3 +83,7 @@ GitHub Actions 经 SSH 推过去；自带只监听本机的镜像仓库 `127.0.0
   问渠平台目录下的 `/opt/wenquest/qms`（deploy 用户本来就是 `/opt/wenquest` 的主人，部署流程自己建，不用 root）。问渠的部署
   只往 `/opt/wenquest` 解包自己的文件、不清空目录，不会碰到这里；compose 项目名仍是 qms，不和问渠平台冲突。SSH 钥匙也由
   deploy 用户自己生成（写进自己的 `~/.ssh/authorized_keys`），同样不用 root。
+- **第一次部署（2026-10-29，运行 40986276528）**：成功。镜像复制进服务器仓库、装好、导入国内演示企业、备份任务已加。
+  服务器上本模块实测内存约 0.85 GB（ERPNext 后台 228 MB、MariaDB 286 MB、中枢 92 MB，其余都在 63 MB 以下）；整台服务器
+  已用 2.65 GB / 7.5 GB，可用约 4.9 GB，不需要为本模块升级。待做：项目负责人设老板密码、填 DeepSeek 钥匙；问渠主仓库加
+  `qms.caddy`；备案下来后对外。
