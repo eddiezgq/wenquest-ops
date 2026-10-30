@@ -4,7 +4,7 @@ name: Deploy to the WenQuest server in China
 # Docker Hub. Everything goes over SSH from here:
 #   1. the hub image of this commit and the base images are copied into the server's own registry (127.0.0.1:5000,
 #      through an SSH tunnel; names under qms/), only missing layers travel;
-#   2. the deployment files go to /opt/qms;
+#   2. the deployment files go to /opt/wenquest/qms;
 #   3. under the server's deploy lock (shared with the WenQuest platform): install.sh the first time (Chinese demo
 #      company, --china --edge --small --project qms --mirror 127.0.0.1:5000/qms) and the demo data, upgrade.sh later;
 #   4. a daily backup at 04:10 (7 kept), status and memory use, the last 3 hub versions kept in the registry.
@@ -58,8 +58,9 @@ jobs:
           printf 'Host cn\n  HostName %s\n  User deploy\n  ServerAliveInterval 30\n  ServerAliveCountMax 6\n' "$HOST" \
             > ~/.ssh/config
           ssh cn 'echo connected; df -h / | tail -1; free -m | head -2'
-          if ! ssh cn 'test -d /opt/qms && test -w /opt/qms'; then
-            echo "::error::/opt/qms is missing or not writable for deploy. On the server, as root: install -d -o deploy -g deploy /opt/qms"
+          # under the WenQuest platform's directory, which deploy owns: no root step on the server
+          if ! ssh cn 'mkdir -p /opt/wenquest/qms && test -w /opt/wenquest/qms'; then
+            echo "::error::cannot create /opt/wenquest/qms as deploy"
             exit 1
           fi
           ssh cn 'curl -sf http://127.0.0.1:5000/v2/ >/dev/null' \
@@ -95,12 +96,12 @@ jobs:
             case "$b" in */*) src="docker.io/$b" ;; *) src="docker.io/library/$b" ;; esac
             copy "$src" "${b##*/}"
           done
-      - name: Copy the deployment files to /opt/qms
+      - name: Copy the deployment files to /opt/wenquest/qms
         if: env.SKIP != '1'
         run: |
           set -euo pipefail
           cp companies/demo-haigang.yaml deploy/company-demo.yaml
-          tar czf - -C deploy . | ssh cn 'tar xzf - -C /opt/qms && chmod +x /opt/qms/*.sh'
+          tar czf - -C deploy . | ssh cn 'tar xzf - -C /opt/wenquest/qms && chmod +x /opt/wenquest/qms/*.sh'
       - name: Install the first time, else upgrade (under the server's deploy lock)
         if: env.SKIP != '1'
         env:
@@ -118,7 +119,7 @@ jobs:
           # shellcheck disable=SC2029   # the values are meant to expand here, before ssh
           ssh cn "TAG='$TAG' DOMAIN='$domain' ERP='$erp' bash -s" <<'EOF' 2>&1 | tee "$RUNNER_TEMP/deploy.log"
           set -euo pipefail
-          cd /opt/qms
+          cd /opt/wenquest/qms
           exec 9>/tmp/wenquest-deploy.lock
           flock -w 1500 9 || { echo "the deploy lock stayed taken for 25 minutes"; exit 1; }
           if [ ! -f .installed ]; then
@@ -139,13 +140,13 @@ jobs:
       - name: Daily backup at 04:10, 7 kept (after the WenQuest backup at 03:30)
         if: env.SKIP != '1'
         run: |
-          ssh cn 'line="10 4 * * * cd /opt/qms && WQO_KEEP=7 ./backup.sh >> /opt/qms/backups/backup.log 2>&1"
-            { crontab -l 2>/dev/null | grep -v "/opt/qms.*backup.sh" || true; echo "$line"; } | crontab -
-            crontab -l | grep /opt/qms'
+          ssh cn 'line="10 4 * * * cd /opt/wenquest/qms && WQO_KEEP=7 ./backup.sh >> /opt/wenquest/qms/backups/backup.log 2>&1"
+            { crontab -l 2>/dev/null | grep -v "/opt/wenquest/qms.*backup.sh" || true; echo "$line"; } | crontab -
+            crontab -l | grep /opt/wenquest/qms'
       - name: Status and memory use
         if: env.SKIP != '1'
         run: |
-          ssh cn '/opt/qms/status.sh' || { echo "::error::status check failed"; exit 1; }
+          ssh cn '/opt/wenquest/qms/status.sh' || { echo "::error::status check failed"; exit 1; }
           mem=$(ssh cn "docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | grep -E '^qms' | sort; free -m | head -2")
           echo "$mem"
           echo "::notice title=memory on the server::$(printf '%s' "$mem" | sed ':a;N;$!ba;s/\n/%0A/g')"
@@ -158,7 +159,7 @@ jobs:
           set -u
           R=http://127.0.0.1:5000; N=qms/wenquest-ops-hub
           H='Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
-          L=/opt/qms/.hub-tags
+          L=/opt/wenquest/qms/.hub-tags
           { grep -vx "$TAG" "$L" 2>/dev/null; echo "$TAG"; } > "$L.new" && mv "$L.new" "$L"
           keep=$(tail -n 3 "$L"); old=$(head -n -3 "$L")
           digest() { curl -sfI -H "$H" "$R/v2/$N/manifests/$1" | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest"{print $2}'; }
@@ -177,4 +178,4 @@ jobs:
         if: failure()
         run: |
           [ -f "$RUNNER_TEMP/deploy.log" ] && echo "::error title=deploy-cn::$(grep -E 'ERROR|Error|error|failed' "$RUNNER_TEMP/deploy.log" | tail -n 10 | cut -c 1-300 | sed ':a;N;$!ba;s/\n/%0A/g')%0A---%0A$(tail -n 25 "$RUNNER_TEMP/deploy.log" | cut -c 1-300 | sed ':a;N;$!ba;s/\n/%0A/g')"
-          ssh cn 'cd /opt/qms && docker compose -p qms --env-file .env -f docker-compose.yml ps -a' || true
+          ssh cn 'cd /opt/wenquest/qms && docker compose -p qms --env-file .env -f docker-compose.yml ps -a' || true
