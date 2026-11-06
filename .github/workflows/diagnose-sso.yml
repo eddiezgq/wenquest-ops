@@ -1,0 +1,57 @@
+name: Diagnose ERPNext sign-in
+
+# Read-only look at "Login with WenQuest Ops" on a server (project lead 2026-11-06: it does not sign in). Prints the
+# public addresses from .env (no secrets), the authorize link ERPNext's login page offers, what the hub answers to it,
+# and the hub's and ERPNext's recent log lines about OAuth. Changes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      server:
+        description: cn or us
+        required: true
+        default: cn
+
+permissions:
+  contents: read
+
+jobs:
+  look:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Look
+        env:
+          CN_HOST: ${{ secrets.CN_DEPLOY_HOST }}
+          CN_KEY: ${{ secrets.CN_DEPLOY_SSH_KEY }}
+          US_HOST: ${{ secrets.US_DEPLOY_HOST }}
+          US_KEY: ${{ secrets.US_DEPLOY_SSH_KEY }}
+          SERVER: ${{ inputs.server }}
+        run: |
+          set -uo pipefail
+          install -d -m 700 ~/.ssh
+          if [ "$SERVER" = us ]; then host=$US_HOST; key=$US_KEY; else host=$CN_HOST; key=$CN_KEY; fi
+          host=$(printf '%s' "$host" | tr -d '[:space:]')
+          printf '%s\n' "$key" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -T 20 -t ed25519 "$host" > ~/.ssh/known_hosts 2>/dev/null
+          ssh "deploy@$host" 'bash -s' <<'EOS'
+          dir=$(docker inspect qms-demo-edge --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null)
+          cd "${dir:-/opt/wenquest/qms}" || exit 1
+          echo "== addresses"; grep -E '^(WQO_DOMAIN|WQO_ERP_DOMAIN|WQO_PUBLIC_URL|WQO_ERP_PUBLIC_URL|WQO_PROJECT)=' .env
+          p=$(grep -E '^WQO_PROJECT=' .env | cut -d= -f2-); p=${p:-qms}
+          erp=$(grep -E '^WQO_ERP_DOMAIN=' .env | cut -d= -f2-); ops=$(grep -E '^WQO_DOMAIN=' .env | cut -d= -f2-)
+          echo "== ERPNext login page, through the edge"
+          page=$(docker exec qms-demo-edge wget -qO- --header "Host: $erp" --header "X-Forwarded-Proto: https" http://127.0.0.1/login 2>&1)
+          link=$(printf '%s' "$page" | grep -o 'href="[^"]*oauth/authorize[^"]*"' | head -n 1 | sed 's/&amp;/\&/g; s/^href="//; s/"$//')
+          echo "link: ${link:-(none on the page)}"
+          printf '%s' "$page" | grep -o 'login-with-[a-z_]*\|btn-login-option[^"]*' | sort -u | head
+          echo "== the hub's answer to it (no session)"
+          if [ -n "$link" ]; then
+            q=${link#*\?}
+            docker exec qms-demo-edge wget -S -O /dev/null --max-redirect=0 --header "Host: $ops" "http://127.0.0.1/api/oauth/authorize?$q" 2>&1 | grep -E 'HTTP/|Location' | head -4
+          fi
+          echo "== ERPNext host_name"; docker compose -p "$p" --env-file .env -f docker-compose.yml exec -T erp-backend bench --site frontend show-config 2>/dev/null | grep -iE 'host_name' | head -3
+          echo "== Social Login Key"; docker compose -p "$p" --env-file .env -f docker-compose.yml exec -T erp-backend bench --site frontend execute frappe.db.get_value --args "['Social Login Key', 'wenquest_ops', ['base_url', 'redirect_url', 'enable_social_login', 'access_token_url', 'api_endpoint']]" 2>/dev/null | tail -n 1
+          echo "== hub log (oauth, errors)"; docker logs --since 3h "$p-hub-1" 2>&1 | grep -iE 'oauth|error|exception|traceback' | tail -n 25
+          echo "== ERPNext log (oauth)"; docker logs --since 3h "$p-erp-backend-1" 2>&1 | grep -iE 'oauth|social|login|error' | tail -n 25
+          EOS
