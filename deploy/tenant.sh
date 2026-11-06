@@ -58,6 +58,18 @@ new)
         v=$(envval "$k" "$BASE/.env"); [ -z "$v" ] || printf '%s=%s\n' "$k" "$v" >> "$d/.env"
     done
     printf 'WQO_EDGE_NAME=qms-%s-edge\nWQO_TENANT=%s\nWQO_TENANT_CREATED=%s\n' "$id" "$id" "$(date -u +%FT%TZ)" >> "$d/.env"
+    # ADR-0025 25d: 200 AI runs a day; the owner changes the first password; problems people report go by email once a
+    # day to whoever runs the WenQuest platform on this server, through its mail settings (../.env), when it has them
+    printf 'WQO_AI_DAILY=%s\nWQO_MUST_CHANGE=1\n' "${WQO_TENANT_AI_DAILY:-200}" >> "$d/.env"
+    wq="$(dirname "$BASE")/.env"
+    if [ -r "$wq" ]; then
+        for pair in SMTP_HOST:WQO_SMTP_HOST SMTP_PORT:WQO_SMTP_PORT SMTP_SECURE:WQO_SMTP_SECURE SMTP_USER:WQO_SMTP_USER \
+                    SMTP_PASSWORD:WQO_SMTP_PASSWORD MOODLE_NOREPLY_EMAIL:WQO_SMTP_SENDER; do
+            v=$(envval "${pair%%:*}" "$wq"); [ -z "$v" ] || printf '%s=%s\n' "${pair##*:}" "$v" >> "$d/.env"
+        done
+        to=$(envval WQ_ADMIN_EMAIL "$wq"); [ -n "$to" ] || to=$(envval MOODLE_ADMIN_EMAIL "$wq")
+        [ -z "$to" ] || printf 'WQO_FEEDBACK_TO=%s\n' "$to" >> "$d/.env"
+    fi
     python3 - "$d/company/start.yaml" "$id" "$NAME" "$CONTACT" "${EMAIL,,}" "$LANG_" <<'PY'
 import json, re, sys
 out, cid, name, contact, email, lang = sys.argv[1:]

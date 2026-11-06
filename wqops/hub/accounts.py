@@ -142,17 +142,20 @@ def get(conn, email: str) -> dict | None:
     return conn.execute("select * from users where email=%s", (email.lower(),)).fetchone()
 
 
-def set_password(conn, email: str, pw: str, *, by: str | None = None) -> None:
+def set_password(conn, email: str, pw: str, *, by: str | None = None, must_change: bool | None = None) -> None:
     """Set the password, unlock, and end all the person's sessions (they sign in again with the new password).
-    ``by`` is who set it, when not the person."""
+    ``by`` is who set it, when not the person; a password someone else set must be changed at the next sign-in
+    (ADR-0025 25d), unless ``must_change`` says otherwise."""
     u = get(conn, email)
     if u is None or not u["active"]:
         raise AccountError(say("no active person with email {email}", email=email))
     problem = password_problem(pw)
     if problem:
         raise AccountError(problem)
-    conn.execute("update users set password_hash=%s, failed_logins=0, locked_until=null, updated_at=now() "
-                 "where id=%s", (hash_password(pw), u["id"]))
+    if must_change is None:
+        must_change = bool(by) and by != u["email"]
+    conn.execute("update users set password_hash=%s, failed_logins=0, locked_until=null, must_change=%s, "
+                 "updated_at=now() where id=%s", (hash_password(pw), must_change, u["id"]))
     conn.execute("delete from sessions where user_id=%s", (u["id"],))
     event(conn, u["email"], "password_set", f"by {by}" if by and by != u["email"] else "")
 
@@ -223,7 +226,7 @@ def public(u: dict) -> dict:
 
     return {"email": u["email"], "name": u["name"], "roles": list(u["roles"]), "department": u["department"],
             "active": u["active"], "has_password": bool(u["password_hash"]), "permissions": sorted(P.of(u["roles"])),
-            "source": u.get("source", "manifest")}
+            "source": u.get("source", "manifest"), "must_change": bool(u.get("must_change"))}
 
 
 def main(argv=None) -> int:
@@ -245,7 +248,9 @@ def main(argv=None) -> int:
                 m = C.load(os.environ["WQO_COMPANY_FILE"])
                 sync(conn, m)
                 email = next(p["email"] for p in m["people"] if "owner" in p["roles"])
-            set_password(conn, email, sys.stdin.readline().rstrip("\n"))
+            # a pilot company's first password is sent by email and must be changed (WQO_MUST_CHANGE=1, tenant.sh)
+            set_password(conn, email, sys.stdin.readline().rstrip("\n"),
+                         must_change=os.environ.get("WQO_MUST_CHANGE") == "1")
             print(f"Password set for {email}")
         else:
             for u in conn.execute("select * from users order by email").fetchall():

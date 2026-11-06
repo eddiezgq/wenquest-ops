@@ -69,6 +69,16 @@ services:
       WQO_ANTHROPIC_API_KEY: ${WQO_ANTHROPIC_API_KEY:-}   # the company's own key; empty = rule engine (ADR-0008)
       WQO_DEEPSEEK_API_KEY: ${WQO_DEEPSEEK_API_KEY:-}     # the company's own DeepSeek key (ADR-0023)
       WQO_AI_MODEL: ${WQO_AI_MODEL:-}
+      # ADR-0025 25d (pilot companies; empty = off): AI runs a day, a first password must be changed, feedback by email
+      WQO_AI_DAILY: ${WQO_AI_DAILY:-}
+      WQO_MUST_CHANGE: ${WQO_MUST_CHANGE:-}
+      WQO_FEEDBACK_TO: ${WQO_FEEDBACK_TO:-}
+      WQO_SMTP_HOST: ${WQO_SMTP_HOST:-}
+      WQO_SMTP_PORT: ${WQO_SMTP_PORT:-}
+      WQO_SMTP_SECURE: ${WQO_SMTP_SECURE:-}
+      WQO_SMTP_USER: ${WQO_SMTP_USER:-}
+      WQO_SMTP_PASSWORD: ${WQO_SMTP_PASSWORD:-}
+      WQO_SMTP_SENDER: ${WQO_SMTP_SENDER:-}
       WQO_SECRET: ${WQO_SECRET:?}
       WQO_ERP_PUBLIC_URL: https://${WQO_ERP_DOMAIN:?}
       WQO_PUBLIC_URL: https://${WQO_DOMAIN:?}

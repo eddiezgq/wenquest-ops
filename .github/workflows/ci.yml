@@ -268,6 +268,8 @@ jobs:
           call("/api/login", {"email": "pat@acme.example", "password": os.environ["PW"]})
           ws = call("/api/workspace")
           assert ws["company"] == 'Acme "CI" Tools' and not ws["demo"], ws
+          assert ws["user"]["must_change"], "the emailed first password must be changed (ADR-0025 25d)"
+          assert call("/api/feedback", {"text": "CI: a test report", "page": "/"})["id"] > 0
           p = call("/api/users", {"name": "Quinn Quality", "email": "quinn@acme.example", "roles": ["quality"],
                                   "department": "leadership"})
           assert p["source"] == "app", p

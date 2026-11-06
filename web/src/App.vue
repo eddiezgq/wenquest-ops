@@ -13,6 +13,7 @@ import { setCurrency } from './format'
 import { lang, setLang, t, useCompanyLanguage } from './i18n'
 import Tour from './components/Tour.vue'
 import ChatPanel from './components/ChatPanel.vue'
+import FeedbackButton from './components/FeedbackButton.vue'
 
 const route = useRoute()
 const ws = ref(null)
@@ -115,8 +116,14 @@ const menu = computed(() => [
       </template>
 
       <main class="page">
+        <!-- a first password someone else set (ADR-0025 25d) -->
+        <div v-if="ws.user.must_change && route.path !== '/account'" class="m-4 rounded border border-outline-amber-2 bg-surface-amber-1 p-3 text-base">
+          {{ t('Your password was set for you. Please change it now.') }}
+          <RouterLink to="/account" class="wq-link ml-2">{{ t('Change my password') }}</RouterLink>
+        </div>
         <RouterView />
       </main>
+      <FeedbackButton />
       <Tour v-if="touring" :permissions="ws.user.permissions" :steps="tourSteps" :name="tourName" @done="tourDone" />
       <ChatPanel v-if="can('ai:use')" ref="chat" v-model:open="chatOpen" />
     </DesktopShell>

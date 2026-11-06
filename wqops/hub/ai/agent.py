@@ -9,6 +9,7 @@ unverified. Every run is stored in ``ai_runs``.
 from __future__ import annotations
 
 import json
+import os
 import re
 
 from psycopg.types.json import Jsonb
@@ -97,8 +98,22 @@ def _summary(result: dict) -> str:
     return s[:300] + ("..." if len(s) > 300 else "")
 
 
+class DailyLimit(RuntimeError):
+    """The company's AI runs for today are used up (WQO_AI_DAILY, ADR-0025 25d)."""
+
+
+def check_daily(conn, env=None) -> None:
+    limit = int((os.environ if env is None else env).get("WQO_AI_DAILY", "0") or 0)
+    if limit <= 0:
+        return
+    n = conn.execute("select count(*) as n from ai_runs where created_at >= date_trunc('day', now())").fetchone()["n"]
+    if n >= limit:
+        raise DailyLimit(say("today's {n} AI runs for this company are used up; they start again tomorrow", n=limit))
+
+
 def start(ctx: T.Ctx, kind: str, question: str) -> int:
     """Open the run record first, so drafts made during the run can point to it."""
+    check_daily(ctx.conn)
     ctx.run_id = ctx.conn.execute(
         "insert into ai_runs (email, kind, question, engine) values (%s, %s, %s, 'running') returning id",
         (ctx.user["email"], kind, question),
