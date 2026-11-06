@@ -2,6 +2,7 @@ name: Deploy to the WenQuest server in the US
 
 # ADR-0025 (25b): the US server runs the same version as the server in China. Unlike China it reaches GitHub, so the
 # server pulls the images from ghcr.io itself (signed in with this run's token, signed out again at the end).
+#   0. once, when asked (replace_odoo_demo): back up and stop the old Odoo QMS demo that held qms.<domain>;
 #   1. find the installation: the folder the running qms-demo-edge container was started from (it was installed by
 #      hand in October 2026), else /opt/wenquest/qms for a fresh one (English demo company, --edge, project qms);
 #   2. copy the deployment files there; under the server's deploy lock (shared with the WenQuest platform):
@@ -16,6 +17,11 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      replace_odoo_demo:
+        description: "Once (project lead 2026-11-06): back up and stop the old Odoo QMS demo (compose project qmsdemo) that holds qms.<domain>, then install WenQuest Ops there"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-us
@@ -74,7 +80,7 @@ jobs:
           if [ -z "$dir" ]; then
             dir=$(ssh us "for c in \$(docker ps -a --filter ancestor=ghcr.io/eddiezgq/wenquest-ops-hub --format '{{.Names}}'; docker ps -a --format '{{.Names}} {{.Image}}' | awk '/wenquest-ops-hub/ {print \$1}'); do docker inspect \$c --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}'; done 2>/dev/null | grep . | head -n 1" || true)
           fi
-          if [ -z "$dir" ] && ssh us "docker ps -a --format '{{.Image}}' | grep -q -E 'wenquest-ops-hub|erpnext'"; then
+          if [ -z "$dir" ] && ssh us "docker ps -a --format '{{.Image}}' | grep -q -E 'wenquest-ops-hub'"; then
             echo "::error::WenQuest Ops containers exist on the server but their folder was not found; not installing a second copy. See the container list above."
             exit 1
           fi
@@ -86,6 +92,26 @@ jobs:
             echo "::error::$dir is not writable by the user deploy (installed by hand as another user?). On the server: sudo chown -R deploy: $dir"
             exit 1
           fi
+      - name: Back up and stop the old Odoo QMS demo (only when asked, once)
+        if: env.SKIP != '1' && inputs.replace_odoo_demo
+        run: |
+          set -euo pipefail
+          # its database is dumped next to its folder, then its containers are stopped and kept (nothing deleted):
+          # docker update --restart=no keeps them stopped after a reboot. qms.<domain> then goes to WenQuest Ops.
+          ssh us 'bash -s' <<'EOF'
+          set -euo pipefail
+          docker ps -a --format '{{.Names}}' | grep -q '^qmsdemo-' || { echo "no Odoo QMS demo here"; exit 0; }
+          dir=$(docker inspect qmsdemo-db-1 --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}')
+          out="${dir:-/opt/wenquest}/qmsdemo-backup-$(date +%F).sql.gz"
+          if docker ps --format '{{.Names}}' | grep -q '^qmsdemo-db-1$'; then
+            docker exec qmsdemo-db-1 sh -c 'pg_dumpall -U "${POSTGRES_USER:-postgres}"' | gzip > "$out"
+            echo "database dumped: $out ($(du -h "$out" | cut -f1))"
+          fi
+          for c in $(docker ps -a --format '{{.Names}}' | grep '^qmsdemo-'); do
+            docker update --restart=no "$c" >/dev/null
+            docker stop "$c" >/dev/null && echo "stopped $c (kept)"
+          done
+          EOF
       - name: Sign the server in to ghcr.io for this run
         if: env.SKIP != '1'
         run: |
@@ -135,7 +161,9 @@ jobs:
             ./upgrade.sh "$TAG"
           else
             echo "installation (first time, or again after an unfinished one: install.sh skips finished steps)"
-            ./install.sh --company company-demo.yaml --domain "$DOMAIN" --erp-domain "$ERP" --image "$TAG" --edge --project qms
+            # the digital factory on this server already holds the ERPNext image, so 15 GB of free disk is enough
+            WQO_MIN_DISK_GB=15 ./install.sh --company company-demo.yaml --domain "$DOMAIN" --erp-domain "$ERP" --image "$TAG" \
+              --edge --small --project qms
             touch .installed
             dc exec -T hub python -m wqops.demo.load > demo.log 2>&1 && touch .demo-loaded || tail -n 20 demo.log
           fi
