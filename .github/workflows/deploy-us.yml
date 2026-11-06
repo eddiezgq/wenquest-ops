@@ -101,8 +101,8 @@ jobs:
           ssh us 'bash -s' <<'EOF'
           set -euo pipefail
           docker ps -a --format '{{.Names}}' | grep -q '^qmsdemo-' || { echo "no Odoo QMS demo here"; exit 0; }
-          dir=$(docker inspect qmsdemo-db-1 --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}')
-          out="${dir:-/opt/wenquest}/qmsdemo-backup-$(date +%F).sql.gz"
+          mkdir -p /opt/wenquest/qmsdemo-backup        # its own folder belongs to another user
+          out="/opt/wenquest/qmsdemo-backup/qmsdemo-$(date +%F).sql.gz"
           if docker ps --format '{{.Names}}' | grep -q '^qmsdemo-db-1$'; then
             docker exec qmsdemo-db-1 sh -c 'pg_dumpall -U "${POSTGRES_USER:-postgres}"' | gzip > "$out"
             echo "database dumped: $out ($(du -h "$out" | cut -f1))"
