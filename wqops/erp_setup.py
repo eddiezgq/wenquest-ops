@@ -55,6 +55,18 @@ def warehouse_name(m: dict, w: dict) -> str:
     return f"{w['name']} - {m['company']['abbr']}"
 
 
+def _auto_login(erp: ErpClient) -> list[str]:
+    """ERPNext's login page goes on to WenQuest Ops by itself: people sign in once (ADR-0025 follow-up, 2026-11-06)."""
+    from wqops.hub import erp_sso as S  # noqa: PLC0415
+
+    ws = erp.get("Website Script", "Website Script") or {}
+    js = S.with_auto_login(ws.get("javascript") or "")
+    if js == (ws.get("javascript") or ""):
+        return []
+    erp.update("Website Script", "Website Script", {"javascript": js})
+    return ["ERPNext login page goes on to WenQuest Ops by itself"]
+
+
 def apply(m: dict, erp: ErpClient) -> list[str]:
     """Create what the manifest describes; return a line per action."""
     company = m["company"]["name"]
@@ -95,6 +107,7 @@ def apply(m: dict, erp: ErpClient) -> list[str]:
         else:
             erp.update("Social Login Key", S.PROVIDER, {k: v for k, v in key.items() if k != "doctype"})
             done.append("ERPNext sign-in through WenQuest Ops: updated")
+        done += _auto_login(erp)
     for s in m["sites"]:
         a = s.get("address")
         if not a:

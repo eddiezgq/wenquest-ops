@@ -21,7 +21,9 @@ envset WQO_HUB_IMAGE "${cur%/wenquest-ops-hub:*}/wenquest-ops-hub:$tag"
 [ -z "$COMPANY" ] || company_put "$COMPANY"
 dc up -d
 dc restart hub
-[ -z "$COMPANY" ] || dc exec -T hub python -m wqops.erp_setup apply /company/company.yaml
+# the ERPNext side of the company (idempotent): new settings such as signing in once reach older installations too
+dc exec -T hub python -m wqops.erp_setup apply /company/company.yaml \
+    || { [ -z "$COMPANY" ] && log "note: ERPNext setup did not finish (see above); the upgrade goes on"; } || exit 1
 erp_quiet_onboarding
 log "Upgrade done ($tag)"
 "$WD/status.sh"

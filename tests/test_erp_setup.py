@@ -47,10 +47,12 @@ class FakeErp:
             doc["name"] = f"{doc['department_name']} - HLS"
         elif doctype == "Social Login Key":
             doc["name"] = "wenquest_ops"
+        elif doctype == "Website Script":
+            doc["name"] = "Website Script"
         else:
             doc["name"] = f"{doc['address_title']}-{doc['address_type']}"
         if request.method == "PUT":
-            store[parts[4]].update(doc)
+            store.setdefault(parts[4], {"name": parts[4]}).update(doc)   # single doctypes always exist in ERPNext
             return httpx.Response(200, json={"data": store[parts[4]]})
         store[doc["name"]] = doc
         self.inserted.append(doc)
@@ -158,3 +160,21 @@ def test_apply_sets_up_erpnext_sign_in(monkeypatch):
     key = erp.docs["Social Login Key"]["wenquest_ops"]
     assert key["client_secret"] == "s3cret" and key["base_url"] == "https://ops.example.com"
     assert "ERPNext sign-in through WenQuest Ops: updated" in S.apply(m, erp.client())
+
+
+def test_erpnext_login_page_goes_on_by_itself(monkeypatch):
+    """Sign in once: ERPNext's login page follows "Login with WenQuest Ops" by itself; other scripts are kept and our
+    block is written once however often the setup runs; /login?manual=1 stays for the Administrator."""
+    from wqops.hub import erp_sso as SSO
+
+    monkeypatch.setenv("WQO_PUBLIC_URL", "https://ops.example.com")
+    monkeypatch.setenv("WQO_ERP_SSO_SECRET", "s3cret")
+    m = C.load(C.DEMO_FILE)
+    erp = FakeErp()
+    erp.docs["Website Script"] = {"Website Script": {"name": "Website Script", "javascript": "// the company's own"}}
+    assert "ERPNext login page goes on to WenQuest Ops by itself" in S.apply(m, erp.client())
+    js = erp.docs["Website Script"]["Website Script"]["javascript"]
+    assert js.startswith("// the company's own") and '/api/oauth/authorize' in js and "manual=1" in js
+    S.apply(m, erp.client())
+    assert erp.docs["Website Script"]["Website Script"]["javascript"] == js
+    assert SSO.with_auto_login(js).count(SSO.AUTO_LOGIN_MARKS[0]) == 1
