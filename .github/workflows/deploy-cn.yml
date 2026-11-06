@@ -144,6 +144,9 @@ jobs:
           ssh cn 'line="10 4 * * * cd /opt/wenquest/qms && WQO_KEEP=7 ./backup.sh >> /opt/wenquest/qms/backups/backup.log 2>&1"
             { crontab -l 2>/dev/null | grep -v "/opt/wenquest/qms.*backup.sh" || true; echo "$line"; } | crontab -
             crontab -l | grep /opt/wenquest/qms'
+          # pilot companies the WenQuest platform asks for (ADR-0025): every minute, one at a time
+          ssh cn 'line="* * * * * /opt/wenquest/qms/pilot-runner.sh >> /opt/wenquest/qms/pilot-runner.log 2>&1"
+            { crontab -l 2>/dev/null | grep -v "pilot-runner.sh" || true; echo "$line"; } | crontab -'
       - name: Status and memory use
         if: env.SKIP != '1'
         run: |

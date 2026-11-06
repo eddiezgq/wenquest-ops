@@ -47,7 +47,7 @@ def test_runbook_covers_every_script():
 def test_shellcheck_warnings():
     exe = shutil.which("shellcheck")
     assert exe, "shellcheck is missing: pip install -e '.[dev]'"
-    files = [str(D / s) for s in [*SCRIPTS, "lib.sh", "tenant.sh"]]
+    files = [str(D / s) for s in [*SCRIPTS, "lib.sh", "tenant.sh", "pilot-runner.sh"]]
     files.append(str(ROOT / ".github" / "scripts" / "ci_scope.sh"))
     r = subprocess.run([exe, "-S", "warning", "-x", *files], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stdout
@@ -82,3 +82,39 @@ def test_pilot_company_script(tmp_path):
     for cmd in ("new", "list", "stop <id> | start", "upgrade-all"):
         assert f"./tenant.sh {cmd}" in text
     assert "WQO_TENANT_MIN_FREE_MB" in text and "qms-$id-edge" in text
+
+
+def test_pilot_runner_hands_over_through_the_folder(tmp_path):
+    """ADR-0025 25c: the runner takes a request from the shared folder, runs tenant.sh, and leaves the state, the
+    sign-in (readable by the gateway) and the server's free memory; stop/start commands go to tenant.sh."""
+    import json
+
+    wd, q = tmp_path / "qms", tmp_path / "queue"
+    wd.mkdir()
+    q.mkdir()
+    shutil.copy(D / "lib.sh", wd)
+    shutil.copy(D / "pilot-runner.sh", wd)
+    (wd / "tenant.sh").write_text("""#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/calls"
+if [ "$1" = new ]; then
+  [ "$2" = broken ] && { echo "the installation stopped"; exit 1; }
+  while [ $# -gt 0 ]; do [ "$1" = --result ] && printf '{"id":"acme","password":"pw-123456"}' > "$2"; shift; done
+fi
+""")
+    (wd / "tenant.sh").chmod(0o755)
+    acme = {"id": "acme", "name": 'Acme "Tools"', "contact": "Li", "email": "a@b.cn", "lang": "zh"}
+    (q / "req-acme.json").write_text(json.dumps(acme))
+    (q / "req-broken.json").write_text(json.dumps({"id": "broken", "name": "B", "contact": "C", "email": "b@b.cn",
+                                                   "lang": "en"}))
+    (q / "cmd-old.json").write_text(json.dumps({"id": "old", "cmd": "stop"}))
+    env = {**os.environ, "WQO_PILOT_QUEUE": str(q), "WQO_DIR": str(wd)}
+    subprocess.run(["bash", str(wd / "pilot-runner.sh")], env=env, check=True, capture_output=True)
+    assert json.loads((q / "state-acme.json").read_text())["status"] == "active"
+    res = q / "res-acme.json"
+    assert json.loads(res.read_text())["password"] == "pw-123456" and oct(res.stat().st_mode)[-3:] == "644"
+    failed = json.loads((q / "state-broken.json").read_text())
+    assert failed["status"] == "failed" and "the installation stopped" in failed["error"]
+    assert json.loads((q / "host.json").read_text())["mem_free_mb"] > 0
+    calls = (wd / "calls").read_text()
+    assert '--name Acme "Tools" --contact Li --email a@b.cn --lang zh' in calls and "stop old" in calls
+    assert not list(q.glob("req-*")) and not list(q.glob("cmd-*")) and not list(q.glob("work-*"))
