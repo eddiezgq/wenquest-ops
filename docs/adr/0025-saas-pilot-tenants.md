@@ -28,7 +28,7 @@
 ## 分步
 
 - 25a（本仓库）：转发容器名随项目；`tenant.sh new|list|stop`；人员页加人；关 ERPNext 入门指南；测试。
-- 25b（本仓库）：`deploy-us.yml`；部署时升级全部试点企业。
+- 25b（本仓库）：`deploy-us.yml`——美国服务器自己从 ghcr.io 拉镜像（本次运行的令牌登录、结束退出），找到 10 月手动装的那套（qms-demo-edge 的启动目录）就地升级、补上 `qms-erp.<域名>`，没有就新装英文演示企业；逐家升级试点企业；备份与 pilot-runner 定时任务。需要项目负责人在美国服务器上给 deploy 用户建一把密钥，填仓库密钥 US_DEPLOY_HOST、US_DEPLOY_SSH_KEY。
 - 25c：本仓库 `deploy/pilot-runner.sh`（每分钟，经共享文件夹接问渠网关的开通申请，跑 `tenant.sh`，交回状态、账号和可用内存）；问渠主仓库：邀请、注册页、管理页、Caddy 通配转发与按需证书、部署后网址检查。
 - 25d：首次登录改密码、“反馈问题”与每日汇总、每家 AI 每日上限。
 
