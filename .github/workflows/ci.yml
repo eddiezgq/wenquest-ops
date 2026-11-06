@@ -278,6 +278,9 @@ jobs:
           [ "$(erp frappe.db.get_value --args "['Company', 'Acme \"CI\" Tools', 'default_currency']")" = USD ]
           # bench execute prints nothing for a falsy result; ERPNext's default is 1, so anything but 1 means it is off
           [ "$(erp frappe.db.get_single_value --args "['System Settings', 'enable_onboarding']")" != 1 ]
+          # sign in once: ERPNext's login page goes on to WenQuest Ops by itself
+          erp frappe.db.get_single_value --args "['Website Script', 'javascript']" | grep -q 'wenquest-ops-sso'
+          curl -fsk --resolve erp.acme-ci.ops.localtest.me:443:127.0.0.1 https://erp.acme-ci.ops.localtest.me/login >/dev/null || true
           # the demo is untouched: still its own company and people
           R=(--resolve ops.localtest.me:443:127.0.0.1)
           curl -fsk "${R[@]}" https://ops.localtest.me/login | grep -q "Harbor Lane Supply (Demo)"

@@ -65,6 +65,39 @@ def social_login_key(public_url: str, secret: str) -> dict:
             "auth_url_data": '{"response_type": "code", "scope": "openid"}'}
 
 
+# ERPNext's login page goes straight on to "Login with WenQuest Ops": people sign in once (in WenQuest Ops), not twice
+# (project lead 2026-11-06). Written into ERPNext's Website Script between the two markers, other scripts kept.
+# The Administrator signs in with a password at /login?manual=1. Adapted from the WenQuest digital factory, round 7.
+AUTO_LOGIN_MARKS = ("// >>> wenquest-ops-sso", "// <<< wenquest-ops-sso")
+AUTO_LOGIN_JS = """// WenQuest Ops single sign-on: the login page follows "Login with WenQuest Ops" by itself.
+// To sign in with a password (the Administrator), open /login?manual=1
+(function () {
+  if (location.pathname !== '/login' || /[?&]manual=1/.test(location.search)) return;
+  function go() {
+    var a = document.querySelector('a[href*="/api/oauth/authorize"]');
+    if (!a) return;
+    var last = 0;
+    try {
+      last = +sessionStorage.getItem('wqo_sso_try') || 0;
+      sessionStorage.setItem('wqo_sso_try', String(Date.now()));
+    } catch (e) {}
+    if (Date.now() - last < 15000) return;   // went once in the last 15 seconds: stay, no loop
+    location.href = a.href;
+  }
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', go); } else { go(); }
+})();"""
+
+
+def with_auto_login(js: str) -> str:
+    """The Website Script with our block in it, once, and everything else as it was."""
+    a, b = AUTO_LOGIN_MARKS
+    block = f"{a}\n{AUTO_LOGIN_JS}\n{b}"
+    js = js or ""
+    if a in js and b in js:
+        return js[:js.index(a)] + block + js[js.index(b) + len(b):]
+    return (js + "\n" + block).strip()
+
+
 def check_redirect(redirect_uri: str, erp_public_url: str) -> None:
     if redirect_uri != erp_public_url.rstrip("/") + CALLBACK_PATH:
         raise SsoError(say("unknown redirect address"))
