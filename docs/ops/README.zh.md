@@ -132,8 +132,9 @@ ERPNext 管理员账号是 `Administrator`，密码是 `.env` 里的 `ERP_ADMIN_
 
 ### 登录
 
-企业清单里的人员就是能登录的人，角色也取自清单。从清单里删掉的人员，在下次升级
-（`./upgrade.sh --company company.yaml`）或 hub 重启时停用。
+企业清单里的人员能登录，角色取自清单。从清单里删掉的人员，在下次升级
+（`./upgrade.sh --company company.yaml`）或 hub 重启时停用。有“管理用户”权限的人还可以**在“人员”页添加同事**
+（姓名、邮箱、角色、部门），也在那里移除；这样加的人不受清单影响（ADR-0025）。
 
 国内版只用 WenQuest Ops 自己的账号和密码登录。**Microsoft 365 和 Google 登录在国内版中不提供**（国内无法稳定访问），
 即使 `.env` 里填了相关配置也不会显示；企业微信、钉钉登录以后再定。
@@ -276,6 +277,14 @@ WQO_HUB_IMAGE=wenquest-ops-hub:local ./install.sh --company company.yaml --domai
 
 `--no-pull` 表示只用本机已有的镜像，所以其他镜像（ERPNext、Caddy 等）需要事先拉到本机；
 去掉 `--no-pull` 则会从 `--mirror` 仓库拉取。
+
+### 一台服务器上的试点企业（ADR-0025）
+
+在演示企业的安装目录运行 `./tenant.sh new <编号> --name "企业名" --contact "老板姓名" --email 老板邮箱
+--result sign-in.json`，就在旁边（`../qms-tenants/<编号>`，compose 项目 `qms-<编号>`，网址 `<编号>.<域名>` 和
+`<编号>.<ERPNext 域名>`）装好另一家：清单里只有老板一人，初始密码随机生成、写进结果文件（发给老板后删掉文件）。
+可用内存少于 1.5 GB 时拒绝。`./tenant.sh list` 列出各家，`stop <编号>` / `start <编号>` 暂停或恢复（记录保留），
+`upgrade-all` 在演示企业之后逐家升级。每家每天 04:15 前后备份一次。
 
 ## 故障排查
 

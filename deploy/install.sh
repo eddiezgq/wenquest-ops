@@ -138,6 +138,7 @@ if [ -n "${WQO_ERP_BACKEND_MEM:-}" ]; then
     for _ in $(seq 1 60); do dc exec -T erp-backend true 2>/dev/null && break; sleep 3; done
 fi
 dc exec -T erp-backend bench --site frontend set-config host_name "https://$ERP_DOMAIN" >/dev/null
+erp_quiet_onboarding
 if [ -z "$(envval WQO_ERP_API_KEY)" ]; then
     log "Creating the API key the hub uses to talk to ERPNext..."
     keys=$(bench_exec frappe.core.doctype.user.user.generate_keys --args "['Administrator']" | tail -n 1)

@@ -22,5 +22,6 @@ envset WQO_HUB_IMAGE "${cur%/wenquest-ops-hub:*}/wenquest-ops-hub:$tag"
 dc up -d
 dc restart hub
 [ -z "$COMPANY" ] || dc exec -T hub python -m wqops.erp_setup apply /company/company.yaml
+erp_quiet_onboarding
 log "Upgrade done ($tag)"
 "$WD/status.sh"

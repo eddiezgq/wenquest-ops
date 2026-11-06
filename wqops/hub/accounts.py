@@ -15,6 +15,7 @@ import datetime as dt
 import hashlib
 import hmac
 import os
+import re
 import secrets
 import sys
 
@@ -78,17 +79,63 @@ def sync(conn, manifest: dict) -> dict[str, list[str]]:
             continue
         if not u["active"]:
             out["reactivated"].append(email)
-        if (u["name"], sorted(u["roles"]), u["department"], u["active"]) != (p["name"], roles, dept, True):
-            conn.execute("update users set name=%s, roles=%s, department=%s, active=true, updated_at=now() "
-                         "where email=%s", (p["name"], roles, dept, email))
+        if (u["name"], sorted(u["roles"]), u["department"], u["active"], u["source"]) != (p["name"], roles, dept, True,
+                                                                                          "manifest"):
+            conn.execute("update users set name=%s, roles=%s, department=%s, active=true, source='manifest', "
+                         "updated_at=now() where email=%s", (p["name"], roles, dept, email))
             out["updated"].append(email)
-    for email, u in existing.items():
-        if email not in wanted and u["active"]:
+    for email, u in existing.items():   # people added in the workspace (ADR-0025) are not the manifest's to remove
+        if email not in wanted and u["active"] and u["source"] == "manifest":
             conn.execute("update users set active=false, updated_at=now() where email=%s", (email,))
             conn.execute("delete from sessions where user_id=%s", (u["id"],))
             event(conn, email, "user_deactivated", "no longer in the company manifest")
             out["deactivated"].append(email)
     return out
+
+
+EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def add_person(conn, *, name: str, email: str, roles: list[str], department: str | None, by: dict,
+               departments: list[str] | None = None) -> dict:
+    """Add a colleague in the workspace (ADR-0025): source 'app', no password yet. Only an owner may give the owner
+    role. Someone added before and removed is given access again."""
+    email, name = (email or "").strip().lower(), (name or "").strip()
+    roles = sorted(set(roles or []))
+    if not name or not EMAIL.match(email):
+        raise AccountError(say("give a name and a valid email"))
+    if not roles or any(r not in C.ROLES for r in roles):
+        raise AccountError(say("choose one or more roles"))
+    if "owner" in roles and "owner" not in by["roles"]:
+        raise AccountError(say("only an owner can give the owner role"))
+    if department and departments is not None and department not in departments:
+        raise AccountError(say("no such department: {department}", department=department))
+    u = get(conn, email)
+    if u is not None and (u["active"] or u["source"] == "manifest"):
+        raise AccountError(say("{email} already has access", email=email))
+    if u is None:
+        conn.execute("insert into users (email, name, roles, department, source) values (%s, %s, %s, %s, 'app')",
+                     (email, name, roles, department or None))
+    else:
+        conn.execute("update users set name=%s, roles=%s, department=%s, active=true, password_hash=null, "
+                     "failed_logins=0, locked_until=null, updated_at=now() where id=%s",
+                     (name, roles, department or None, u["id"]))
+    event(conn, email, "user_created", f"added in the workspace by {by['email']}")
+    return public(get(conn, email))
+
+
+def remove_person(conn, email: str, *, by: dict) -> None:
+    """Stop the access of someone added in the workspace; people in the manifest are removed from the manifest."""
+    u = get(conn, email)
+    if u is None or not u["active"]:
+        raise AccountError(say("no active person with email {email}", email=email))
+    if u["source"] != "app":
+        raise AccountError(say("this person is in the company manifest; remove them there"))
+    if u["email"] == by["email"]:
+        raise AccountError(say("you cannot remove yourself"))
+    conn.execute("update users set active=false, updated_at=now() where id=%s", (u["id"],))
+    conn.execute("delete from sessions where user_id=%s", (u["id"],))
+    event(conn, u["email"], "user_deactivated", f"removed in the workspace by {by['email']}")
 
 
 def get(conn, email: str) -> dict | None:
@@ -175,7 +222,8 @@ def public(u: dict) -> dict:
     from wqops.hub import permissions as P  # noqa: PLC0415
 
     return {"email": u["email"], "name": u["name"], "roles": list(u["roles"]), "department": u["department"],
-            "active": u["active"], "has_password": bool(u["password_hash"]), "permissions": sorted(P.of(u["roles"]))}
+            "active": u["active"], "has_password": bool(u["password_hash"]), "permissions": sorted(P.of(u["roles"])),
+            "source": u.get("source", "manifest")}
 
 
 def main(argv=None) -> int:

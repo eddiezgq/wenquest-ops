@@ -67,8 +67,10 @@ The ERPNext administrator is `Administrator`; the password is `ERP_ADMIN_PASSWOR
 
 ### Sign-in
 
-The people in `company.yaml` are the people who can sign in; their roles come from it too. People removed from the
-manifest are deactivated at the next upgrade (`./upgrade.sh --company company.yaml`) or hub restart.
+The people in `company.yaml` can sign in, with the roles it gives them. People removed from the manifest are
+deactivated at the next upgrade (`./upgrade.sh --company company.yaml`) or hub restart. Someone allowed to manage users
+can also **add colleagues on the People page** (name, email, roles, department) and remove them there again; the
+manifest does not remove people added that way (ADR-0025).
 
 - The first owner in the manifest gets a password during installation: set `WQO_OWNER_PASSWORD` before running
   `install.sh`, or type it when asked.
@@ -187,6 +189,15 @@ them with their password.
 Capacity: plan disk for the document folders the company will import, plus the same again for each backup kept
 (backups are compressed, but PDFs and images hardly shrink). Classifying with the model costs roughly 1 token per 4
 characters of text read plus about 1,500 tokens a file.
+
+### Pilot companies on one server (ADR-0025)
+
+From the demo installation, `./tenant.sh new <id> --name "Company" --contact "Owner" --email owner@company.com
+--result sign-in.json` installs another company next to it (`../qms-tenants/<id>`, compose project `qms-<id>`,
+addresses `<id>.<domain>` and `<id>.<ERPNext domain>`), with only the owner in its manifest and a random first
+password written to the result file (send it to the owner, then delete the file). It is refused when less than
+1.5 GB of memory is free. `./tenant.sh list` shows them, `stop <id>` / `start <id>` pause one (records kept),
+`upgrade-all` upgrades them one after another after the demo. Each gets a daily backup at 04:15 or a little later.
 
 ### Monitoring
 

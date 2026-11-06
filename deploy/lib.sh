@@ -54,3 +54,10 @@ company_put() {
     fi
     mv company/company.new.yaml company/company.yaml
 }
+
+# ERPNext's own onboarding panel ("Setup Company", "Invite Users" ...) repeats our guided setup and is only partly in
+# Chinese, so it is switched off (ADR-0025). Harmless when already off.
+erp_quiet_onboarding() {
+    bench_exec frappe.db.set_single_value --args "['System Settings', 'enable_onboarding', 0]" >/dev/null 2>&1 \
+        || log "note: could not switch off ERPNext's onboarding panel"
+}
