@@ -2,6 +2,7 @@ name: Deploy to the WenQuest server in the US
 
 # ADR-0025 (25b): the US server runs the same version as the server in China. Unlike China it reaches GitHub, so the
 # server pulls the images from ghcr.io itself (signed in with this run's token, signed out again at the end).
+#   0. once, when asked (replace_odoo_demo): back up and stop the old Odoo QMS demo that held qms.<domain>;
 #   1. find the installation: the folder the running qms-demo-edge container was started from (it was installed by
 #      hand in October 2026), else /opt/wenquest/qms for a fresh one (English demo company, --edge, project qms);
 #   2. copy the deployment files there; under the server's deploy lock (shared with the WenQuest platform):
@@ -16,6 +17,11 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      replace_odoo_demo:
+        description: "Once (project lead 2026-11-06): back up and stop the old Odoo QMS demo (compose project qmsdemo) that holds qms.<domain>, then install WenQuest Ops there"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-us
@@ -50,13 +56,34 @@ jobs:
         run: |
           set -euo pipefail
           install -d -m 700 ~/.ssh
-          printf '%s\n' "${{ secrets.US_DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          # a key pasted with spaces in front of lines, blank lines or Windows line ends still works
+          printf '%s\n' "${{ secrets.US_DEPLOY_SSH_KEY }}" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -t ed25519 "$HOST" > ~/.ssh/known_hosts 2>/dev/null
+          HOST=$(printf '%s' "$HOST" | tr -d '[:space:]')        # a secret pasted with a newline or spaces
+          for i in 1 2 3; do
+            ssh-keyscan -T 20 -t ed25519 "$HOST" > ~/.ssh/known_hosts 2>"$RUNNER_TEMP/keyscan.err" && [ -s ~/.ssh/known_hosts ] && break
+            echo "keyscan $i failed: $(cat "$RUNNER_TEMP/keyscan.err")"; sleep 10
+          done
+          [ -s ~/.ssh/known_hosts ] || { echo "::error::cannot reach the server on port 22 (US_DEPLOY_HOST must be only the IP address, e.g. 1.2.3.4)"; exit 1; }
+          if ! head -n 1 ~/.ssh/id_ed25519 | grep -q 'BEGIN OPENSSH PRIVATE KEY'; then
+            echo "::error::US_DEPLOY_SSH_KEY does not start with -----BEGIN OPENSSH PRIVATE KEY----- (it has $(wc -l < ~/.ssh/id_ed25519) lines; the key file has about 7)"
+            exit 1
+          fi
           printf 'Host us\n  HostName %s\n  User deploy\n  ServerAliveInterval 30\n  ServerAliveCountMax 6\n' "$HOST" \
             > ~/.ssh/config
-          ssh us 'echo connected; df -h / | tail -1; free -m | head -2'
+          ssh -o BatchMode=yes us 'echo connected; df -h / | tail -1; free -m | head -2' \
+            || { echo "::error::the key was refused: is the public key in /home/deploy/.ssh/authorized_keys?"; exit 1; }
+          # the folder an existing WenQuest Ops was started from: its edge container, else any container of a compose
+          # project that runs the wenquest-ops-hub image (the October installation by hand)
+          ssh us "docker ps -a --format '{{.Names}}  {{.Image}}  {{.Status}}' | grep -iE 'qms|wqo|wenquest-ops|erpnext' || true"
           dir=$(ssh us "docker inspect qms-demo-edge --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}' 2>/dev/null" || true)
+          if [ -z "$dir" ]; then
+            dir=$(ssh us "for c in \$(docker ps -a --filter ancestor=ghcr.io/eddiezgq/wenquest-ops-hub --format '{{.Names}}'; docker ps -a --format '{{.Names}} {{.Image}}' | awk '/wenquest-ops-hub/ {print \$1}'); do docker inspect \$c --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}'; done 2>/dev/null | grep . | head -n 1" || true)
+          fi
+          if [ -z "$dir" ] && ssh us "docker ps -a --format '{{.Image}}' | grep -q -E 'wenquest-ops-hub'"; then
+            echo "::error::WenQuest Ops containers exist on the server but their folder was not found; not installing a second copy. See the container list above."
+            exit 1
+          fi
           [ -n "$dir" ] || dir=/opt/wenquest/qms
           echo "installation folder: $dir"
           echo "DIR=$dir" >> "$GITHUB_ENV"
@@ -65,6 +92,26 @@ jobs:
             echo "::error::$dir is not writable by the user deploy (installed by hand as another user?). On the server: sudo chown -R deploy: $dir"
             exit 1
           fi
+      - name: Back up and stop the old Odoo QMS demo (only when asked, once)
+        if: env.SKIP != '1' && inputs.replace_odoo_demo
+        run: |
+          set -euo pipefail
+          # its database is dumped next to its folder, then its containers are stopped and kept (nothing deleted):
+          # docker update --restart=no keeps them stopped after a reboot. qms.<domain> then goes to WenQuest Ops.
+          ssh us 'bash -s' <<'EOF'
+          set -euo pipefail
+          docker ps -a --format '{{.Names}}' | grep -q '^qmsdemo-' || { echo "no Odoo QMS demo here"; exit 0; }
+          mkdir -p /opt/wenquest/qmsdemo-backup        # its own folder belongs to another user
+          out="/opt/wenquest/qmsdemo-backup/qmsdemo-$(date +%F).sql.gz"
+          if docker ps --format '{{.Names}}' | grep -q '^qmsdemo-db-1$'; then
+            docker exec qmsdemo-db-1 sh -c 'pg_dumpall -U "${POSTGRES_USER:-postgres}"' | gzip > "$out"
+            echo "database dumped: $out ($(du -h "$out" | cut -f1))"
+          fi
+          for c in $(docker ps -a --format '{{.Names}}' | grep '^qmsdemo-'); do
+            docker update --restart=no "$c" >/dev/null
+            docker stop "$c" >/dev/null && echo "stopped $c (kept)"
+          done
+          EOF
       - name: Sign the server in to ghcr.io for this run
         if: env.SKIP != '1'
         run: |
@@ -114,7 +161,9 @@ jobs:
             ./upgrade.sh "$TAG"
           else
             echo "installation (first time, or again after an unfinished one: install.sh skips finished steps)"
-            ./install.sh --company company-demo.yaml --domain "$DOMAIN" --erp-domain "$ERP" --image "$TAG" --edge --project qms
+            # the digital factory on this server already holds the ERPNext image, so 15 GB of free disk is enough
+            WQO_MIN_DISK_GB=15 ./install.sh --company company-demo.yaml --domain "$DOMAIN" --erp-domain "$ERP" --image "$TAG" \
+              --edge --small --project qms
             touch .installed
             dc exec -T hub python -m wqops.demo.load > demo.log 2>&1 && touch .demo-loaded || tail -n 20 demo.log
           fi
