@@ -67,7 +67,17 @@ jobs:
             > ~/.ssh/config
           ssh -o BatchMode=yes us 'echo connected; df -h / | tail -1; free -m | head -2' \
             || { echo "::error::the key was refused: is the public key in /home/deploy/.ssh/authorized_keys?"; exit 1; }
+          # the folder an existing WenQuest Ops was started from: its edge container, else any container of a compose
+          # project that runs the wenquest-ops-hub image (the October installation by hand)
+          ssh us "docker ps -a --format '{{.Names}}  {{.Image}}  {{.Status}}' | grep -iE 'qms|wqo|wenquest-ops|erpnext' || true"
           dir=$(ssh us "docker inspect qms-demo-edge --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}' 2>/dev/null" || true)
+          if [ -z "$dir" ]; then
+            dir=$(ssh us "for c in \$(docker ps -a --filter ancestor=ghcr.io/eddiezgq/wenquest-ops-hub --format '{{.Names}}'; docker ps -a --format '{{.Names}} {{.Image}}' | awk '/wenquest-ops-hub/ {print \$1}'); do docker inspect \$c --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}'; done 2>/dev/null | grep . | head -n 1" || true)
+          fi
+          if [ -z "$dir" ] && ssh us "docker ps -a --format '{{.Image}}' | grep -q -E 'wenquest-ops-hub|erpnext'"; then
+            echo "::error::WenQuest Ops containers exist on the server but their folder was not found; not installing a second copy. See the container list above."
+            exit 1
+          fi
           [ -n "$dir" ] || dir=/opt/wenquest/qms
           echo "installation folder: $dir"
           echo "DIR=$dir" >> "$GITHUB_ENV"
