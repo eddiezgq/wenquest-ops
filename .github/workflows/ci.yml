@@ -245,6 +245,8 @@ jobs:
           "$RUNNER_TEMP/pw/bin/python" -I .github/scripts/smoke_p1.py https://ops.localtest.me dana@demo.example \
             Ci-owner-pass-2026
       - name: A pilot company next to the demo (ADR-0025) - its own ERPNext and hub, the owner adds a colleague
+        env:
+          WQO_HUB_IMAGE: wenquest-ops-hub:ci     # the restore test above leaves the published image name in .env
         run: |
           exec > >(tee "$RUNNER_TEMP/tenant.log") 2>&1
           set -x -o pipefail

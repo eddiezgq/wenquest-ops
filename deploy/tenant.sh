@@ -11,6 +11,7 @@
 #
 # The settings come from the demo installation's .env: China or not, the image registry, the AI key.
 # A new company is refused when the server has less than WQO_TENANT_MIN_FREE_MB (default 1536) of memory free.
+# WQO_HUB_IMAGE, when set, overrides the demo's hub image (CI uses an image built on the spot).
 . "$(dirname "$0")/lib.sh"
 
 BASE=$WD
@@ -79,7 +80,7 @@ open(out, "w", encoding="utf-8").write(json.dumps(m, ensure_ascii=False, indent=
 PY
     pw="$(rand 6)-$(rand 6)-$(tr -dc '0-9' < /dev/urandom | head -c 2 || true)"
     dom="$id.$(envval WQO_DOMAIN "$BASE/.env")" erp="$id.$(envval WQO_ERP_DOMAIN "$BASE/.env")"
-    img=$(envval WQO_HUB_IMAGE "$BASE/.env"); tag=${img##*:}
+    img=${WQO_HUB_IMAGE:-$(envval WQO_HUB_IMAGE "$BASE/.env")}; tag=${img##*:}   # the demo's hub image unless given
     small=(); [[ ":$(envval WQO_COMPOSE_FILES "$BASE/.env"):" != *:docker-compose.small.yml:* ]] || small=(--small)
     china=(); [ "$cn" != cn ] || china=(--china)
     log "Installing $NAME as $dom (10-15 minutes) ..."
