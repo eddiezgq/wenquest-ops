@@ -130,6 +130,14 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
             out["anomalies"] = AN.detect(c, OA.today(m))
             return out
 
+    def feedback_if_due() -> None:
+        from wqops.hub import feedback as FB  # noqa: PLC0415
+
+        with DB.connect(db_url) as c:
+            n = FB.send_daily(c, company_name()[0])
+            if n:
+                log.info("feedback digest sent: %s", n)
+
     def brief_if_due() -> None:
         from wqops.hub.ai import brief as BR  # noqa: PLC0415
 
@@ -170,6 +178,10 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 await asyncio.to_thread(qms_if_due)
             except Exception:
                 log.exception("daily quality system evaluation failed")
+            try:
+                await asyncio.to_thread(feedback_if_due)
+            except Exception:
+                log.exception("feedback digest failed")
             await asyncio.sleep(sync_seconds)
 
     @contextlib.asynccontextmanager
@@ -195,6 +207,13 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 await task
 
     app = FastAPI(title="WenQuest Ops", version=wqops.__version__, lifespan=lifespan)
+
+    from wqops.hub.ai.agent import DailyLimit  # noqa: PLC0415
+
+    @app.exception_handler(DailyLimit)
+    async def ai_daily_limit(_request: Request, exc: DailyLimit):
+        """A pilot company's AI runs for the day are used up (WQO_AI_DAILY): say so, plainly (ADR-0025 25d)."""
+        return JSONResponse({"detail": str(exc)}, status_code=429)
     app.add_middleware(I18N.LanguageMiddleware)
     I18N.set_company_language(((company()[0] or {}).get("company") or {}).get("language"))
 
@@ -391,6 +410,18 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         except A.AccountError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"ok": True}
+
+    @app.post("/api/feedback")
+    async def feedback(request: Request, u=Depends(current_user), c=Depends(conn)):
+        """A problem reported from the workspace (ADR-0025 25d): the page and recent errors come along."""
+        from wqops.hub import feedback as FB  # noqa: PLC0415
+
+        data = await request.json()
+        errors = data.get("errors") if isinstance(data.get("errors"), list) else []
+        try:
+            return {"id": FB.add(c, u, str(data.get("text", "")), str(data.get("page", "")), errors)}
+        except FB.FeedbackError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/users")
     async def add_user(request: Request, u=Depends(require("users:manage")), c=Depends(conn)):
