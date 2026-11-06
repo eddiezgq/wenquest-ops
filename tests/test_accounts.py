@@ -93,3 +93,43 @@ def test_cli(db_url, monkeypatch, capsys):
     assert A.main(["list"]) == 0
     assert "riley@demo.example" in capsys.readouterr().out
     assert A.main([]) == 2
+
+
+def test_people_added_in_the_workspace(conn):
+    """ADR-0025: the owner adds colleagues on the People page; the manifest sync leaves them alone."""
+    m = C.load(C.DEMO_FILE)
+    A.sync(conn, m)
+    owner = A.get(conn, m["people"][0]["email"])
+    sam = A.get(conn, "sam@demo.example")
+    p = A.add_person(conn, name="Lee New", email=" Lee@Example.com ", roles=["quality"], department="quality",
+                     by=owner, departments=["quality"])
+    assert p["email"] == "lee@example.com" and p["source"] == "app" and not p["has_password"]
+    with pytest.raises(A.AccountError):
+        A.add_person(conn, name="Lee", email="lee@example.com", roles=["quality"], department=None, by=owner)
+    with pytest.raises(A.AccountError):                      # not a role
+        A.add_person(conn, name="X", email="x@example.com", roles=["boss"], department=None, by=owner)
+    with pytest.raises(A.AccountError):                      # only an owner gives the owner role
+        A.add_person(conn, name="X", email="x@example.com", roles=["owner"], department=None, by=sam)
+    with pytest.raises(A.AccountError):
+        A.add_person(conn, name="X", email="not-an-email", roles=["sales"], department=None, by=owner)
+    with pytest.raises(A.AccountError):
+        A.add_person(conn, name="X", email="x@example.com", roles=["sales"], department="nowhere", by=owner,
+                     departments=["quality"])
+    # the manifest sync does not remove people added in the workspace
+    assert "lee@example.com" not in A.sync(conn, m)["deactivated"]
+    assert A.get(conn, "lee@example.com")["active"]
+    # people in the manifest are removed in the manifest; nobody removes themselves
+    with pytest.raises(A.AccountError):
+        A.remove_person(conn, "sam@demo.example", by=owner)
+    A.set_password(conn, "lee@example.com", "good pass 12", by=owner["email"])
+    A.remove_person(conn, "lee@example.com", by=owner)
+    assert not A.get(conn, "lee@example.com")["active"]
+    # added again: access back, the old password gone
+    A.add_person(conn, name="Lee New", email="lee@example.com", roles=["sales"], department=None, by=owner)
+    lee = A.get(conn, "lee@example.com")
+    assert lee["active"] and lee["password_hash"] is None and list(lee["roles"]) == ["sales"]
+    # a person added in the workspace who later appears in the manifest becomes a manifest person
+    m2 = copy.deepcopy(m)
+    m2["people"].append({"name": "Lee New", "email": "lee@example.com", "roles": ["sales"]})
+    A.sync(conn, m2)
+    assert A.get(conn, "lee@example.com")["source"] == "manifest"

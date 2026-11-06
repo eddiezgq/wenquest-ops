@@ -54,7 +54,8 @@ def test_the_module_on_the_wenquest_server_fits_its_share():
                                else ld.construct_mapping(node) if isinstance(node, yaml.MappingNode) else None)
     edge = yaml.load((ROOT / "deploy" / "docker-compose.edge.yml").read_text(), Loader=Loader)
     caddy = edge["services"]["caddy"]
-    assert caddy["container_name"] == "qms-demo-edge" and "qms-edge" in caddy["networks"]
+    # the demo company keeps its name; a pilot company sets WQO_EDGE_NAME=qms-<id>-edge (ADR-0025)
+    assert caddy["container_name"] == "${WQO_EDGE_NAME:-qms-demo-edge}" and "qms-edge" in caddy["networks"]
     assert edge["networks"]["qms-edge"]["external"] is True
     assert "ports: !reset []" in (ROOT / "deploy" / "docker-compose.edge.yml").read_text()
     edgefile = (ROOT / "deploy" / "Caddyfile.edge").read_text()

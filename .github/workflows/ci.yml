@@ -93,7 +93,7 @@ jobs:
     needs: [test, scope]
     if: needs.scope.outputs.install == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 70
     permissions:
       contents: write   # only used by the save_recordings and save_help_media steps on manual runs
     steps:
@@ -244,6 +244,43 @@ jobs:
           set -o pipefail
           "$RUNNER_TEMP/pw/bin/python" -I .github/scripts/smoke_p1.py https://ops.localtest.me dana@demo.example \
             Ci-owner-pass-2026
+      - name: A pilot company next to the demo (ADR-0025) - its own ERPNext and hub, the owner adds a colleague
+        run: |
+          exec > >(tee "$RUNNER_TEMP/tenant.log") 2>&1
+          set -x -o pipefail
+          WQO_TENANTS_DIR="$RUNNER_TEMP/tenants" WQO_MIN_DISK_GB=5 \
+            "$WQO_DIR/tenant.sh" new acme-ci --name 'Acme "CI" Tools' --contact "Pat Owner" --email Pat@Acme.example \
+            --lang en --result "$RUNNER_TEMP/acme.json"
+          python3 -c "import json; r=json.load(open('$RUNNER_TEMP/acme.json')); assert r['email']=='pat@acme.example' and r['url']=='https://acme-ci.ops.localtest.me', r"
+          T="$RUNNER_TEMP/tenants/acme-ci"
+          tc() { docker compose -p qms-acme-ci --env-file "$T/.env" -f "$T/docker-compose.yml" -f "$T/docker-compose.edge.yml" "$@"; }
+          docker ps --filter name=^qms-acme-ci-edge$ --format '{{.Names}}' | grep -q qms-acme-ci-edge
+          pw=$(python3 -c "import json; print(json.load(open('$RUNNER_TEMP/acme.json'))['password'])")
+          tc exec -T -e PW="$pw" hub python - <<'PY'
+          import http.cookiejar, json, os, urllib.request
+          op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          def call(path, body=None):
+              req = urllib.request.Request("http://localhost:8100" + path, data=json.dumps(body).encode() if body else None,
+                                           headers={"content-type": "application/json"}, method="POST" if body else "GET")
+              return json.loads(op.open(req, timeout=30).read())
+          call("/api/login", {"email": "pat@acme.example", "password": os.environ["PW"]})
+          ws = call("/api/workspace")
+          assert ws["company"] == 'Acme "CI" Tools' and not ws["demo"], ws
+          p = call("/api/users", {"name": "Quinn Quality", "email": "quinn@acme.example", "roles": ["quality"],
+                                  "department": "leadership"})
+          assert p["source"] == "app", p
+          assert sorted(u["email"] for u in call("/api/users")) == ["pat@acme.example", "quinn@acme.example"]
+          print("pilot company OK")
+          PY
+          erp() { tc exec -T erp-backend bench --site frontend execute "$@" 2>/dev/null | tail -n 1; }
+          [ "$(erp frappe.db.get_value --args "['Company', 'Acme \"CI\" Tools', 'default_currency']")" = USD ]
+          [ "$(erp frappe.db.get_single_value --args "['System Settings', 'enable_onboarding']")" = 0 ]
+          # the demo is untouched: still its own company and people
+          R=(--resolve ops.localtest.me:443:127.0.0.1)
+          curl -fsk "${R[@]}" https://ops.localtest.me/login | grep -q "Harbor Lane Supply (Demo)"
+          WQO_TENANTS_DIR="$RUNNER_TEMP/tenants" "$WQO_DIR/tenant.sh" list
+          WQO_TENANTS_DIR="$RUNNER_TEMP/tenants" "$WQO_DIR/tenant.sh" stop acme-ci
+          WQO_TENANTS_DIR="$RUNNER_TEMP/tenants" "$WQO_DIR/tenant.sh" list | grep acme-ci | grep -q stopped
       - name: Keep the help screenshots and videos
         if: always()
         uses: actions/upload-artifact@v4

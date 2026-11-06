@@ -130,6 +130,7 @@ jobs:
           else
             ./upgrade.sh "$TAG"
           fi
+          ./tenant.sh upgrade-all "$TAG"     # the pilot companies, one after another (ADR-0025)
           if [ ! -f .demo-loaded ]; then
             echo "loading the Chinese demo company"
             docker compose -p qms --env-file .env -f docker-compose.yml exec -T hub python -m wqops.demo.load > demo.log 2>&1 \

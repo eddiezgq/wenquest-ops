@@ -47,7 +47,8 @@ def test_runbook_covers_every_script():
 def test_shellcheck_warnings():
     exe = shutil.which("shellcheck")
     assert exe, "shellcheck is missing: pip install -e '.[dev]'"
-    files = [str(D / s) for s in [*SCRIPTS, "lib.sh"]] + [str(ROOT / ".github" / "scripts" / "ci_scope.sh")]
+    files = [str(D / s) for s in [*SCRIPTS, "lib.sh", "tenant.sh"]]
+    files.append(str(ROOT / ".github" / "scripts" / "ci_scope.sh"))
     r = subprocess.run([exe, "-S", "warning", "-x", *files], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stdout
 
@@ -59,3 +60,25 @@ def test_document_files_are_kept_and_backed_up():
     assert "hub-files.tar" in (D / "backup.sh").read_text() and "hub-files.tar" in (D / "restore.sh").read_text()
     docker = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "tesseract-ocr" in docker and "WQO_FILES_DIR=/data/files" in docker
+
+
+def test_pilot_company_script(tmp_path):
+    """ADR-0025: tenant.sh parses, and the starting manifest it writes for a new pilot company passes the check in
+    both languages, with any company name kept exactly as typed."""
+    from wqops import company as C
+
+    text = (D / "tenant.sh").read_text(encoding="utf-8")
+    subprocess.run(["bash", "-n", str(D / "tenant.sh")], check=True)
+    assert os.access(D / "tenant.sh", os.X_OK)
+    gen = re.search(r"<<'PY'\n(.*?)\nPY\n", text, re.S).group(1)
+    (tmp_path / "gen.py").write_text(gen, encoding="utf-8")
+    for lang, currency in (("zh", "CNY"), ("en", "USD")):
+        out = tmp_path / f"{lang}.yaml"
+        subprocess.run(["python3", str(tmp_path / "gen.py"), str(out), "acme-tools", 'Acme "Tools": 五金', "Li Ming",
+                        "boss@acme.example", lang], check=True)
+        m = C.load(out)                           # raises when the manifest has errors
+        assert m["company"]["name"] == 'Acme "Tools": 五金' and m["company"]["currency"] == currency
+        assert m["demo"] is False and [p["roles"] for p in m["people"]] == [["owner"]]
+    for cmd in ("new", "list", "stop <id> | start", "upgrade-all"):
+        assert f"./tenant.sh {cmd}" in text
+    assert "WQO_TENANT_MIN_FREE_MB" in text and "qms-$id-edge" in text

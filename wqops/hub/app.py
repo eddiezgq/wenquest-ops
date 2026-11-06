@@ -392,6 +392,28 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
             raise HTTPException(400, str(exc)) from exc
         return {"ok": True}
 
+    @app.post("/api/users")
+    async def add_user(request: Request, u=Depends(require("users:manage")), c=Depends(conn)):
+        """Add a colleague in the workspace (ADR-0025); they get a password from someone allowed to set one."""
+        data = await request.json()
+        roles = data.get("roles") or []
+        try:
+            return A.add_person(c, name=str(data.get("name", "")), email=str(data.get("email", "")),
+                                roles=[str(r) for r in roles] if isinstance(roles, list) else [],
+                                department=str(data.get("department") or "") or None, by=u,
+                                departments=[d["id"] for d in (company()[0] or {}).get("departments", [])])
+        except A.AccountError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/users/remove")
+    async def remove_user(request: Request, u=Depends(require("users:manage")), c=Depends(conn)):
+        data = await request.json()
+        try:
+            A.remove_person(c, str(data.get("email", "")), by=u)
+        except A.AccountError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True}
+
     OA.mount(app, conn, current_user)
     OA.mount_dashboard(app, conn, current_user, company)
     OA.mount_anomalies(app, conn, current_user, company)
@@ -483,6 +505,8 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 "demo": bool(m and m.get("demo")), "currency": c.get("currency", "USD"),
                 "timezone": c.get("timezone", "UTC"), "erp_url": os.environ.get("WQO_ERP_PUBLIC_URL"),
                 "user": A.public(u), "version": wqops.__version__,
+                "departments": [{"id": d["id"], "name": d.get("name", d["id"])}
+                                for d in (m or {}).get("departments", [])],
                 "may": [P.describe(p) for p in sorted(P.of(u["roles"]))]}
 
     @app.get("/api/sync/status")
