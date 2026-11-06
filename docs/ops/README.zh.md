@@ -286,6 +286,16 @@ WQO_HUB_IMAGE=wenquest-ops-hub:local ./install.sh --company company.yaml --domai
 可用内存少于 1.5 GB 时拒绝。`./tenant.sh list` 列出各家，`stop <编号>` / `start <编号>` 暂停或恢复（记录保留），
 `upgrade-all` 在演示企业之后逐家升级。每家每天 04:15 前后备份一次。
 
+### 美国服务器自动部署（ADR-0025，25b）
+
+`.github/workflows/deploy-us.yml` 在每次镜像构建后自动部署到美国服务器（和国内同一版本）。第一次要项目负责人做一次：
+1. 美国服务器上用 deploy 用户建一把只给本仓库用的密钥：`ssh-keygen -t ed25519 -N "" -f ~/.ssh/wqo-deploy`，
+   再 `cat ~/.ssh/wqo-deploy.pub >> ~/.ssh/authorized_keys`。
+2. 本仓库 Settings → Secrets and variables → Actions 加两个密钥：`US_DEPLOY_HOST`（服务器 IP）、`US_DEPLOY_SSH_KEY`
+   （`cat ~/.ssh/wqo-deploy` 的全部内容）。
+3. Actions → “Deploy to the WenQuest server in the US” → Run workflow。10 月手动装的那套会就地升级；它的目录不归 deploy
+   用户时，按报错提示在服务器上 `sudo chown -R deploy: <目录>`。
+
 ## 故障排查
 
 | 现象 | 检查 |

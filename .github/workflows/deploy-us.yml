@@ -1,0 +1,147 @@
+name: Deploy to the WenQuest server in the US
+
+# ADR-0025 (25b): the US server runs the same version as the server in China. Unlike China it reaches GitHub, so the
+# server pulls the images from ghcr.io itself (signed in with this run's token, signed out again at the end).
+#   1. find the installation: the folder the running qms-demo-edge container was started from (it was installed by
+#      hand in October 2026), else /opt/wenquest/qms for a fresh one (English demo company, --edge, project qms);
+#   2. copy the deployment files there; under the server's deploy lock (shared with the WenQuest platform):
+#      install.sh the first time, upgrade.sh later, then every pilot company (tenant.sh upgrade-all);
+#   3. a daily backup at 04:10 (7 kept) and the pilot-runner every minute in the deploy user's crontab; status.
+# Needs the secrets US_DEPLOY_HOST and US_DEPLOY_SSH_KEY (a key only for this repository, made on the server by the
+# project lead for the user deploy); without them nothing happens. The site's name comes from the WenQuest
+# platform's SITE_DOMAIN on the server (qms.<domain> and qms-erp.<domain>), or the repository variable US_QMS_DOMAIN.
+on:
+  workflow_run:
+    workflows: [Images]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-us
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      HOST: ${{ secrets.US_DEPLOY_HOST }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Check the settings
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "::notice::US_DEPLOY_HOST is not set: no server in the US to deploy to."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+          fi
+          echo "TAG=sha-${SHA::7}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        if: env.SKIP != '1'
+        with:
+          ref: ${{ env.SHA }}
+      - name: Set up SSH and find the installation
+        if: env.SKIP != '1'
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.US_DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 "$HOST" > ~/.ssh/known_hosts 2>/dev/null
+          printf 'Host us\n  HostName %s\n  User deploy\n  ServerAliveInterval 30\n  ServerAliveCountMax 6\n' "$HOST" \
+            > ~/.ssh/config
+          ssh us 'echo connected; df -h / | tail -1; free -m | head -2'
+          dir=$(ssh us "docker inspect qms-demo-edge --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}' 2>/dev/null" || true)
+          [ -n "$dir" ] || dir=/opt/wenquest/qms
+          echo "installation folder: $dir"
+          echo "DIR=$dir" >> "$GITHUB_ENV"
+          # shellcheck disable=SC2029   # dir is meant to expand here
+          if ! ssh us "mkdir -p '$dir' && test -w '$dir' && { [ ! -f '$dir/.env' ] || test -w '$dir/.env'; }"; then
+            echo "::error::$dir is not writable by the user deploy (installed by hand as another user?). On the server: sudo chown -R deploy: $dir"
+            exit 1
+          fi
+      - name: Sign the server in to ghcr.io for this run
+        if: env.SKIP != '1'
+        run: |
+          set -euo pipefail
+          command -v skopeo >/dev/null || { sudo apt-get update -q && sudo apt-get install -yq skopeo; }
+          creds="${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+          if ! skopeo inspect --creds "$creds" "docker://ghcr.io/${{ github.repository_owner }}/wenquest-ops-hub:$TAG" >/dev/null 2>&1; then
+            echo "no hub image for $TAG; using latest"; echo "TAG=latest" >> "$GITHUB_ENV"
+          fi
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" | ssh us "docker login ghcr.io -u '${{ github.actor }}' --password-stdin" >/dev/null
+      - name: Copy the deployment files
+        if: env.SKIP != '1'
+        run: |
+          set -euo pipefail
+          cp companies/demo-harbor-lane.yaml deploy/company-demo.yaml
+          # shellcheck disable=SC2029
+          tar czf - -C deploy . | ssh us "tar xzf - -C '$DIR' && chmod +x '$DIR'/*.sh"
+      - name: Install the first time, else upgrade (under the server's deploy lock)
+        if: env.SKIP != '1'
+        env:
+          US_QMS_DOMAIN: ${{ vars.US_QMS_DOMAIN }}
+        run: |
+          set -euo pipefail
+          domain="$US_QMS_DOMAIN"
+          if [ -z "$domain" ]; then
+            site=$(ssh us "grep -E '^SITE_DOMAIN=' /opt/wenquest/.env 2>/dev/null | tail -n 1 | cut -d= -f2-" || true)
+            [ -n "$site" ] && [ "$site" != example.com ] && domain="qms.$site"
+          fi
+          [ -n "$domain" ] || { echo "::error::no site name: set the repository variable US_QMS_DOMAIN (e.g. qms.example.com)"; exit 1; }
+          erp="${domain/qms./qms-erp.}"; [ "$erp" != "$domain" ] || erp="erp.$domain"
+          echo "WenQuest Ops: $domain   ERPNext: $erp"
+          # shellcheck disable=SC2029   # the values are meant to expand here, before ssh
+          ssh us "TAG='$TAG' DOMAIN='$domain' ERP='$erp' DIR='$DIR' bash -s" <<'EOF' 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          set -euo pipefail
+          cd "$DIR"
+          exec 9>/tmp/wenquest-deploy.lock
+          flock -w 1500 9 || { echo "the deploy lock stayed taken for 25 minutes"; exit 1; }
+          export WQO_DIR="$DIR"
+          . ./lib.sh
+          if [ -f .installed ] || [ -n "$(envval WQO_INSTALLED)" ]; then
+            touch .installed
+            if [ "$(envval WQO_ERP_DOMAIN)" != "$ERP" ]; then
+              # installed by hand before ERPNext had its own public address: give it qms-erp.<domain> (ADR-0025)
+              envset WQO_ERP_DOMAIN "$ERP"
+              dc exec -T erp-backend bench --site frontend set-config host_name "https://$ERP" >/dev/null
+            fi
+            ./upgrade.sh "$TAG"
+          else
+            echo "installation (first time, or again after an unfinished one: install.sh skips finished steps)"
+            ./install.sh --company company-demo.yaml --domain "$DOMAIN" --erp-domain "$ERP" --image "$TAG" --edge --project qms
+            touch .installed
+            dc exec -T hub python -m wqops.demo.load > demo.log 2>&1 && touch .demo-loaded || tail -n 20 demo.log
+          fi
+          ./tenant.sh upgrade-all "$TAG"     # the pilot companies, one after another (ADR-0025)
+          EOF
+      - name: Daily backup at 04:10 (7 kept) and the pilot-runner every minute
+        if: env.SKIP != '1'
+        run: |
+          # shellcheck disable=SC2029
+          ssh us "line='10 4 * * * cd $DIR && WQO_KEEP=7 ./backup.sh >> $DIR/backups/backup.log 2>&1'
+            { crontab -l 2>/dev/null | grep -v '$DIR.*backup.sh' || true; echo \"\$line\"; } | crontab -
+            line='* * * * * $DIR/pilot-runner.sh >> $DIR/pilot-runner.log 2>&1'
+            { crontab -l 2>/dev/null | grep -v 'pilot-runner.sh' || true; echo \"\$line\"; } | crontab -
+            crontab -l | grep -E 'backup.sh|pilot-runner'"
+      - name: Status and memory use
+        if: env.SKIP != '1'
+        run: |
+          # shellcheck disable=SC2029
+          ssh us "'$DIR/status.sh'" || { echo "::error::status check failed"; exit 1; }
+          mem=$(ssh us "docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | grep -E '^qms' | sort; free -m | head -2")
+          echo "$mem"
+          echo "::notice title=memory on the server::$(printf '%s' "$mem" | sed ':a;N;$!ba;s/\n/%0A/g')"
+      - name: Sign the server out of ghcr.io
+        if: always() && env.SKIP != '1'
+        run: ssh us 'docker logout ghcr.io >/dev/null 2>&1 || true'
+      - name: Show the end of the log on failure
+        if: failure()
+        run: |
+          [ -f "$RUNNER_TEMP/deploy.log" ] && echo "::error title=deploy-us::$(tail -n 25 "$RUNNER_TEMP/deploy.log" | cut -c 1-300 | sed ':a;N;$!ba;s/\n/%0A/g')"
+          true

@@ -199,6 +199,14 @@ password written to the result file (send it to the owner, then delete the file)
 1.5 GB of memory is free. `./tenant.sh list` shows them, `stop <id>` / `start <id>` pause one (records kept),
 `upgrade-all` upgrades them one after another after the demo. Each gets a daily backup at 04:15 or a little later.
 
+### Automatic deployment to the US server (ADR-0025, 25b)
+
+`.github/workflows/deploy-us.yml` deploys every new image to the US server (the same version as China). Once, the
+project lead: makes a key for the user deploy on the server (`ssh-keygen -t ed25519 -N "" -f ~/.ssh/wqo-deploy`,
+then append `~/.ssh/wqo-deploy.pub` to `~/.ssh/authorized_keys`), adds the repository secrets `US_DEPLOY_HOST` and
+`US_DEPLOY_SSH_KEY` (the private key), and runs the workflow by hand. The installation made by hand in October is
+upgraded in place; if its folder does not belong to deploy, `sudo chown -R deploy: <folder>` as the error says.
+
 ### Monitoring
 
 - `https://<domain>/api/health` returns 200 with `{"ok": true, ...}` when the database, ERPNext and the company
