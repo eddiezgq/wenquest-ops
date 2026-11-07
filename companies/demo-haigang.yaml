@@ -41,4 +41,5 @@ people:
   - {name: 赵磊, email: zhaolei@demo.example, roles: [sales], department: sales}
   - {name: 周静, email: zhoujing@demo.example, roles: [quality], department: quality}
   - {name: 林智, email: linzhi@demo.example, roles: [ai_specialist], department: operations}
-modules: [core, hub, ai, quality]
+  - {name: 陈越, email: chenyue@demo.example, roles: [engineering], department: operations}
+modules: [core, hub, ai, quality, plm]

@@ -100,7 +100,8 @@ def write_template(path, m: dict) -> None:
     ws = wb.create_sheet("Modules")
     ws.append(["Module", "Turn on", "Help"])
     helps = {"core": "always on", "hub": "always on", "ai": "AI assistant", "quality": "quality management",
-             "warehousing": "warehousing and distribution (Phase 2)", "production": "production (later)"}
+             "warehousing": "warehousing and distribution (Phase 2)", "production": "production (later)",
+             "plm": "PLM: parts, revisions and BOMs (ADR-0026)"}
     for mod in C.MODULES:
         ws.append([mod, YES if mod in m.get("modules", []) else NO, helps[mod]])
     _style(ws, [16, 12, 50])

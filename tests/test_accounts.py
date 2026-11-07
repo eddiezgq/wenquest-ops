@@ -30,7 +30,7 @@ def test_migrations_are_idempotent(conn):
 def test_sync_creates_updates_deactivates(conn):
     m = C.load(C.DEMO_FILE)
     r = A.sync(conn, m)
-    assert len(r["created"]) == 7 and not r["updated"]
+    assert len(r["created"]) == 8 and not r["updated"]   # one per role in the demo (ADR-0026 added engineering)
     assert A.sync(conn, m) == {"created": [], "updated": [], "deactivated": [], "reactivated": []}
     m2 = copy.deepcopy(m)
     m2["people"][1]["roles"] = ["ops_manager", "quality"]
@@ -82,7 +82,7 @@ def test_cli(db_url, monkeypatch, capsys):
     monkeypatch.setenv("WQO_DB", db_url)
     monkeypatch.setenv("WQO_COMPANY_FILE", str(C.DEMO_FILE))
     assert A.main(["sync"]) == 0
-    assert "created 7" in capsys.readouterr().out
+    assert "created 8" in capsys.readouterr().out
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("Good password 1\n"))
     assert A.main(["set-password", "dana@demo.example"]) == 0
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("weak\n"))

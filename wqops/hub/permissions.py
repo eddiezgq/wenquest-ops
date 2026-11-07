@@ -24,6 +24,9 @@ PERMISSIONS = {
     "users:manage": "Set other people's passwords (who has access comes from the company manifest)",
     "settings:edit": "Change platform settings",
     "integrations:manage": "Give machines and other systems access tokens, and revoke them (ADR-0020)",
+    "plm:view": "See parts, their revisions and BOMs (ADR-0026)",
+    "plm:edit": "Create parts, edit draft revisions and draft BOMs",
+    "plm:release": "Release part and BOM revisions with a signature, and set part numbering",
 }
 
 _VIEW = {"dashboard:view", "inventory:view", "sales:view", "purchasing:view", "quality:view", "documents:view"}
@@ -31,15 +34,17 @@ _DOCS = {"documents:view", "documents:edit"}
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "owner": frozenset(PERMISSIONS),
     "ops_manager": frozenset(_VIEW | _DOCS | {"purchasing:draft", "quality:edit", "ai:use", "users:view",
-                                             "data:import"}),
+                                             "data:import", "plm:view"}),
     "warehouse": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "quality:view", "ai:use",
                             "documents:view"}),
     "purchasing": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "purchasing:draft",
                              "quality:view", "ai:use", "documents:view"}),
     "sales": frozenset({"dashboard:view", "inventory:view", "sales:view", "ai:use", "documents:view"}),
     "quality": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "quality:view", "quality:edit",
-                          "ai:use", "workflows:configure", "qms:configure"} | _DOCS),
+                          "ai:use", "workflows:configure", "qms:configure", "plm:view"} | _DOCS),
     "ai_specialist": frozenset(_VIEW | _DOCS | {"ai:use", "ai:configure", "users:view"}),
+    "engineering": frozenset({"dashboard:view", "inventory:view", "purchasing:view", "quality:view", "ai:use",
+                              "documents:view", "plm:view", "plm:edit", "plm:release"}),
 }
 
 

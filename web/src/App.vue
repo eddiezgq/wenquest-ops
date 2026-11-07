@@ -79,6 +79,10 @@ const menu = computed(() => [
             <SidebarItem :label="t('Anomalies')" icon="lucide-triangle-alert" route="/anomalies" />
             <SidebarItem :label="t('Drafts')" icon="lucide-file-pen-line" route="/drafts" />
             <SidebarItem :label="t('Scan')" icon="lucide-scan-line" route="/scan" />
+            <template v-if="ws.modules?.includes('plm') && can('plm:view')">
+              <SidebarLabel divider>{{ t('Engineering') }}</SidebarLabel>
+              <SidebarItem :label="t('Parts')" icon="lucide-cog" route="/plm/parts" />
+            </template>
             <SidebarLabel divider>{{ t('Records') }}</SidebarLabel>
             <SidebarItem v-if="can('quality:view')" :label="t('Quality')" icon="lucide-shield-check" route="/quality" />
             <SidebarItem v-if="can('quality:view')" :label="t('Complaints')" icon="lucide-message-square-warning" route="/quality/complaints" />

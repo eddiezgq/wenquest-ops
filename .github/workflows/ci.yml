@@ -129,7 +129,7 @@ jobs:
                -d '{"email":"dana@demo.example","password":"Ci-owner-pass-2026"}' https://ops.localtest.me/api/login
           grep -q wqo_session jar
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/users | python3 -c "
-          import json,sys; u=json.load(sys.stdin); assert len(u)==7, u; print([x['email'] for x in u])"
+          import json,sys; u=json.load(sys.stdin); assert len(u)==8, u; print([x['email'] for x in u])"
           curl -fsk "${R[@]}" https://erp.ops.localtest.me/api/method/ping | grep -q pong
           erp() { docker compose -p wqo --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" exec -T erp-backend \
                   bench --site frontend execute "$@" 2>/dev/null | tail -n 1; }
@@ -384,7 +384,7 @@ jobs:
           curl -fsk "${R[@]}" -c jar -H 'content-type: application/json' \
                -d '{"email":"wangdan@demo.example","password":"Ci-owner-pass-2026"}' https://ops.localtest.me/api/login
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/users | python3 -c "
-          import json,sys; u=json.load(sys.stdin); assert len(u)==7, u"
+          import json,sys; u=json.load(sys.stdin); assert len(u)==8, u"
           curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/workspace | python3 -c "
           import json,sys; w=json.load(sys.stdin); print(w); assert w['language']=='zh' and w['currency']=='CNY', w"
           erp() { docker compose -p qms --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" exec -T erp-backend \

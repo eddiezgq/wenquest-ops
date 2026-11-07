@@ -128,7 +128,8 @@ jobs:
               --china --edge --small --project qms --mirror 127.0.0.1:5000/qms
             touch .installed
           else
-            ./upgrade.sh "$TAG"
+            # the demo company follows companies/demo-haigang.yaml (new people, modules such as plm, ADR-0026)
+            ./upgrade.sh "$TAG" --company company-demo.yaml
           fi
           ./tenant.sh upgrade-all "$TAG"     # the pilot companies, one after another (ADR-0025)
           if [ ! -f .demo-loaded ]; then

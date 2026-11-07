@@ -44,6 +44,9 @@ import MachineInbox from './pages/MachineInbox.vue'
 import DeviceIds from './pages/DeviceIds.vue'
 import ReviewPage from './pages/ReviewPage.vue'
 import ChangePage from './pages/ChangePage.vue'
+import Parts from './pages/Parts.vue'
+import PartPage from './pages/PartPage.vue'
+import BomPage from './pages/BomPage.vue'
 import Gauges from './pages/Gauges.vue'
 import GaugePage from './pages/GaugePage.vue'
 import Complaints from './pages/Complaints.vue'
@@ -87,6 +90,9 @@ const router = createRouter({
     { path: '/quality/gauges/:id', component: GaugePage, meta: { title: 'Equipment' } },
     { path: '/quality/changes', component: Changes, meta: { title: 'Changes' } },
     { path: '/quality/changes/:id', component: ChangePage, meta: { title: 'Change' } },
+    { path: '/plm/parts', component: Parts, meta: { title: 'Parts' } },
+    { path: '/plm/parts/:id', component: PartPage, meta: { title: 'Part' } },
+    { path: '/plm/boms/:id', component: BomPage, meta: { title: 'BOM' } },
     { path: '/quality/risk', component: Risk, meta: { title: 'Risk management' } },
     { path: '/quality/risk/:id', component: RiskFilePage, meta: { title: 'Risk file' } },
     { path: '/quality/production', component: Production, meta: { title: 'Production records' } },

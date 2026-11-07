@@ -517,6 +517,9 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     from wqops.hub.quality import flow_api as FWA  # noqa: PLC0415
 
     FWA.mount(app, conn, current_user, company)
+    from wqops.hub.plm import api as PLMA  # noqa: PLC0415
+
+    PLMA.mount(app, conn, current_user, company, erp_client)
 
     @app.get("/api/i18n/{lang}")
     def hub_texts(lang: str):
@@ -538,7 +541,8 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
                 "user": A.public(u), "version": wqops.__version__,
                 "departments": [{"id": d["id"], "name": d.get("name", d["id"])}
                                 for d in (m or {}).get("departments", [])],
-                "may": [P.describe(p) for p in sorted(P.of(u["roles"]))]}
+                "may": [P.describe(p) for p in sorted(P.of(u["roles"]))],
+                "modules": list((m or {}).get("modules") or [])}
 
     @app.get("/api/sync/status")
     def sync_status(_=Depends(require("dashboard:view")), c=Depends(conn)):
@@ -645,6 +649,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
         for path in ("/objects", "/o/{rest:path}", "/anomalies", "/anomalies/{rest:path}", "/drafts", "/assistant",
                      "/quality", "/quality/{rest:path}", "/help", "/help/{rest:path}", "/account", "/people",
                      "/documents", "/documents/{rest:path}", "/system", "/system/{rest:path}", "/wall", "/scan",
+                     "/plm/{rest:path}",
                      "/integrations"):
             app.add_api_route(path, spa_page, methods=["GET"], include_in_schema=False)
 
