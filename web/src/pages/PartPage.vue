@@ -27,12 +27,16 @@ const draft = computed(() => v.value?.revisions.find((r) => r.status === 'draft'
 const shown = computed(() => draft.value || v.value?.revisions.at(-1))
 const bomDraft = computed(() => v.value?.boms.find((b) => b.status === 'draft'))
 const bomLatest = computed(() => bomDraft.value || v.value?.boms.at(-1))
+const saved = ref('')
+const snap = () => JSON.stringify([f.value, head.value])
+const dirty = computed(() => !!v.value && snap() !== saved.value)
 
 function set(d) {
   v.value = d
   const r = d.revisions.find((x) => x.status === 'draft') || d.revisions.at(-1)
   f.value = { params: { ...(r?.params || {}) }, description: r?.description || '' }
   head.value = { name: d.part.name, source: d.part.source, uom: d.part.uom }
+  saved.value = snap()
 }
 async function load() {
   error.value = ''
@@ -46,7 +50,7 @@ async function call(path, method, body, msg) {
 const id = () => v.value.part.id
 function save() {
   const body = { params: f.value.params, description: f.value.description }
-  if (v.value.part.status === 'draft') Object.assign(body, head.value)
+  if (v.value.part.status === 'draft') for (const k of ['name', 'source', 'uom']) if (head.value[k] !== v.value.part[k]) body[k] = head.value[k]
   call(`/api/plm/parts/${id()}`, 'PUT', body, t('Saved.'))
 }
 const release = () => call(`/api/plm/parts/${id()}/release`, 'POST', { password: pw.value }, t('plm::Released.'))
@@ -80,7 +84,7 @@ const kb = (n) => (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB'
     <section data-help="plm-part" class="wq-panel mb-5 grid gap-3 p-5 md:grid-cols-4">
       <label class="wq-field md:col-span-2">{{ t('Name') }}<input v-model="head.name" class="wq-input" :disabled="!v.can_edit || v.part.status !== 'draft'"></label>
       <label class="wq-field">{{ t('Made or bought') }}<select v-model="head.source" class="wq-select" :disabled="!v.can_edit || v.part.status !== 'draft'"><option value="make">{{ t('plm::Made') }}</option><option value="buy">{{ t('Bought') }}</option></select></label>
-      <label class="wq-field">{{ t('Unit') }}<input v-model="head.uom" class="wq-input" :disabled="!v.can_edit || v.part.status !== 'draft'"></label>
+      <label class="wq-field">{{ t('Unit') }}<input v-model="head.uom" class="wq-input" :disabled="!v.can_edit || v.part.status !== 'draft' || ['created', 'existing'].includes(v.part.erp_state)"></label>
       <p class="text-sm text-ink-gray-6 md:col-span-4">{{ t('Category') }}: {{ v.category.label }} ·
         ERPNext: <span v-if="['created', 'existing'].includes(v.part.erp_state)" class="text-ink-green-7">{{ t('item {code}', { code: v.part.item_code }) }}</span>
         <span v-else class="text-ink-red-7">{{ t('not made yet') }} {{ v.part.erp_error || '' }}
@@ -113,7 +117,8 @@ const kb = (n) => (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB'
         <Button v-if="draft && v.can_edit" :label="t('Save')" @click="save" />
         <template v-if="draft && v.can_release">
           <input v-model="pw" type="password" class="wq-input w-44" :placeholder="t('Your password')" autocomplete="current-password">
-          <Button variant="solid" :label="t('plm::Release (sign)')" :disabled="!pw || !draft.ready" @click="release" />
+          <Button variant="solid" :label="t('plm::Release (sign)')" :disabled="!pw || !draft.ready || dirty" @click="release" />
+          <span v-if="dirty" class="text-sm text-ink-amber-7">{{ t('Save first: what is released is what was saved and checked.') }}</span>
         </template>
         <template v-if="!draft && v.can_edit && v.part.status === 'released'">
           <select v-model="change" class="wq-select w-72"><option value="">{{ t('Approved product change…') }}</option><option v-for="c in changes" :key="c.id" :value="c.id">{{ c.name }} {{ c.title }}</option></select>

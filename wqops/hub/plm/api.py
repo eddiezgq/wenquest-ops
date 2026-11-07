@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
+import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from starlette.datastructures import UploadFile
@@ -44,12 +45,17 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client) -> None:  # noq
             raise HTTPException(404, say("not found")) from exc
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
+        except psycopg.errors.RaiseException as exc:      # the database kept a released record from changing
+            raise HTTPException(409, say("someone released it meanwhile: open it again")) from exc
         except ErpError as exc:
             raise HTTPException(502, say("ERPNext did not answer as expected: {exc}", exc=exc)) from exc
 
     async def body(request: Request) -> dict:
         raw = await request.body()
-        d = (await request.json()) if raw else {}
+        try:
+            d = (await request.json()) if raw else {}
+        except ValueError as exc:
+            raise HTTPException(400, say("the request is not JSON")) from exc
         return d if isinstance(d, dict) else {}
 
     def ident(v: int) -> int:
@@ -82,7 +88,8 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client) -> None:  # noq
     @app.get("/api/plm/parts")
     def parts(q: str = "", category: str = "", status: str = "", u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "plm:view")
-        return {"parts": PT.listing(c, q=q[:100], category=category[:40], status=status[:20]), **flags(u)}
+        rows = PT.listing(c, q=q[:100], category=category[:40], status=status[:20])
+        return {"parts": rows[:PT.LIST_MAX], "more": len(rows) > PT.LIST_MAX, **flags(u)}
 
     @app.post("/api/plm/parts/similar")
     async def similar(request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -116,7 +123,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client) -> None:  # noq
     async def update(pid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "plm:edit")
         d = await body(request)
-        return {**run(lambda: PT.update(c, u, ident(pid), d)), **flags(u)}
+        return {**run(lambda: PT.update(c, u, ident(pid), d, erp_or_none())), **flags(u)}
 
     @app.post("/api/plm/parts/{pid}/files")
     async def add_file(pid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):

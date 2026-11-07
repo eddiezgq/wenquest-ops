@@ -23,7 +23,18 @@ const ERP = { draft: 'amber', submitted: 'green', cancelled: 'red', none: 'gray'
 const draft = computed(() => v.value?.bom.status === 'draft')
 const dirty = computed(() => JSON.stringify(rows.value.map(strip)) !== JSON.stringify((v.value?.lines || []).map(strip)) || note.value !== (v.value?.bom.note || ''))
 const strip = (x) => ({ code: (x.code || '').trim(), qty: String(x.qty), uom: x.uom || '', note: x.note || '' })
-const byCode = computed(() => Object.fromEntries(parts.value.map((p) => [p.code, p])))
+const seen = ref({})          // parts found so far, by code (the list on the server can be longer than one page)
+const byCode = computed(() => ({ ...seen.value, ...Object.fromEntries((v.value?.lines || []).map((x) => [x.code, { name: x.name, status: x.part_status, uom: x.uom }])) }))
+let timer = null
+function find(q) {
+  clearTimeout(timer)
+  timer = setTimeout(async () => {
+    try {
+      parts.value = (await api(`/api/plm/parts?q=${encodeURIComponent(q.trim())}`)).parts.slice(0, 50)
+      seen.value = { ...seen.value, ...Object.fromEntries(parts.value.map((p) => [p.code, p])) }
+    } catch { /* suggestions only */ }
+  }, 250)
+}
 
 function set(d) {
   v.value = d
@@ -32,7 +43,7 @@ function set(d) {
 }
 async function load() {
   error.value = ''
-  try { set(await api(`/api/plm/boms/${route.params.id}`)); parts.value = (await api('/api/plm/parts')).parts } catch (e) { error.value = e.message }
+  try { set(await api(`/api/plm/boms/${route.params.id}`)) } catch (e) { error.value = e.message }
 }
 watch(() => route.params.id, load, { immediate: true })
 async function call(path, method, body, msg) {
@@ -62,12 +73,12 @@ const toErp = () => call(`/api/plm/boms/${v.value.bom.id}/to-erp`, 'POST', {}, t
       <table class="wq-table text-sm"><thead><tr><th>#</th><th>{{ t('Part') }}</th><th>{{ t('Name') }}</th><th>{{ t('Quantity') }}</th><th>{{ t('Unit') }}</th><th>{{ t('Note') }}</th><th>{{ t('Status') }}</th><th /></tr></thead>
         <tbody><tr v-for="(r, i) in rows" :key="i">
           <td>{{ i + 1 }}</td>
-          <td><input v-if="draft && v.can_edit" v-model="r.code" list="plm-parts" class="wq-input w-36" @change="picked(r)"><RouterLink v-else :to="`/plm/parts/${v.lines[i]?.part_id}`" class="wq-link">{{ r.code }}</RouterLink></td>
+          <td><input v-if="draft && v.can_edit" v-model="r.code" list="plm-parts" class="wq-input w-36" @input="find(r.code)" @change="picked(r)"><RouterLink v-else :to="`/plm/parts/${v.lines[i]?.part_id}`" class="wq-link">{{ r.code }}</RouterLink></td>
           <td>{{ byCode[r.code?.trim()]?.name || v.lines[i]?.name || '' }}</td>
           <td><input v-if="draft && v.can_edit" v-model="r.qty" class="wq-input w-20" inputmode="decimal"><span v-else>{{ r.qty }}</span></td>
           <td><input v-if="draft && v.can_edit" v-model="r.uom" class="wq-input w-20"><span v-else>{{ r.uom }}</span></td>
           <td><input v-if="draft && v.can_edit" v-model="r.note" class="wq-input w-40"><span v-else>{{ r.note }}</span></td>
-          <td>{{ byCode[r.code?.trim()] ? stl(byCode[r.code.trim()].status) : '' }}</td>
+          <td>{{ byCode[r.code?.trim()]?.status ? stl(byCode[r.code.trim()].status) : '' }}</td>
           <td><button v-if="draft && v.can_edit" class="text-ink-red-7" @click="rows.splice(i, 1)">{{ t('Remove') }}</button></td></tr></tbody></table>
       <p v-if="!rows.length" class="wq-muted mt-2">{{ t('No lines yet.') }}</p>
       <label class="wq-field mt-3">{{ t('Note') }}<textarea v-model="note" rows="2" class="wq-input" :disabled="!draft || !v.can_edit" /></label>

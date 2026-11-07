@@ -4,6 +4,7 @@ their release checks (unreleased parts, cycles, approved suppliers unknown), a D
 between two revisions, the module switch and the permissions. Fictional data only."""
 
 import copy
+from decimal import Decimal
 
 import psycopg
 import pytest
@@ -125,11 +126,15 @@ def test_part_creation_numbers_makes_the_item_and_finds_similar(world, fake, erp
     p2 = part(c, erp, "Motor again", "motor", "buy", params=MOTOR, confirm_new=True)
     assert p2["item_code"] == "MOT-00002"
     # a code typed in: an item ERPNext already has is linked, not made again
-    fake.put("Item", "OLD-77", item_name="Old part")
-    p3 = part(c, erp, "Old part", code="OLD-77")
+    fake.put("Item", "OLD-77", item_name="Old part", stock_uom="Nos")
+    with pytest.raises(PT.PlmError, match="link the existing item"):     # not silently someone else's item
+        part(c, erp, "Old part", code="OLD-77")
+    with pytest.raises(PT.PlmError, match="counts in Nos"):
+        part(c, erp, "Old part", code="OLD-77", uom="kg", link_existing=True)
+    p3 = part(c, erp, "Old part", code="OLD-77", link_existing=True)
     assert p3["erp_state"] == "existing"
     with pytest.raises(PT.PlmError, match="already exists"):
-        part(c, erp, "Twice", code="OLD-77")
+        part(c, erp, "Twice", code="OLD-77", link_existing=True)
     # the company sets its own prefix
     PT.set_numbering(c, DANA, "needle", "ZJ", 4)
     needle = part(c, erp, "Needle DBx1 90", "needle", "buy", params={"nm": 90, "blade_d": 0.9})
@@ -303,3 +308,117 @@ def test_api_module_switch_permissions_and_similar(db_url, fake):
         up = c.post(f"/api/plm/parts/{pid}/files", data={"kind": "model"}, files={"file": ("h.step", b"x")})
         assert up.status_code == 409                                          # released: no new files
         assert c.get(f"/api/plm/parts/{pid}").json()["can_edit"]
+
+
+# ---- what the independent review found (round 109)
+
+def test_review_cycle_through_a_released_revision_quantities_and_units(world, fake, erp):
+    c = world
+    head = released(c, erp, "Head", "assembly")
+    arm = released(c, erp, "Arm", "assembly")
+    shaft = released(c, erp, "Shaft", "shaft", d=10, length=100)
+    ba = B.start(c, u(c, CASEY), arm["id"])
+    B.set_lines(c, u(c, CASEY), ba["bom"]["id"], [{"code": head["item_code"], "qty": "10"}])
+    v = B.view(c, ba["bom"]["id"], erp)
+    assert v["lines"][0]["qty"] == "10"                                  # not 1E+1
+    B.release(c, u(c, CASEY), ba["bom"]["id"], PW, erp)
+    ba2 = B.start(c, u(c, CASEY), arm["id"], approved_change(c))         # the draft drops Head; rev A still has it
+    B.set_lines(c, u(c, CASEY), ba2["bom"]["id"], [{"code": shaft["item_code"], "qty": 2.5}])
+    bh = B.start(c, u(c, CASEY), head["id"])
+    v = B.set_lines(c, u(c, CASEY), bh["bom"]["id"], [{"code": arm["item_code"], "qty": 1}])
+    assert next(x for x in v["checks"] if x["check"] == "no part contains itself")["result"] == "fail"
+    with pytest.raises(PT.PlmError, match="counts in Nos"):
+        B.set_lines(c, u(c, CASEY), bh["bom"]["id"], [{"code": arm["item_code"], "qty": 1, "uom": "kg"}])
+    with pytest.raises(PT.PlmError, match="6 decimals"):
+        B.set_lines(c, u(c, CASEY), bh["bom"]["id"], [{"code": arm["item_code"], "qty": "1e400"}])
+    assert R.qty_text(Decimal("2.500")) == "2.5" and R.qty_text(Decimal("100")) == "100"
+
+
+def test_review_one_erpnext_bom_and_locked_records(world, fake, erp):
+    c = world
+    head = released(c, erp, "Head", "assembly")
+    shaft = released(c, erp, "Shaft", "shaft", d=10, length=100)
+    b = B.start(c, u(c, CASEY), head["id"])
+    B.set_lines(c, u(c, CASEY), b["bom"]["id"], [{"code": shaft["item_code"], "qty": 1}])
+    bid = b["bom"]["id"]
+    fake.fail_after = None
+    # ERPNext made the BOM but the answer got lost: the retry links it instead of making a second one
+    orig = B._erp_bom
+
+    def lost(erp_, b_, part_, ls_):
+        orig(erp_, b_, part_, ls_)
+        raise TimeoutError("answer lost")
+    B._erp_bom = lost
+    try:
+        v = B.release(c, u(c, CASEY), bid, PW, erp)
+    finally:
+        B._erp_bom = orig
+    assert v["bom"]["erp_error"] and not v["bom"]["erp_bom"]
+    v = B.to_erp(c, u(c, CASEY), bid, erp)
+    assert len(fake.docs["BOM"]) == 1 and v["bom"]["erp_bom"] in fake.docs["BOM"]
+    with pytest.raises(PT.PlmError, match="already in ERPNext"):
+        B.to_erp(c, u(c, CASEY), bid, erp)
+    with pytest.raises(psycopg.errors.RaiseException, match="keeps its ERPNext BOM"):
+        c.execute("update plm_boms set erp_bom = 'BOM-X' where id = %s", (bid,))
+    with pytest.raises(psycopg.errors.RaiseException, match="starts as a draft"):
+        c.execute("insert into plm_boms (part_id, revision, status, created_by, released_by, released_at) values "
+                  "(%s, 'Z', 'released', 'x', 'x', now())", (head["id"],))
+    with pytest.raises(psycopg.errors.RaiseException, match="fixed"):
+        c.execute("update plm_parts set uom = 'kg' where id = %s", (shaft["id"],))
+    with pytest.raises(psycopg.errors.RaiseException, match="fixed"):
+        c.execute("update plm_parts set status = 'draft' where id = %s", (shaft["id"],))
+
+
+def test_review_part_rules_after_the_item_exists(world, fake, erp):
+    c = world
+    p = part(c, erp, "Bracket", "other")
+    with pytest.raises(PT.PlmError, match="unit is fixed"):
+        PT.update(c, u(c, CASEY), p["id"], {"uom": "kg"})
+    PT.update(c, u(c, CASEY), p["id"], {"name": "Bracket, left"}, erp)
+    assert fake.docs["Item"][p["item_code"]]["item_name"] == "Bracket, left"
+    B.start(c, u(c, CASEY), p["id"])
+    with pytest.raises(PT.PlmError, match="stays a made part"):
+        PT.update(c, u(c, CASEY), p["id"], {"source": "buy"})
+    # a revision started under a change is not released once that change is cancelled
+    q = released(c, erp, "Pin", "other")
+    ch = approved_change(c)
+    PT.new_revision(c, u(c, CASEY), q["id"], ch)
+    c.execute("update changes set status = 'cancelled', cancel_reason = 'not needed' where id = %s", (ch,))
+    with pytest.raises(PT.PlmError, match="no longer approved"):
+        PT.release(c, u(c, CASEY), q["id"], PW)
+
+
+def test_review_an_edit_during_a_release_waits_and_is_refused(world, db_url, erp):
+    """The lines trigger reads the BOM "for share": an edit running while the BOM is released waits for the release
+    and then sees it released."""
+    import threading
+
+    from wqops.hub import db as DB
+
+    c = world
+    head = released(c, erp, "Head", "assembly")
+    shaft = released(c, erp, "Shaft", "shaft", d=10, length=100)
+    bid = B.start(c, u(c, CASEY), head["id"])["bom"]["id"]
+    B.set_lines(c, u(c, CASEY), bid, [{"code": shaft["item_code"], "qty": 1}])
+    rel = DB.connect(db_url)
+    rel.autocommit = False
+    rel.execute("update plm_boms set status = 'released', released_by = %s, released_at = now() where id = %s",
+                (CASEY, bid))
+    out = {}
+
+    def edit():
+        with DB.connect(db_url) as e:
+            try:
+                e.execute("insert into plm_bom_lines (bom_id, pos, part_id, qty, uom) values (%s, 9, %s, 1, 'Nos')",
+                          (bid, head["id"]))
+                out["r"] = "inserted"
+            except psycopg.errors.RaiseException as exc:
+                out["r"] = str(exc)
+    t = threading.Thread(target=edit)
+    t.start()
+    t.join(1.0)
+    assert t.is_alive()                     # waiting for the release
+    rel.commit()
+    rel.close()
+    t.join(10)
+    assert "released" in out["r"]

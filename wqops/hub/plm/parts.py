@@ -24,6 +24,7 @@ FILE_TYPES = {"model": (".step", ".stp", ".fcstd", ".stl", ".iges", ".igs"),
               "drawing": (".pdf", ".dxf", ".dwg", ".svg"),
               "image": (".png", ".jpg", ".jpeg", ".webp"), "other": None}
 ERP_GROUP = "PLM"
+LIST_MAX = 500
 CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,59}$")
 
 
@@ -143,7 +144,7 @@ def listing(conn, *, q: str = "", category: str = "", status: str = "") -> list[
     if status:
         sql += " and p.status = %s"
         args.append(status)
-    rows = conn.execute(sql + " order by p.item_code limit 500", args).fetchall()
+    rows = conn.execute(sql + " order by p.item_code limit %s", [*args, LIST_MAX + 1]).fetchall()
     return [{"id": r["id"], "code": r["item_code"], "name": r["name"], "category": r["category"],
              "source": r["source"], "uom": r["uom"], "status": r["status"], "revision": r["revision"],
              "rev_status": r["rev_status"], "erp_state": r["erp_state"]} for r in rows]
@@ -180,8 +181,11 @@ def view(conn, pid: int) -> dict:
 # ---- creating and changing
 
 def _erp_item(erp: ErpClient, part: dict, description: str) -> str:
-    """Make the ERPNext item (in group PLM, made if missing). Returns 'created' or 'existing'."""
-    if erp.get("Item", part["item_code"]) is not None:
+    """Make the ERPNext item (in group PLM, made if missing). Returns 'created' or 'existing' (only when the person
+    chose to link an item ERPNext already has, with the same unit)."""
+    have = erp.get("Item", part["item_code"])
+    if have is not None:
+        _may_link(part, have)
         return "existing"
     if erp.get("Item Group", ERP_GROUP) is None:
         roots = erp.list("Item Group", filters=[["is_group", "=", 1], ["parent_item_group", "is", "not set"]],
@@ -192,6 +196,15 @@ def _erp_item(erp: ErpClient, part: dict, description: str) -> str:
                 "item_group": ERP_GROUP, "stock_uom": part["uom"], "is_stock_item": 1,
                 "description": description or part["name"]})
     return "created"
+
+
+def _may_link(part: dict, have: dict) -> None:
+    if not part.get("link_existing"):
+        raise PlmError(say("ERPNext already has item {code}: to use it for this part, choose to link the existing item",
+                           code=part["item_code"]))
+    if have.get("stock_uom") and have["stock_uom"] != part["uom"]:
+        raise PlmError(say("item {code} in ERPNext counts in {erp_uom}, not {uom}", code=part["item_code"],
+                           erp_uom=have["stock_uom"], uom=part["uom"]))
 
 
 def _push(conn, erp: ErpClient, pid: int, email: str) -> dict:
@@ -242,15 +255,23 @@ def create(conn, user: dict, data: dict, erp: ErpClient) -> dict:
     code = str(data.get("code") or "").strip()
     if code and not CODE_RE.match(code):
         raise PlmError(say("the code is letters, digits and . _ / - (up to 60)"))
+    link = bool(code) and data.get("link_existing") is True
+    if code:
+        try:
+            have = erp.get("Item", code)
+        except Exception:      # ERPNext not answering: the part is made, its item is tried again later
+            have = None
+        if have is not None:
+            _may_link({"item_code": code, "uom": uom, "link_existing": link}, have)
     with conn.transaction():
         if code:
             if by_code(conn, code):
                 raise PlmError(say("part {code} already exists", code=code))
         else:
             code = _next_code(conn, erp, category)
-        p = conn.execute("insert into plm_parts (item_code, name, category, source, uom, created_by) values "
-                         "(%s, %s, %s, %s, %s, %s) returning *", (code, name[:140], category, source, uom,
-                                                                    user["email"])).fetchone()
+        p = conn.execute("insert into plm_parts (item_code, name, category, source, uom, link_existing, created_by) "
+                         "values (%s, %s, %s, %s, %s, %s, %s) returning *",
+                         (code, name[:140], category, source, uom, link, user["email"])).fetchone()
         conn.execute("insert into plm_part_revisions (part_id, revision, params, description, editors, created_by) "
                      "values (%s, %s, %s, %s, %s, %s)", (p["id"], R.next_revision(None), Jsonb(params),
                                                          str(data.get("description") or "").strip()[:4000],
@@ -265,16 +286,21 @@ def retry_erp(conn, user: dict, pid: int, erp: ErpClient) -> dict:
     return _push(conn, erp, pid, user["email"])
 
 
-def update(conn, user: dict, pid: int, data: dict) -> dict:
+def update(conn, user: dict, pid: int, data: dict, erp: ErpClient | None = None) -> dict:  # noqa: PLR0912
     """Change the draft revision (parameters, description); while nothing is released also the part's name, source,
-    unit and category (a new category drops parameters it does not have)."""
+    unit and category (a new category drops parameters it does not have). The unit is fixed once the ERPNext item
+    exists; a new name goes to the ERPNext item too; a made part with a BOM stays made."""
     p = get(conn, pid)
     rev = current(conn, pid)
     if rev is None or rev["status"] != "draft":
         raise PlmError(say("the part has no draft revision: start a new revision under an approved change"))
-    head = {k: data[k] for k in ("name", "source", "uom", "category") if k in data}
+    head = {k: data[k] for k in ("name", "source", "uom", "category") if k in data and data[k] != p[k]}
     if head and p["status"] != "draft":
         raise PlmError(say("the part is released: its name, source, unit and category no longer change"))
+    if "uom" in head and p["erp_state"] in ("created", "existing"):
+        raise PlmError(say("the unit is fixed: the ERPNext item already uses it"))
+    if head.get("source") == "buy" and conn.execute("select 1 from plm_boms where part_id = %s", (pid,)).fetchone():
+        raise PlmError(say("the part has a BOM: it stays a made part"))
     category = head.get("category", p["category"])
     if category not in CAT.CATEGORIES:
         raise PlmError(say("choose a category"))
@@ -293,6 +319,9 @@ def update(conn, user: dict, pid: int, data: dict) -> dict:
     except ValueError as exc:
         raise PlmError(str(exc)) from exc
     with conn.transaction():
+        locked = conn.execute("select status from plm_part_revisions where id = %s for update", (rev["id"],)).fetchone()
+        if locked["status"] != "draft":
+            raise PlmError(say("the part moved on meanwhile: open it again"))
         if head:
             conn.execute("update plm_parts set name = %s, source = %s, uom = %s, category = %s, updated_at = now() "
                          "where id = %s", (str(head.get("name", p["name"])).strip()[:140],
@@ -303,7 +332,22 @@ def update(conn, user: dict, pid: int, data: dict) -> dict:
                      (Jsonb(params), str(data.get("description", rev["description"]) or "").strip()[:4000],
                       user["email"], [user["email"]], rev["id"]))
         log(conn, "part", pid, user["email"], "edited", f"rev {rev['revision']}")
+    if "name" in head and erp is not None and p["erp_state"] in ("created", "existing"):
+        try:
+            erp.update("Item", p["item_code"], {"item_name": str(head["name"]).strip()[:140]})
+        except Exception as exc:
+            with conn.transaction():
+                log(conn, "part", pid, user["email"], "item in ERPNext failed", f"{type(exc).__name__}: {exc}"[:500])
     return view(conn, pid)
+
+
+def change_still_holds(conn, change_id) -> None:
+    """A revision started under a change is released only while that change stands (approved or implemented)."""
+    if change_id is None:
+        return
+    st = conn.execute("select status from changes where id = %s", (change_id,)).fetchone()
+    if st is None or st["status"] not in ("approved", "implemented"):
+        raise PlmError(say("the change this revision rests on is no longer approved"))
 
 
 def approved_change(conn, change_id) -> dict:
@@ -329,8 +373,8 @@ def new_revision(conn, user: dict, pid: int, change_id) -> dict:
                            (pid, R.next_revision(last["revision"]), Jsonb(last["params"]), last["description"],
                             ch["id"], [user["email"]], user["email"])).fetchone()
         conn.execute("insert into plm_files (revision_id, kind, name, sha256, size_bytes, added_by) select %s, kind, "
-                     "name, sha256, size_bytes, %s from plm_files where revision_id = %s and removed_at is null",
-                     (rev["id"], user["email"], last["id"]))
+                     "name, sha256, size_bytes, added_by from plm_files where revision_id = %s and removed_at is null",
+                     (rev["id"], last["id"]))
         log(conn, "part", pid, user["email"], "new revision", f"{rev['revision']} ({ch['name']})")
     del p
     return view(conn, pid)
@@ -345,12 +389,19 @@ def release(conn, user: dict, pid: int, password: str) -> dict:
     if not R.passed(checks):
         raise PlmError(say("not ready to release: {list}", list=Q.join(
             [c["check"] for c in checks if c["result"] != "pass"])))
+    change_still_holds(conn, rev["change_id"])
     Q.check_signer(conn, user, password)
     with conn.transaction():
         conn.execute("select id from plm_parts where id = %s for update", (pid,))
-        rev = current(conn, pid)
+        rev = conn.execute("select * from plm_part_revisions where id = %s for update", (rev["id"],)).fetchone()
         if rev["status"] != "draft":
             raise PlmError(say("the part moved on meanwhile: open it again"))
+        p = get(conn, pid)
+        checks = R.part_checks(p, rev)                 # again under the lock: what is signed is what was checked
+        if not R.passed(checks):
+            raise PlmError(say("not ready to release: {list}", list=Q.join(
+                [c["check"] for c in checks if c["result"] != "pass"])))
+        change_still_holds(conn, rev["change_id"])
         conn.execute("update plm_part_revisions set status = 'superseded' where part_id = %s and status = 'released'",
                      (pid,))
         conn.execute("update plm_part_revisions set status = 'released', released_by = %s, released_at = now() "

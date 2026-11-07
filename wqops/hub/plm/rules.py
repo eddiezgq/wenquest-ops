@@ -106,13 +106,21 @@ def part_checks(part: dict, rev: dict) -> list[dict]:
 
 
 def qty(v) -> Decimal:
+    """A BOM quantity: above 0, at most a million, at most 6 decimal places."""
     try:
-        d = Decimal(str(v))
+        d = Decimal(str(v).strip())
     except (InvalidOperation, ValueError) as exc:
         raise ValueError(say("the quantity is a number above 0")) from exc
-    if not d.is_finite() or d <= 0:
-        raise ValueError(say("the quantity is a number above 0"))
+    if not d.is_finite() or d <= 0 or d > 1_000_000 or d != d.quantize(Decimal("0.000001")):
+        raise ValueError(say("the quantity is a number above 0, up to 1,000,000, with at most 6 decimals"))
     return d
+
+
+def qty_text(v) -> str:
+    """10 as "10", 2.50 as "2.5" (never "1E+1")."""
+    d = v if isinstance(v, Decimal) else Decimal(str(v))
+    s = format(d, "f")
+    return s.rstrip("0").rstrip(".") if "." in s else s
 
 
 def cycle(parent: int, children: list[int], uses: dict[int, list[int]]) -> list[int] | None:
@@ -169,7 +177,7 @@ def diff(old: list[dict], new: list[dict]) -> list[dict]:
         elif y is None:
             out.append({"code": code, "name": x["name"], "change": "removed", "old": f"{x['qty']} {x['uom']}",
                         "new": None})
-        elif (Decimal(str(x["qty"])), x["uom"]) != (Decimal(str(y["qty"])), y["uom"]):
+        elif (Decimal(str(x["qty"])), x["uom"]) != (Decimal(str(y["qty"])), y["uom"]):  # numbers, not texts
             out.append({"code": code, "name": y["name"], "change": "changed", "old": f"{x['qty']} {x['uom']}",
                         "new": f"{y['qty']} {y['uom']}"})
     return out

@@ -18,7 +18,7 @@ const show = ref(false)
 const q = ref('')
 const fcat = ref('')
 const fstatus = ref('')
-const f = ref({ name: '', category: 'other', source: 'make', uom: 'Nos', code: '', params: {} })
+const f = ref({ name: '', category: 'other', source: 'make', uom: 'Nos', code: '', params: {}, link_existing: false })
 const similar = ref([])
 const num = ref({ category: '', prefix: '', digits: 5 })
 const ST = { draft: 'gray', released: 'green', obsolete: 'red' }
@@ -35,13 +35,17 @@ async function load() {
 }
 watch([fcat, fstatus], load, { immediate: true })
 watch(() => f.value.category, () => { f.value.params = {}; similar.value = [] })
+watch(() => JSON.stringify(f.value.params), () => { similar.value = [] })
 
 async function create(confirmNew = false) {
   error.value = ''
   const body = { ...f.value, confirm_new: confirmNew }
   if (!body.code.trim()) delete body.code
-  const r = await fetch('/api/plm/parts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' })
-  const d = await r.json()
+  let r, d
+  try {
+    r = await fetch('/api/plm/parts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' })
+    d = r.headers.get('content-type')?.includes('json') ? await r.json() : { detail: await r.text() }
+  } catch (e) { error.value = e.message; return }
   if (r.status === 409 && d.similar?.length) { similar.value = d.similar; error.value = d.detail; return }
   if (!r.ok) { error.value = d.detail; return }
   router.push(`/plm/parts/${d.id}`)
@@ -70,6 +74,7 @@ watch(() => num.value.category, (k) => { if (k && cat.value) Object.assign(num.v
     <label class="wq-field">{{ t('Made or bought') }}<select v-model="f.source" class="wq-select"><option value="make">{{ t('plm::Made') }}</option><option value="buy">{{ t('Bought') }}</option></select></label>
     <label class="wq-field">{{ t('Unit') }}<input v-model="f.uom" class="wq-input"></label>
     <label class="wq-field">{{ t('Code (empty: next number)') }}<input v-model="f.code" class="wq-input" :placeholder="cat.numbering[f.category]?.prefix + '-…'"></label>
+    <label v-if="f.code.trim()" class="flex items-end gap-2 text-sm"><input v-model="f.link_existing" type="checkbox"> {{ t('ERPNext already has this item: link it') }}</label>
     <label v-for="x in fields" :key="x.key" class="wq-field">{{ x.label }}{{ x.unit ? ` (${x.unit})` : '' }}{{ x.required ? ' *' : '' }}
       <input v-model="f.params[x.key]" class="wq-input" :inputmode="x.min === null ? 'text' : 'decimal'"></label>
     <div class="flex items-end gap-2 md:col-span-4">
@@ -91,6 +96,7 @@ watch(() => num.value.category, (k) => { if (k && cat.value) Object.assign(num.v
       <Button type="submit" :label="t('Search')" />
     </form>
     <p v-if="!v.parts.length" class="wq-muted">{{ t('None.') }}</p>
+    <p v-if="v.more" class="mb-2 text-sm text-ink-amber-7">{{ t('Only the first 500 are shown: search by code or name, or choose a category.') }}</p>
     <table v-else class="wq-table text-sm"><thead><tr><th>{{ t('plm::Code') }}</th><th>{{ t('Name') }}</th><th>{{ t('Category') }}</th><th>{{ t('Made or bought') }}</th><th>{{ t('Revision') }}</th><th>{{ t('Status') }}</th><th>ERPNext</th></tr></thead>
       <tbody><tr v-for="p in v.parts" :key="p.id">
         <td><RouterLink :to="`/plm/parts/${p.id}`" class="font-medium text-ink-gray-9 hover:underline">{{ p.code }}</RouterLink></td>

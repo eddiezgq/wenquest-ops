@@ -21,6 +21,7 @@ create table plm_parts (
     status      text not null default 'draft' check (status in ('draft', 'released', 'obsolete')),
     erp_state   text not null default 'pending' check (erp_state in ('pending', 'created', 'existing', 'failed')),
     erp_error   text,
+    link_existing boolean not null default false,   -- a code typed in that names an ERPNext item on purpose
     created_by  text not null,
     created_at  timestamptz not null default now(),
     updated_at  timestamptz not null default now()
@@ -106,19 +107,31 @@ begin
     if tg_op = 'DELETE' then
         raise exception 'PLM records are kept';
     end if;
+    if tg_op = 'INSERT' then
+        if new.status <> 'draft' or new.released_by is not null or new.released_at is not null then
+            raise exception 'a revision starts as a draft';
+        end if;
+        return new;
+    end if;
+    if new.created_by <> old.created_by or new.created_at <> old.created_at then
+        raise exception 'a revision keeps its origin';
+    end if;
     if old.status <> 'draft' then
         -- (each table's own columns: PL/pgSQL would read the other table's columns in a single condition)
         if tg_table_name = 'plm_part_revisions' then
             if (new.part_id, new.revision, new.params, new.description, new.change_id, new.released_by,
-                    new.released_at) is distinct from (old.part_id, old.revision, old.params, old.description,
-                    old.change_id, old.released_by, old.released_at) then
+                    new.released_at, new.editors) is distinct from (old.part_id, old.revision, old.params,
+                    old.description, old.change_id, old.released_by, old.released_at, old.editors) then
                 raise exception 'revision % is released: it cannot change', old.revision;
             end if;
         else
-            if (new.part_id, new.revision, new.note, new.change_id, new.released_by, new.released_at)
+            if (new.part_id, new.revision, new.note, new.change_id, new.released_by, new.released_at, new.editors)
                     is distinct from (old.part_id, old.revision, old.note, old.change_id, old.released_by,
-                    old.released_at) then
+                    old.released_at, old.editors) then
                 raise exception 'BOM revision % is released: it cannot change', old.revision;
+            end if;
+            if old.erp_bom is not null and new.erp_bom is distinct from old.erp_bom then
+                raise exception 'BOM revision % keeps its ERPNext BOM %', old.revision, old.erp_bom;
             end if;
         end if;
         if new.status = 'draft' or (old.status = 'superseded' and new.status <> 'superseded') then
@@ -127,22 +140,24 @@ begin
     end if;
     return new;
 end $$;
-create trigger plm_part_revisions_kept before update or delete on plm_part_revisions
+create trigger plm_part_revisions_kept before insert or update or delete on plm_part_revisions
     for each row execute function wqo_plm_kept();
-create trigger plm_boms_kept before update or delete on plm_boms for each row execute function wqo_plm_kept();
+create trigger plm_boms_kept before insert or update or delete on plm_boms
+    for each row execute function wqo_plm_kept();
 
--- lines and files of a released revision cannot change
+-- lines and files of a released revision cannot change; the parent row is read "for share", so an edit running
+-- while the revision is released waits for the release and then sees it released
 create or replace function wqo_plm_lines_kept() returns trigger language plpgsql as $$
 declare
     st text;
 begin
     if tg_table_name = 'plm_bom_lines' then
-        select status into st from plm_boms where id = coalesce(new.bom_id, old.bom_id);
+        select status into st from plm_boms where id = coalesce(new.bom_id, old.bom_id) for share;
         if tg_op = 'UPDATE' and new.bom_id <> old.bom_id then
             raise exception 'a BOM line stays in its BOM';
         end if;
     else
-        select status into st from plm_part_revisions where id = coalesce(new.revision_id, old.revision_id);
+        select status into st from plm_part_revisions where id = coalesce(new.revision_id, old.revision_id) for share;
         if tg_op = 'DELETE' then
             raise exception 'files are kept: remove them instead';
         end if;
@@ -173,8 +188,14 @@ begin
     if tg_op = 'DELETE' then
         raise exception 'PLM records are kept';
     end if;
-    if new.item_code <> old.item_code or new.created_by <> old.created_by or new.created_at <> old.created_at then
+    if new.item_code <> old.item_code or new.created_by <> old.created_by or new.created_at <> old.created_at
+            or new.link_existing <> old.link_existing then
         raise exception 'part % keeps its code and origin', old.item_code;
+    end if;
+    if old.status <> 'draft' and ((new.name, new.category, new.source, new.uom) is distinct from
+            (old.name, old.category, old.source, old.uom) or new.status = 'draft'
+            or (old.status = 'obsolete' and new.status <> 'obsolete')) then
+        raise exception 'part % is released: its name, category, source and unit are fixed', old.item_code;
     end if;
     return new;
 end $$;

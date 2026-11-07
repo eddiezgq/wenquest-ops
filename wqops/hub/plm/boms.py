@@ -29,7 +29,7 @@ def lines(conn, bid: int) -> list[dict]:
     rows = conn.execute("select l.pos, l.qty, l.uom, l.note, p.id as part_id, p.item_code as code, p.name, p.status "
                         "as part_status, p.source, p.category from plm_bom_lines l join plm_parts p "
                         "on p.id = l.part_id where l.bom_id = %s order by l.pos", (bid,)).fetchall()
-    return [dict(r, qty=str(r["qty"].normalize() if isinstance(r["qty"], Decimal) else r["qty"])) for r in rows]
+    return [dict(r, qty=R.qty_text(r["qty"])) for r in rows]
 
 
 def _supplier(conn, code: str) -> bool | None:
@@ -41,14 +41,14 @@ def _supplier(conn, code: str) -> bool | None:
 
 
 def _uses(conn, skip_part: int) -> dict[int, list[int]]:
-    """For every part with a BOM: the parts its newest BOM revision uses."""
-    out: dict[int, list[int]] = {}
-    rows = conn.execute("select distinct on (b.part_id) b.part_id, b.id from plm_boms b where b.part_id <> %s "
-                        "order by b.part_id, b.id desc", (skip_part,)).fetchall()
+    """For every other part with a BOM: the parts its released and its draft revisions use (both count: production
+    uses the released one, the draft may be released next)."""
+    out: dict[int, set[int]] = {}
+    rows = conn.execute("select b.part_id, l.part_id as child from plm_boms b join plm_bom_lines l on l.bom_id = b.id "
+                        "where b.part_id <> %s and b.status <> 'superseded'", (skip_part,)).fetchall()
     for r in rows:
-        out[r["part_id"]] = [x["part_id"] for x in conn.execute("select part_id from plm_bom_lines where bom_id = %s",
-                                                                (r["id"],))]
-    return out
+        out.setdefault(r["part_id"], set()).add(r["child"])
+    return {k: sorted(v) for k, v in out.items()}
 
 
 def checks(conn, bom: dict) -> list[dict]:
@@ -164,10 +164,12 @@ def set_lines(conn, user: dict, bid: int, rows, *, note: str | None = None,  # n
             q = R.qty(r.get("qty"))
         except ValueError as exc:
             raise PlmError(say("line {n}: {error}", n=n, error=str(exc))) from exc
-        clean.append((n, part["id"], q, str(r.get("uom") or part["uom"]).strip()[:40] or part["uom"],
-                      str(r.get("note") or "").strip()[:500]))
+        uom = str(r.get("uom") or "").strip() or part["uom"]
+        if uom != part["uom"]:      # unit conversions in a BOM: later, with ERPNext's conversion factors
+            raise PlmError(say("line {n}: {code} counts in {uom}", n=n, code=part["item_code"], uom=part["uom"]))
+        clean.append((n, part["id"], q, uom, str(r.get("note") or "").strip()[:500]))
     with conn.transaction():
-        if get(conn, bid)["status"] != "draft":
+        if conn.execute("select status from plm_boms where id = %s for update", (bid,)).fetchone()["status"] != "draft":
             raise PlmError(say("the BOM moved on meanwhile: open it again"))
         conn.execute("delete from plm_bom_lines where bom_id = %s", (bid,))
         for row in clean:
@@ -180,9 +182,18 @@ def set_lines(conn, user: dict, bid: int, rows, *, note: str | None = None,  # n
     return view(conn, bid, erp)
 
 
+def erp_tag(b: dict) -> str:
+    """Written into the ERPNext BOM's remarks: finds a BOM made before an answer got lost (no second one)."""
+    return f"WenQuest Ops PLM BOM {b['id']} rev {b['revision']}"
+
+
 def _erp_bom(erp: ErpClient, b: dict, part: dict, ls: list[dict]) -> str:
+    made = erp.list("BOM", filters=[["item", "=", part["item_code"]], ["remarks", "=", erp_tag(b)]],
+                    fields=["name", "docstatus"], limit=1)
+    if made:
+        return made[0]["name"]
     doc = erp.insert({"doctype": "BOM", "item": part["item_code"], "quantity": 1, "is_active": 1, "is_default": 1,
-                      "remarks": f"WenQuest Ops PLM rev {b['revision']}",
+                      "remarks": erp_tag(b),
                       "items": [{"item_code": x["code"], "qty": float(Decimal(x["qty"])), "uom": x["uom"]} for x in ls],
                       "docstatus": 0})
     if int(doc.get("docstatus") or 0) != 0:
@@ -192,18 +203,21 @@ def _erp_bom(erp: ErpClient, b: dict, part: dict, ls: list[dict]) -> str:
 
 
 def to_erp(conn, user: dict, bid: int, erp: ErpClient) -> dict:
-    """Make the Draft BOM in ERPNext for a released revision (again, if it failed)."""
-    b = get(conn, bid)
-    if b["status"] == "draft":
-        raise PlmError(say("release the BOM first"))
-    if b["erp_bom"]:
-        raise PlmError(say("the BOM is already in ERPNext as {name}", name=b["erp_bom"]))
-    part = PT.get(conn, b["part_id"])
-    try:
-        name, err = _erp_bom(erp, b, part, lines(conn, bid)), None
-    except Exception as exc:
-        name, err = None, f"{type(exc).__name__}: {exc}"[:1000]
+    """Make the Draft BOM in ERPNext for a released revision (again, if it failed). The BOM row stays locked while
+    ERPNext is asked, so two clicks make one BOM."""
     with conn.transaction():
+        b = conn.execute("select * from plm_boms where id = %s for update", (bid,)).fetchone()
+        if b is None:
+            raise KeyError(bid)
+        if b["status"] == "draft":
+            raise PlmError(say("release the BOM first"))
+        if b["erp_bom"]:
+            raise PlmError(say("the BOM is already in ERPNext as {name}", name=b["erp_bom"]))
+        part = PT.get(conn, b["part_id"])
+        try:
+            name, err = _erp_bom(erp, b, part, lines(conn, bid)), None
+        except Exception as exc:
+            name, err = None, f"{type(exc).__name__}: {exc}"[:1000]
         conn.execute("update plm_boms set erp_bom = %s, erp_error = %s where id = %s", (name, err, bid))
         PT.log(conn, "bom", bid, user["email"], "draft BOM in ERPNext" if name else "ERPNext BOM failed", name or err)
     return view(conn, bid, erp)
@@ -217,12 +231,19 @@ def release(conn, user: dict, bid: int, password: str, erp: ErpClient) -> dict:
     if not R.passed(cs):
         bad = [c["check"] for c in cs if c["result"] != "pass"]
         raise PlmError(say("not ready to release: {list}", list=Q.join(bad)))
+    PT.change_still_holds(conn, b["change_id"])
     Q.check_signer(conn, user, password)
     part = PT.get(conn, b["part_id"])
     with conn.transaction():
         conn.execute("select id from plm_parts where id = %s for update", (b["part_id"],))
-        if get(conn, bid)["status"] != "draft":
+        b = conn.execute("select * from plm_boms where id = %s for update", (bid,)).fetchone()
+        if b["status"] != "draft":
             raise PlmError(say("the BOM moved on meanwhile: open it again"))
+        cs = checks(conn, b)                         # again under the lock: what is signed is what was checked
+        if not R.passed(cs):
+            bad = [c["check"] for c in cs if c["result"] != "pass"]
+            raise PlmError(say("not ready to release: {list}", list=Q.join(bad)))
+        PT.change_still_holds(conn, b["change_id"])
         conn.execute("update plm_boms set status = 'superseded' where part_id = %s and status = 'released'",
                      (b["part_id"],))
         conn.execute("update plm_boms set status = 'released', released_by = %s, released_at = now() where id = %s",
