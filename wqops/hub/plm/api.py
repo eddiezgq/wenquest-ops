@@ -18,6 +18,7 @@ from wqops.hub import permissions as P
 from wqops.hub.docs import store as F
 from wqops.hub.plm import boms as B
 from wqops.hub.plm import catalog as CAT
+from wqops.hub.plm import config as CFG
 from wqops.hub.plm import ecn as ECN
 from wqops.hub.plm import parts as PT
 from wqops.hub.quality import records as Q
@@ -154,6 +155,28 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
         need(u, "plm:edit")
         d = await body(request)
         return {**run(lambda: B.start(c, u, ident(pid), d.get("change_id"))), **flags(u)}
+
+    # ---- model configuration, 26c (before the generic part actions below)
+
+    @app.get("/api/plm/parts/{pid}/config")
+    def config(pid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        return {**run(lambda: CFG.view(c, ident(pid))), **flags(u)}
+
+    @app.put("/api/plm/parts/{pid}/config")
+    async def save_config(pid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        d = await body(request)
+        return {**run(lambda: CFG.save(c, u, ident(pid), d)), **flags(u)}
+
+    @app.post("/api/plm/parts/{pid}/models", status_code=201)
+    async def generate(pid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        d = await body(request)
+        try:
+            return run(lambda: CFG.generate(c, u, ident(pid), d.get("choice"), erp_client(), d.get("version")))
+        except psycopg.errors.UniqueViolation as exc:      # the same choice generated at the same moment elsewhere
+            raise HTTPException(409, say("this model is being made by someone else: open the list again")) from exc
 
     @app.post("/api/plm/parts/{pid}/{action}")
     async def act(pid: int, action: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):

@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
+import PlmConfig from '../components/PlmConfig.vue'
 import { api, apiForm } from '../api'
 import { t } from '../i18n'
 import { fkl, stl } from '../plm'
@@ -146,6 +147,9 @@ const kb = (n) => (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB'
         <Button :label="v.boms.length ? t('Start a new BOM revision') : t('Start the BOM')" :disabled="!!v.boms.length && !change" @click="startBom" />
       </div>
     </section>
+
+    <p v-if="v.model_of" class="wq-panel mb-5 p-5 text-sm">{{ t('A model of') }} <RouterLink :to="`/plm/parts/${v.model_of.id}`" class="wq-link">{{ v.model_of.item_code }}</RouterLink> {{ v.model_of.name }}</p>
+    <PlmConfig v-else-if="v.part.source === 'make' && v.part.category === 'assembly'" :part-id="v.part.id" />
 
     <section data-help="plm-where-used" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">{{ t('Where used') }}</h2>
