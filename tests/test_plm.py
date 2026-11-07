@@ -335,7 +335,8 @@ def test_review_cycle_through_a_released_revision_quantities_and_units(world, fa
     v = B.view(c, ba["bom"]["id"], erp)
     assert v["lines"][0]["qty"] == "10"                                  # not 1E+1
     B.release(c, u(c, CASEY), ba["bom"]["id"], PW, erp)
-    ba2 = B.start(c, u(c, CASEY), arm["id"], approved_change(c, parts=[(arm["id"], "bom")]))         # the draft drops Head; rev A still has it
+    # the draft drops Head; rev A still has it
+    ba2 = B.start(c, u(c, CASEY), arm["id"], approved_change(c, parts=[(arm["id"], "bom")]))
     B.set_lines(c, u(c, CASEY), ba2["bom"]["id"], [{"code": shaft["item_code"], "qty": 2.5}])
     bh = B.start(c, u(c, CASEY), head["id"])
     v = B.set_lines(c, u(c, CASEY), bh["bom"]["id"], [{"code": arm["item_code"], "qty": 1}])
