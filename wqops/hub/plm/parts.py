@@ -363,6 +363,9 @@ def approved_change(conn, change_id) -> dict:
 def new_revision(conn, user: dict, pid: int, change_id) -> dict:
     p = get(conn, pid)
     ch = approved_change(conn, change_id)
+    from wqops.hub.plm import ecn as ECN  # noqa: PLC0415 - ecn imports this module
+
+    ECN.allows(conn, ch["id"], pid, "part")
     with conn.transaction():
         conn.execute("select id from plm_parts where id = %s for update", (pid,))
         last = latest_released(conn, pid)

@@ -43,6 +43,7 @@ async function load() {
   try { set(await api(`/api/plm/parts/${route.params.id}`)); changes.value = (await api('/api/plm/changes')).changes } catch (e) { error.value = e.message }
 }
 watch(() => route.params.id, load, { immediate: true })
+watch(() => route.query.change, (q) => { if (q) change.value = Number(q) }, { immediate: true })
 async function call(path, method, body, msg) {
   error.value = ''; done.value = ''
   try { set(await api(path, { method, body })); done.value = msg; pw.value = '' } catch (e) { error.value = e.message }

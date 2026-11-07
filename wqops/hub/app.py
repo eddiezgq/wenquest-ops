@@ -519,7 +519,7 @@ def create_app(checks: dict[str, Callable[[], str]] | None = None,  # noqa: PLR0
     FWA.mount(app, conn, current_user, company)
     from wqops.hub.plm import api as PLMA  # noqa: PLC0415
 
-    PLMA.mount(app, conn, current_user, company, erp_client)
+    PLMA.mount(app, conn, current_user, company, erp_client, ai_model)
 
     @app.get("/api/i18n/{lang}")
     def hub_texts(lang: str):

@@ -61,12 +61,23 @@ def u(conn, e):
     return Acc.get(conn, e)
 
 
-def approved_change(conn, kind="product"):
-    n = conn.execute("select count(*) as n from changes").fetchone()["n"] + 1
-    return conn.execute("insert into changes (name, title, kind, status, owner, created_by, editors, submitted_by, "
-                        "approved_by, approved_at) values (%s, 'Hook from a new supplier', %s, 'approved', "
-                        "%s, %s, %s, %s, %s, now()) returning id",
-                        (f"CHG-9{n:04d}", kind, CASEY, CASEY, [CASEY], CASEY, JORDAN)).fetchone()["id"]
+def approved_change(conn, kind="product", parts=()):
+    """A change (fictional) listing ``parts`` ((part id, part | bom | both), 26d), raised, submitted and approved
+    through change control."""
+    from wqops.hub.plm import ecn as E
+    from wqops.hub.quality import change_control as CC
+
+    ch = CC.create(conn, CASEY, {"title": "Hook from a new supplier", "kind": kind, "description": "new hook",
+                                 "reason": "supplier change", "owner": CASEY, "assessment": "small",
+                                 "q_product": "no", "q_regulatory": "no", "q_risk": "no", "q_validation": "no"})
+    for pid, scope in parts:
+        E.add_item(conn, u(conn, CASEY), ch["id"], {"part_id": pid, "scope": scope})
+    if parts:
+        E.set_effect(conn, u(conn, CASEY), ch["id"], {"mode": "now"})
+        E.analyse(conn, u(conn, CASEY), ch["id"], None)
+    CC.submit(conn, CASEY, ch["id"])
+    CC.approve(conn, u(conn, JORDAN), ch["id"], PW)
+    return ch["id"]
 
 
 def part(conn, erp, name, category="other", source="make", **kw):
@@ -174,7 +185,9 @@ def test_release_signs_and_locks_and_new_revision_needs_an_approved_product_chan
         PT.new_revision(c, u(c, CASEY), p["id"], None)
     with pytest.raises(PT.PlmError, match="approved product change"):
         PT.new_revision(c, u(c, CASEY), p["id"], approved_change(c, kind="process"))
-    v = PT.new_revision(c, u(c, CASEY), p["id"], approved_change(c))
+    with pytest.raises(PT.PlmError, match="does not list"):          # a product change that lists no parts
+        PT.new_revision(c, u(c, CASEY), p["id"], approved_change(c))
+    v = PT.new_revision(c, u(c, CASEY), p["id"], approved_change(c, parts=[(p["id"], "part")]))
     assert [r["revision"] for r in v["revisions"]] == ["A", "B"] and v["revisions"][1]["params"]["mass"] == 0.05
     with pytest.raises(PT.PlmError, match="released"):          # name and source fixed once released
         PT.update(c, u(c, CASEY), p["id"], {"name": "Other"})
@@ -250,7 +263,7 @@ def test_bom_checks_release_draft_in_erpnext_and_new_revision(world, fake, erp, 
         c.execute("update plm_bom_lines set qty = 3 where bom_id = %s", (b["bom"]["id"],))
     with pytest.raises(PT.PlmError, match="approved product change"):
         B.start(c, u(c, CASEY), head["id"])
-    b2 = B.start(c, u(c, CASEY), head["id"], approved_change(c))
+    b2 = B.start(c, u(c, CASEY), head["id"], approved_change(c, parts=[(head["id"], "bom")]))
     assert b2["bom"]["revision"] == "B" and len(b2["lines"]) == 3
     v = B.set_lines(c, u(c, CASEY), b2["bom"]["id"], [{"code": shaft["item_code"], "qty": 1},
                                                       {"code": hook["item_code"], "qty": 1},
@@ -322,7 +335,8 @@ def test_review_cycle_through_a_released_revision_quantities_and_units(world, fa
     v = B.view(c, ba["bom"]["id"], erp)
     assert v["lines"][0]["qty"] == "10"                                  # not 1E+1
     B.release(c, u(c, CASEY), ba["bom"]["id"], PW, erp)
-    ba2 = B.start(c, u(c, CASEY), arm["id"], approved_change(c))         # the draft drops Head; rev A still has it
+    # the draft drops Head; rev A still has it
+    ba2 = B.start(c, u(c, CASEY), arm["id"], approved_change(c, parts=[(arm["id"], "bom")]))
     B.set_lines(c, u(c, CASEY), ba2["bom"]["id"], [{"code": shaft["item_code"], "qty": 2.5}])
     bh = B.start(c, u(c, CASEY), head["id"])
     v = B.set_lines(c, u(c, CASEY), bh["bom"]["id"], [{"code": arm["item_code"], "qty": 1}])
@@ -381,7 +395,7 @@ def test_review_part_rules_after_the_item_exists(world, fake, erp):
         PT.update(c, u(c, CASEY), p["id"], {"source": "buy"})
     # a revision started under a change is not released once that change is cancelled
     q = released(c, erp, "Pin", "other")
-    ch = approved_change(c)
+    ch = approved_change(c, parts=[(q["id"], "part")])
     PT.new_revision(c, u(c, CASEY), q["id"], ch)
     c.execute("update changes set status = 'cancelled', cancel_reason = 'not needed' where id = %s", (ch,))
     with pytest.raises(PT.PlmError, match="no longer approved"):

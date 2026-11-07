@@ -18,12 +18,13 @@ from wqops.hub import permissions as P
 from wqops.hub.docs import store as F
 from wqops.hub.plm import boms as B
 from wqops.hub.plm import catalog as CAT
+from wqops.hub.plm import ecn as ECN
 from wqops.hub.plm import parts as PT
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
 
 
-def mount(app: FastAPI, conn_dep, user_dep, company, erp_client) -> None:  # noqa: PLR0915 - routes inside
+def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) -> None:  # noqa: PLR0915, PLR0917
     def on() -> None:
         if "plm" not in (((company() or (None,))[0] or {}).get("modules") or []):
             raise HTTPException(404, say("the PLM module is not turned on for this company"))
@@ -201,3 +202,40 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client) -> None:  # noq
         rows = c.execute("select id, name, title from changes where kind = 'product' and status = 'approved' "
                          "order by id desc limit 200").fetchall()
         return {"changes": [dict(r) for r in rows]}
+
+    # ---- design changes, 26d: the parts a product change lists, how it takes effect, its impact analysis
+
+    @app.get("/api/plm/changes/{cid}")
+    def ecn_view(cid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        return {**run(lambda: ECN.view(c, ident(cid))), **flags(u), "can_ai": P.allows(u["roles"], "ai:use")}
+
+    @app.post("/api/plm/changes/{cid}/{action}")
+    async def ecn_act(cid: int, action: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        d = await body(request)
+        ident(cid)
+        if action == "draft-note":
+            from wqops.hub.ai import agent as AG  # noqa: PLC0415
+            from wqops.hub.ont import api as OA  # noqa: PLC0415
+            from wqops.hub.plm import ecn_ai as EAI  # noqa: PLC0415
+
+            need(u, "ai:use")
+            need(u, "quality:edit")         # the note goes into the change's assessment, which Quality edits
+            try:
+                return run(lambda: EAI.draft(c, u, cid, ai_model, today=OA.today(company()[0])))
+            except AG.DailyLimit:
+                raise
+            except Exception as exc:
+                if isinstance(exc, HTTPException):
+                    raise
+                raise HTTPException(502, say("the model did not answer: {exc}", exc=exc)) from exc
+        steps = {"add": lambda: ECN.add_item(c, u, cid, d),
+                 "remove": lambda: ECN.remove_item(c, u, cid, d.get("part_id") if type(d.get("part_id")) is int
+                                                   else 0),
+                 "effect": lambda: ECN.set_effect(c, u, cid, d),
+                 "analyse": lambda: ECN.analyse(c, u, cid, erp_or_none())}
+        if action not in steps:
+            raise HTTPException(404, say("not found"))
+        return {**run(steps[action]), **flags(u), "can_ai": P.allows(u["roles"], "ai:use")}
+
