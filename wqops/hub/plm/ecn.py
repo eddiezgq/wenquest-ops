@@ -25,6 +25,7 @@ MODES = ("now", "use_up", "date", "serial")
 OPEN_PO = ("Completed", "Closed", "Cancelled", "Delivered")
 OPEN_SO = ("Completed", "Closed", "Cancelled")
 OPEN_WO = ["Not Started", "In Process"]
+WO_MAX = 200
 
 PlmError = PT.PlmError
 
@@ -68,7 +69,7 @@ def effect(conn, cid: int) -> dict | None:
 def key(conn, cid: int) -> str:
     rows = conn.execute("select part_id, scope from plm_change_items where change_id = %s order by part_id",
                         (cid,)).fetchall()
-    return hashlib.sha256(json.dumps([[r["part_id"], r["scope"]] for r in rows]).encode()).hexdigest()[:16]
+    return hashlib.sha256(json.dumps(sorted([r["part_id"], r["scope"]] for r in rows)).encode()).hexdigest()[:16]
 
 
 def impact(conn, cid: int) -> dict | None:
@@ -189,9 +190,14 @@ def stock(conn, code: str) -> str | None:
     """On hand from the synced stock ledger; None when nothing was ever synced (unknown, not zero)."""
     if not _synced(conn, "Stock Ledger Entry"):
         return None
-    r = conn.execute("select coalesce(sum((data->>'actual_qty')::numeric), 0) as q from erp_docs where doctype = "
-                     "'Stock Ledger Entry' and not deleted and docstatus = 1 and coalesce(data->>'is_cancelled', '0') "
-                     "in ('0', 'false') and data->>'item_code' = %s", (code,)).fetchone()
+    num = r"^-?[0-9]+(\.[0-9]+)?$"
+    r = conn.execute("select count(*) filter (where coalesce(data->>'actual_qty', '') !~ %s) as bad, coalesce(sum(case "
+                     "when data->>'actual_qty' ~ %s then (data->>'actual_qty')::numeric end), 0) as q from erp_docs "
+                     "where doctype = 'Stock Ledger Entry' and not deleted and docstatus = 1 and "
+                     "coalesce(data->>'is_cancelled', '0') in ('0', 'false') and data->>'item_code' = %s",
+                     (num, num, code)).fetchone()
+    if r["bad"]:
+        return None                        # a quantity that is not a number: unknown, not a guess
     return R.qty_text(r["q"]) if r["q"] else "0"
 
 
@@ -201,8 +207,11 @@ def open_orders(conn, doctype: str, code: str, done_field: str, closed: tuple[st
     out = []
     for d in conn.execute("select name, data from erp_docs where doctype = %s and not deleted and docstatus = 1 and "
                           "coalesce(data->>'status', '') <> all(%s)", (doctype, list(closed))):
-        left = sum((Decimal(str(i.get("qty") or 0)) - Decimal(str(i.get(done_field) or 0)))
-                   for i in d["data"].get("items") or [] if i.get("item_code") == code)
+        try:
+            left = sum((Decimal(str(i.get("qty") or 0)) - Decimal(str(i.get(done_field) or 0)))
+                       for i in d["data"].get("items") or [] if i.get("item_code") == code)
+        except (ArithmeticError, ValueError):
+            return None                    # a quantity that is not a number: unknown, not a guess
         if left > 0:
             out.append({"name": d["name"], "party": d["data"].get("supplier") or d["data"].get("customer") or "",
                         "open": R.qty_text(left)})
@@ -215,8 +224,10 @@ def work_orders(erp: ErpClient | None, codes: list[str]) -> list[dict] | None:
     try:
         rows = erp.list("Work Order", filters=[["production_item", "in", codes], ["docstatus", "=", 1],
                                                ["status", "in", OPEN_WO]],
-                        fields=["name", "production_item", "qty", "produced_qty", "status"], limit=200)
+                        fields=["name", "production_item", "qty", "produced_qty", "status"], limit=WO_MAX + 1)
     except Exception:
+        return None
+    if len(rows) > WO_MAX:                 # more than we read: not a complete answer
         return None
     return [{"name": r["name"], "item": r["production_item"],
              "open": R.qty_text(Decimal(str(r.get("qty") or 0)) - Decimal(str(r.get("produced_qty") or 0)))}
@@ -232,10 +243,10 @@ def analyse(conn, user: dict, cid: int, erp: ErpClient | None) -> dict:
     rows = []
     for it in its:
         up = ancestors(conn, it["part_id"])
-        tops = [a for a in up if a["top"]]
+        tops = [a for a in up if a["top"]] or [{"code": it["item_code"]}]      # nothing above: it is the machine
         codes = [it["item_code"], *[a["code"] for a in up]]
         wos = work_orders(erp, codes)
-        sos = [] if tops else None
+        sos = []
         for t in tops:
             got = open_orders(conn, "Sales Order", t["code"], "delivered_qty", OPEN_SO)
             if got is None:
@@ -248,12 +259,15 @@ def analyse(conn, user: dict, cid: int, erp: ErpClient | None) -> dict:
                      "purchase_orders": open_orders(conn, "Purchase Order", it["item_code"], "received_qty", OPEN_PO),
                      "work_orders": wos, "sales_orders": sos})
     data = {"parts": rows}
+    read = hashlib.sha256(json.dumps(sorted([it["part_id"], it["scope"]] for it in its)).encode()).hexdigest()[:16]
     with conn.transaction():
         _draft_product(_change(conn, cid, lock=True))
+        if key(conn, cid) != read:
+            raise PlmError(say("the parts on the change changed meanwhile: analyse again"))
         conn.execute("insert into plm_change_impact (change_id, items_key, data, made_by) values (%s, %s, %s, %s) on "
                      "conflict (change_id) do update set items_key = excluded.items_key, data = excluded.data, "
                      "made_by = excluded.made_by, made_at = now()",
-                     (cid, key(conn, cid), Jsonb(data), user["email"]))
+                     (cid, read, Jsonb(data), user["email"]))
         _log(conn, cid, user["email"], say("impact analysed: {n} parts", n=len(rows)))
     return view(conn, cid)
 
@@ -278,10 +292,9 @@ def as_text(data: dict) -> str:
 # ---- what a change with parts needs (added to 17g's own requirements)
 
 def to_submit(conn, c: dict) -> list[str]:
-    if c["kind"] != "product" or not conn.execute("select 1 from plm_change_items where change_id = %s",
-                                                  (c["id"],)).fetchone():
+    if not conn.execute("select 1 from plm_change_items where change_id = %s", (c["id"],)).fetchone():
         return []
-    out = []
+    out = [] if c["kind"] == "product" else [say("a change that lists parts is a product change")]
     if effect(conn, c["id"]) is None:
         out.append(say("how the design change takes effect"))
     imp = impact(conn, c["id"])
@@ -300,11 +313,14 @@ def to_implement(conn, c: dict) -> list[str]:
     return out
 
 
+def has_parts(conn, cid: int) -> bool:
+    return bool(conn.execute("select 1 from plm_change_items where change_id = %s", (cid,)).fetchone())
+
+
 def allows(conn, change_id: int, pid: int, what: str) -> None:
-    """A change that lists parts starts new revisions only of those parts, for what it says changes."""
+    """A change starts new revisions only of the parts it lists, for what it says changes (a product change that
+    lists no parts changes no part)."""
     rows = conn.execute("select part_id, scope from plm_change_items where change_id = %s", (change_id,)).fetchall()
-    if not rows:
-        return
     scope = next((r["scope"] for r in rows if r["part_id"] == pid), None)
     if scope not in ("both", what):
         raise PlmError(say("this change does not list this part for: {what}", what=say("scope::" + what)))

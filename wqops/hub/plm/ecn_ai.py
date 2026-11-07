@@ -44,7 +44,7 @@ def draft(conn, user: dict, cid: int, model, *, today: dt.date) -> dict:
         note = str(((use or {}).get("input") or {}).get("note") or "").strip()[:4000]
         if not note:
             raise L.LlmError(say("the model did not suggest anything"))
-        bad = AG.verify(note, text)
+        bad = AG.verify(note, f"{c['title']}\n{text}")
         out.update(usage=resp.get("usage", {}), answer=note, verified=not bad, unverified=bad)
         AG.finish(ctx, out)
         return {"note": note, "engine": "model", "unverified": bad, "run": ctx.run_id}

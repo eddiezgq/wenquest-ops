@@ -221,6 +221,7 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
             from wqops.hub.plm import ecn_ai as EAI  # noqa: PLC0415
 
             need(u, "ai:use")
+            need(u, "quality:edit")         # the note goes into the change's assessment, which Quality edits
             try:
                 return run(lambda: EAI.draft(c, u, cid, ai_model, today=OA.today(company()[0])))
             except AG.DailyLimit:

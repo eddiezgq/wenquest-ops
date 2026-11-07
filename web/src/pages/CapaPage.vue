@@ -26,11 +26,14 @@ const me = computed(() => ws.value?.user.email)
 const canEdit = computed(() => ws.value?.user.permissions.includes('quality:edit'))
 // PLM (ADR-0026, 26d): a corrective action can start a design change of the product
 const plm = computed(() => ws.value?.modules?.includes('plm') && canEdit.value)
+const starting = ref(false)
 async function designChange() {
+  if (starting.value) return
+  starting.value = true
   try {
     const r = await api('/api/changes', { method: 'POST', body: { title: c.value.title, kind: 'product', capa_id: c.value.id, reason: t('From corrective action {name}', { name: c.value.name }) } })
     router.push(`/quality/changes/${r.id}`)
-  } catch (e) { error.value = e.message }
+  } catch (e) { error.value = e.message; starting.value = false }
 }
 const STAGES = ['draft', 'investigation', 'implementation', 'effectiveness', 'closed']
 const FIELDS = { draft: ['title', 'description', 'owner', 'risk'], investigation: ['description', 'owner', 'risk', 'containment', 'root_cause'], implementation: ['owner'] }
@@ -57,7 +60,7 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
       <Badge :label="t(c.kind)" variant="outline" size="lg" class="capitalize" />
       <Badge v-if="c.risk" :theme="c.risk === 'high' ? 'red' : c.risk === 'medium' ? 'amber' : 'gray'" :label="t('{risk} risk', { risk: t(c.risk) })" size="lg" />
     </template>
-    <Button v-if="plm && c && !['closed', 'cancelled'].includes(c.status)" icon-left="lucide-git-pull-request-arrow" :label="t('Start a design change')" @click="designChange" />
+    <Button v-if="plm && c && !['closed', 'cancelled'].includes(c.status)" icon-left="lucide-git-pull-request-arrow" :label="t('Start a design change')" :disabled="starting" @click="designChange" />
     <RouterLink v-if="c?.workflow" to="/quality?tab=workflows" class="hidden text-sm text-ink-gray-5 hover:underline sm:inline">{{ t('workflow v{v}', { v: c.workflow.version }) }}</RouterLink>
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>

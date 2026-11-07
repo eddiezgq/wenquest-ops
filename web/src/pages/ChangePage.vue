@@ -48,9 +48,13 @@ async function call(path, method, body, message) {
 const save = () => call(`/api/changes/${c.value.id}`, 'PUT', changes(), t('Saved.'))
 const act = (a, body, msg) => call(`/api/changes/${c.value.id}/${a}`, 'POST', body, msg)
 const aiNote = ref(null)
+// a new draft replaces the previous draft put in, not what the person wrote
 function takeNote(r) {
+  let text = f.value.assessment || ''
+  if (aiNote.value?.note && text.includes(aiNote.value.note)) text = text.replace(aiNote.value.note, r.note)
+  else text = [text, r.note].filter((x) => x && x.trim()).join('\n\n')
+  f.value.assessment = text
   aiNote.value = r
-  f.value.assessment = [f.value.assessment, r.note].filter((x) => x && x.trim()).join('\n\n')
 }
 async function refresh() { try { const keep = f.value; set(await api(`/api/changes/${route.params.id}`)); for (const k of ALL) if (can(k)) f.value[k] = keep[k] } catch (e) { error.value = e.message } }
 const docName = (d) => [d.number, d.title, d.revision ? t('rev {revision}', { revision: d.revision }) : ''].filter(Boolean).join(' ')
@@ -84,7 +88,7 @@ const docName = (d) => [d.number, d.title, d.revision ? t('rev {revision}', { re
       <label v-if="f.q_validation === 'yes'" class="wq-field mt-2">{{ t('Verification or validation plan') }}<textarea v-model="f.validation_plan" rows="2" class="wq-input" :disabled="!can('validation_plan')" /></label>
     </section>
 
-    <PlmChange :change="c" @note="takeNote" @changed="refresh" />
+    <PlmChange :change="c" :can-assess="can('assessment')" @note="takeNote" @changed="refresh" />
     <p v-if="aiNote" class="mb-5 rounded border border-outline-amber-2 bg-surface-amber-1 p-3 text-sm">
       {{ aiNote.engine === 'model' ? t('The AI draft is in the assessment notes above: read and edit it, then save.') : t('The analysis is in the assessment notes above as a draft: edit it, then save.') }}
       <span v-if="aiNote.unverified?.length"> {{ t('These sentences have numbers that are not in the analysis: {list}', { list: aiNote.unverified.join(' / ') }) }}</span></p>

@@ -164,3 +164,26 @@ def test_ai_drafts_only_from_the_analysis(world, erp):  # noqa: F811
     assert out["engine"] == "model" and out["unverified"] == ["Use up the 100 cranks in stock first."]   # 100 is not
     run = c.execute("select kind, verified from ai_runs order by id desc limit 1").fetchone()
     assert run["kind"] == "plm-impact" and run["verified"] is False
+
+
+def test_review_kind_stays_product_machines_own_orders_and_stale_analysis(world, erp, monkeypatch):  # noqa: F811
+    c = world
+    head, _arm, crank = machine(c, erp)
+    cid = draft_change(c)
+    E.add_item(c, u(c, CASEY), cid, {"code": head["item_code"], "scope": "bom"})
+    with pytest.raises(CC.ChangeError, match="stays a product change"):
+        CC.update(c, CASEY, cid, {"kind": "process"})
+    # the machine's own BOM changes: its own open sales orders are counted, not "unknown"
+    synced(c, "Sales Order", "SO-1", status="To Deliver and Bill", customer="Garment Co (fictional)",
+           items=[{"item_code": head["item_code"], "qty": 3, "delivered_qty": 1}])
+    v = E.analyse(c, u(c, CASEY), cid, erp)
+    assert v["impact"]["data"]["parts"][0]["sales_orders"][0]["open"] == "2"
+    # a stock quantity that is not a number makes stock unknown, never a guess
+    synced(c, "Stock Ledger Entry", "SLE-X", item_code=head["item_code"], actual_qty="n/a")
+    assert E.stock(c, head["item_code"]) is None
+    # the list changed while the analysis ran: refused, not stored as current
+    E.add_item(c, u(c, CASEY), cid, {"code": crank["item_code"], "scope": "part"})
+    real = E.items
+    monkeypatch.setattr(E, "items", lambda conn, i: real(conn, i)[:1])
+    with pytest.raises(PT.PlmError, match="changed meanwhile"):
+        E.analyse(c, u(c, CASEY), cid, erp)

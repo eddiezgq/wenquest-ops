@@ -7,7 +7,7 @@ import { api } from '../api'
 import { t } from '../i18n'
 import { stl } from '../plm'
 
-const props = defineProps({ change: { type: Object, required: true } })
+const props = defineProps({ change: { type: Object, required: true }, canAssess: { type: Boolean, default: false } })
 const emit = defineEmits(['note', 'changed'])
 const ws = inject('workspace')
 const on = computed(() => ws.value?.modules?.includes('plm') && ws.value?.user.permissions.includes('plm:view') && props.change.kind === 'product')
@@ -21,19 +21,21 @@ const scopeL = (s) => ({ part: t('scope::part'), bom: t('scope::bom'), both: t('
 const modeL = (m) => ({ now: t('effect::now'), use_up: t('effect::use_up'), date: t('effect::date'), serial: t('effect::serial') })[m] || m
 const unknown = (x) => x === null || x === undefined
 
-function set(d) {
+// the saved effect fills the form only when the page loads or the effect was just saved: an unsaved choice stays
+function set(d, effect = false) {
   v.value = d
-  if (d.effect) eff.value = { mode: d.effect.mode, on_date: d.effect.on_date || '', from_serial: d.effect.from_serial || '', note: d.effect.note || '' }
+  if (effect && d.effect) eff.value = { mode: d.effect.mode, on_date: d.effect.on_date || '', from_serial: d.effect.from_serial || '', note: d.effect.note || '' }
 }
 async function load() {
   if (!on.value) return
-  try { set(await api(`/api/plm/changes/${props.change.id}`)) } catch (e) { error.value = e.message }
+  try { set(await api(`/api/plm/changes/${props.change.id}`), true) } catch (e) { error.value = e.message }
 }
 watch(() => [props.change.id, props.change.status, on.value], load, { immediate: true })
 async function act(action, body) {
   error.value = ''; busy.value = true
-  try { set(await api(`/api/plm/changes/${props.change.id}/${action}`, { method: 'POST', body })); emit('changed') } catch (e) { error.value = e.message } finally { busy.value = false }
+  try { set(await api(`/api/plm/changes/${props.change.id}/${action}`, { method: 'POST', body }), action === 'effect'); emit('changed'); return true } catch (e) { error.value = e.message; return false } finally { busy.value = false }
 }
+async function addPart() { if (await act('add', add.value)) add.value = { code: '', scope: add.value.scope, note: '' } }
 let timer = null
 function find() {
   clearTimeout(timer)
@@ -62,7 +64,7 @@ async function draft() {
           <RouterLink v-if="change.status === 'approved' && (!i.new_part && i.scope !== 'bom' || !i.new_bom && i.scope !== 'part')" :to="`/plm/parts/${i.part_id}?change=${change.id}`" class="wq-link">{{ t('Start it') }}</RouterLink>
         </td>
         <td><button v-if="v.editable && v.can_edit" class="text-ink-red-7" @click="act('remove', { part_id: i.part_id })">{{ t('Remove') }}</button></td></tr></tbody></table>
-    <form v-if="v.editable && v.can_edit" class="mb-4 flex flex-wrap items-end gap-2" @submit.prevent="act('add', add); add.code = ''">
+    <form v-if="v.editable && v.can_edit" class="mb-4 flex flex-wrap items-end gap-2" @submit.prevent="addPart">
       <datalist id="plm-ecn-parts"><option v-for="p in found" :key="p.id" :value="p.code">{{ p.name }}</option></datalist>
       <label class="wq-field">{{ t('Part') }}<input v-model="add.code" list="plm-ecn-parts" class="wq-input w-40" @input="find"></label>
       <label class="wq-field">{{ t('What changes') }}<select v-model="add.scope" class="wq-select w-36"><option v-for="s in v.scopes" :key="s" :value="s">{{ scopeL(s) }}</option></select></label>
@@ -84,7 +86,7 @@ async function draft() {
       <span v-if="v.impact" class="text-sm" :class="v.impact.current ? 'text-ink-gray-5' : 'text-ink-amber-7'">
         {{ v.impact.current ? t('made {at} by {who}', { at: new Date(v.impact.made_at).toLocaleString(), who: v.impact.made_by }) : t('the parts changed since: analyse again') }}</span>
       <Button v-if="v.editable && v.can_edit" size="sm" :label="t('Analyse the impact')" :disabled="!v.items.length || busy" @click="act('analyse', {})" />
-      <Button v-if="v.editable && v.can_edit && v.can_ai && v.impact?.current" size="sm" icon-left="lucide-sparkles" :label="t('Draft the impact note')" :disabled="busy" @click="draft" />
+      <Button v-if="v.editable && v.can_edit && v.can_ai && canAssess && v.impact?.current" size="sm" icon-left="lucide-sparkles" :label="t('Draft the impact note')" :disabled="busy" @click="draft" />
     </div>
     <table v-if="v.impact" class="wq-table text-sm"><thead><tr><th>{{ t('Part') }}</th><th>{{ t('Used in') }}</th><th>{{ t('Stock') }}</th><th>{{ t('Open purchase orders') }}</th><th>{{ t('Open work orders') }}</th><th>{{ t('Open sales orders of the machines') }}</th></tr></thead>
       <tbody><tr v-for="p in v.impact.data.parts" :key="p.code">

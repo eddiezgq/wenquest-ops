@@ -141,6 +141,11 @@ def update(conn, email: str, cid: int, data: dict) -> dict:
     d = {k: v for k, v in d.items() if (v.obj if isinstance(v, Jsonb) else v) != c[k]}
     if not d:
         return c
+    if "kind" in d and d["kind"] != "product":
+        from wqops.hub.plm import ecn as ECN  # noqa: PLC0415 - only companies with PLM list parts
+
+        if ECN.has_parts(conn, cid):
+            raise ChangeError(say("it lists parts to change: it stays a product change (remove the parts first)"))
     content = set(d) - {"target_date"}
     involved = set(c["editors"]) | ({email} if content else set()) | (
         {c["owner"]} if "owner" in d and c["owner"] else set())
