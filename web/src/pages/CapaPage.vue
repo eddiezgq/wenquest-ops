@@ -2,7 +2,7 @@
 // One corrective / preventive action in stages (ADR-0010): draft, investigation, implementation, effectiveness
 // check, closed (signed by someone other than the owner) or cancelled.
 import { computed, inject, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
@@ -14,6 +14,7 @@ import { t } from '../i18n'
 
 const ws = inject('workspace')
 const route = useRoute()
+const router = useRouter()
 const c = ref(null)
 const error = ref('')
 const edit = ref({})
@@ -23,6 +24,14 @@ const check = ref({ evidence: '', password: '' })
 const cancel = ref('')
 const me = computed(() => ws.value?.user.email)
 const canEdit = computed(() => ws.value?.user.permissions.includes('quality:edit'))
+// PLM (ADR-0026, 26d): a corrective action can start a design change of the product
+const plm = computed(() => ws.value?.modules?.includes('plm') && canEdit.value)
+async function designChange() {
+  try {
+    const r = await api('/api/changes', { method: 'POST', body: { title: c.value.title, kind: 'product', capa_id: c.value.id, reason: t('From corrective action {name}', { name: c.value.name }) } })
+    router.push(`/quality/changes/${r.id}`)
+  } catch (e) { error.value = e.message }
+}
 const STAGES = ['draft', 'investigation', 'implementation', 'effectiveness', 'closed']
 const FIELDS = { draft: ['title', 'description', 'owner', 'risk'], investigation: ['description', 'owner', 'risk', 'containment', 'root_cause'], implementation: ['owner'] }
 const LABELS = { title: 'Title', description: 'Problem description', owner: 'Owner (email)', risk: 'Risk level', containment: 'Containment', root_cause: 'Root cause' }
@@ -48,6 +57,7 @@ const NEXT = { draft: ['submit', 'Start investigation'], investigation: ['plan',
       <Badge :label="t(c.kind)" variant="outline" size="lg" class="capitalize" />
       <Badge v-if="c.risk" :theme="c.risk === 'high' ? 'red' : c.risk === 'medium' ? 'amber' : 'gray'" :label="t('{risk} risk', { risk: t(c.risk) })" size="lg" />
     </template>
+    <Button v-if="plm && c && !['closed', 'cancelled'].includes(c.status)" icon-left="lucide-git-pull-request-arrow" :label="t('Start a design change')" @click="designChange" />
     <RouterLink v-if="c?.workflow" to="/quality?tab=workflows" class="hidden text-sm text-ink-gray-5 hover:underline sm:inline">{{ t('workflow v{v}', { v: c.workflow.version }) }}</RouterLink>
   </PageTop>
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>

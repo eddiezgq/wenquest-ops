@@ -180,7 +180,7 @@ def submit(conn, email: str, cid: int) -> dict:
         c = _locked(conn, cid)
         if c["status"] != "draft":
             raise ChangeError(say("the change is {status}", status=c['status']))
-        missing = CR.to_submit(c, docs_of(conn, c))
+        missing = CR.to_submit(c, docs_of(conn, c)) + _plm(conn, c, "submit")
         if missing:
             raise ChangeError(say("still needed: {list}", list=_join(missing)))
         return _move(conn, c, "submitted", email, say("submitted"), submitted_by=email,
@@ -213,12 +213,19 @@ def approve(conn, user: dict, cid: int, password: str) -> dict:
         if c["status"] != "submitted":
             raise ChangeError(say("the change moved on meanwhile: open it again"))
         _not_involved(user, c)
-        missing = CR.to_submit(c, docs_of(conn, c))
+        missing = CR.to_submit(c, docs_of(conn, c)) + _plm(conn, c, "submit")
         if missing:
             raise ChangeError(say("it no longer has what it needs: {list} (send it back)", list=_join(missing)))
         Q._sign(conn, user, say("Change approved"), "change", cid, c["name"])
         return _move(conn, c, "approved", user["email"], say("approved"), approved_by=user["email"],
                      approved_at=dt.datetime.now(dt.UTC))
+
+
+def _plm(conn, c: dict, step: str) -> list[str]:
+    """What the parts a product change lists still need (PLM 26d, ADR-0026); nothing for other changes."""
+    from wqops.hub.plm import ecn as ECN  # noqa: PLC0415 - only companies with PLM have such parts
+
+    return ECN.to_submit(conn, c) if step == "submit" else ECN.to_implement(conn, c)
 
 
 def docs_of(conn, c: dict) -> dict[int, dict]:
@@ -239,7 +246,7 @@ def implement(conn, user: dict, cid: int) -> dict:
             raise ChangeError(say("implement an approved change"))
         if user["email"] != c["owner"] and not P.allows(user["roles"], "qms:configure"):
             raise PermissionError(say("the owner or Quality marks it implemented"))
-        missing = CR.to_implement(c, docs_of(conn, c))
+        missing = CR.to_implement(c, docs_of(conn, c)) + _plm(conn, c, "implement")
         if missing:
             raise ChangeError(say("still needed: {list}", list=_join(missing)))
         return _move(conn, c, "implemented", user["email"], say("implemented"), implemented_by=user["email"],
@@ -298,8 +305,8 @@ def view(conn, cid: int, today: dt.date) -> dict:
     docs = docs_of(conn, c)
     return {**_iso(c), "questions": CR.questions(), "kinds": CR.KINDS,
             "docs": {str(k): _iso(v) for k, v in docs.items()},
-            "to_submit": CR.to_submit(c, docs) if c["status"] == "draft" else [],
-            "to_implement": CR.to_implement(c, docs) if c["status"] == "approved" else [],
+            "to_submit": CR.to_submit(c, docs) + _plm(conn, c, "submit") if c["status"] == "draft" else [],
+            "to_implement": CR.to_implement(c, docs) + _plm(conn, c, "implement") if c["status"] == "approved" else [],
             "to_close": CR.to_close(c) if c["status"] == "implemented" else [],
             "overdue": bool(c["target_date"] and c["target_date"] < today and c["status"] not in ("closed",
                                                                                                   "cancelled")),

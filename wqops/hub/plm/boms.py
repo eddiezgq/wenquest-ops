@@ -119,6 +119,9 @@ def start(conn, user: dict, pid: int, change_id=None) -> dict:
         ch = None
         if revs:
             ch = PT.approved_change(conn, change_id)
+            from wqops.hub.plm import ecn as ECN  # noqa: PLC0415 - ecn imports parts
+
+            ECN.allows(conn, ch["id"], pid, "bom")
         last = next((r for r in reversed(revs) if r["status"] == "released"), None)
         b = conn.execute("insert into plm_boms (part_id, revision, change_id, editors, created_by) values "
                          "(%s, %s, %s, %s, %s) returning *",
