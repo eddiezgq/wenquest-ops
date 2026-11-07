@@ -27,18 +27,18 @@ function set(d) {
   v.value = d
   cfg.value = JSON.parse(JSON.stringify(d.config))
   saved.value = JSON.stringify(cfg.value)
-  pick.value = Object.fromEntries(d.config.groups.map((g) => [g.code, pick.value[g.code] || g.options[0]?.code]))
+  pick.value = Object.fromEntries(d.config.groups.map((g) => [g.code, g.options.some((o) => o.code === pick.value[g.code]) ? pick.value[g.code] : g.options[0]?.code]))
 }
 async function load() { error.value = ''; try { set(await api(`/api/plm/parts/${props.partId}/config`)) } catch (e) { error.value = e.message } }
 watch(() => props.partId, load, { immediate: true })
 async function save() {
   error.value = ''; done.value = ''
-  try { set(await api(`/api/plm/parts/${props.partId}/config`, { method: 'PUT', body: cfg.value })); done.value = t('Saved.') } catch (e) { error.value = e.message }
+  try { set(await api(`/api/plm/parts/${props.partId}/config`, { method: 'PUT', body: { ...cfg.value, version: v.value.version } })); done.value = t('Saved.') } catch (e) { error.value = e.message }
 }
 async function generate() {
   error.value = ''; done.value = ''
   try {
-    const r = await api(`/api/plm/parts/${props.partId}/models`, { method: 'POST', body: { choice: pick.value } })
+    const r = await api(`/api/plm/parts/${props.partId}/models`, { method: 'POST', body: { choice: pick.value, version: v.value.version } })
     if (r.existing) { done.value = t('This choice was made before: opening that model.'); router.push(`/plm/parts/${r.model}`) } else router.push(`/plm/boms/${r.bom}`)
   } catch (e) { error.value = e.message }
 }

@@ -175,7 +175,14 @@ def view(conn, pid: int) -> dict:
             "revisions": revs, "where_used": where_used(conn, pid),
             "boms": [_iso(dict(b)) for b in conn.execute("select id, revision, status, released_at from plm_boms "
                                                          "where part_id = %s order by id", (pid,))],
-            "signatures": Q.signatures(conn, "plm-part", pid), "history": history(conn, "part", pid)}
+            "signatures": Q.signatures(conn, "plm-part", pid), "history": history(conn, "part", pid),
+            "model_of": _model_of(conn, pid)}
+
+
+def _model_of(conn, pid: int) -> dict | None:
+    r = conn.execute("select b.id, b.item_code, b.name from plm_models m join plm_parts b on b.id = m.base_id "
+                     "where m.part_id = %s", (pid,)).fetchone()
+    return dict(r) if r else None
 
 
 # ---- creating and changing

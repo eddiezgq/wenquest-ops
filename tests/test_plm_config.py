@@ -90,7 +90,7 @@ def test_generate_models_rules_one_per_choice_and_drift(setup, erp, fake):  # no
         (shaft["item_code"], "1"), (o["cfeed"]["item_code"], "1"), (o["servo"]["item_code"], "1"),
         (o["plate7"]["item_code"], "1"), (o["trim"]["item_code"], "1")])
     again = CFG.generate(c, u(c, CASEY), head["id"], {"P": "7", "F": "C", "E": "S", "T": "T"}, erp)
-    assert again == {"model": m["id"], "existing": True}
+    assert again["model"] == m["id"] and again["existing"] is True
     v = CFG.view(c, head["id"])
     assert v["models"][0]["differs"] == []
     # the configuration changes: the trimmer comes in 2; the model is listed, not changed
@@ -122,3 +122,33 @@ def test_api_permissions(setup, db_url, fake):  # noqa: F811
         assert r.status_code == 201 and r.json()["existing"] is False
         cl.post("/api/logout")
     del c
+
+
+def test_review_save_checks_versions_and_models(setup, erp):  # noqa: F811
+    c, head, _shaft, feed, motor, o, v = setup
+    cfg = v["config"]
+    draft = part(c, erp, "Draft bracket", "other")
+    bad = {**cfg, "groups": [*cfg["groups"], {"code": "X", "name": "x", "options": [
+        {"code": "1", "name": "one", "edits": [{"action": "add", "code": draft["item_code"], "qty": 1}]}]}]}
+    with pytest.raises(PT.PlmError, match="not released"):
+        CFG.save(c, u(c, CASEY), head["id"], bad)
+    bad["groups"][-1]["options"][0]["edits"] = [{"action": "remove", "code": o["trim"]["item_code"]}]
+    with pytest.raises(PT.PlmError, match="not on the released base BOM"):
+        CFG.save(c, u(c, CASEY), head["id"], bad)
+    bad["groups"][-1]["options"] = [{"code": "5", "name": "a", "edits": []}, {"code": "57", "name": "b", "edits": []}]
+    with pytest.raises(PT.PlmError, match="same length"):
+        CFG.save(c, u(c, CASEY), head["id"], bad)
+    with pytest.raises(PT.PlmError, match="changed meanwhile"):           # a page from before the last save
+        CFG.save(c, u(c, CASEY), head["id"], {**cfg, "version": "0"})
+    r = CFG.generate(c, u(c, CASEY), head["id"], {"P": "5", "F": "D", "E": "S", "T": "N"}, erp, v["version"])
+    with pytest.raises(PT.PlmError, match="this is a model"):
+        CFG.view(c, r["model"])
+    assert PT.view(c, r["model"])["model_of"]["id"] == head["id"]
+    gone = {**cfg, "groups": [g for g in cfg["groups"] if g["code"] != "T"], "rules": []}
+    with pytest.raises(PT.PlmError, match="keep that group"):              # a model uses T/N
+        CFG.save(c, u(c, CASEY), head["id"], gone)
+    # an earlier generation stopped before its lines: generating again fills the BOM
+    c.execute("delete from plm_bom_lines where bom_id = %s", (r["bom"],))
+    again = CFG.generate(c, u(c, CASEY), head["id"], {"P": "5", "F": "D", "E": "S", "T": "N"}, erp)
+    assert again["bom"] == r["bom"] and len(B.lines(c, r["bom"])) == 3
+    del feed, motor

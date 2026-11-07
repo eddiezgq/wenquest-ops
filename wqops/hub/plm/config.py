@@ -25,9 +25,29 @@ MAX_GROUPS, MAX_OPTIONS, MAX_EDITS, MAX_RULES = 12, 20, 40, 100
 
 def _base(conn, pid: int) -> dict:
     p = PT.get(conn, pid)
-    if p["source"] != "make" or p["category"] != "assembly":
+    if p["source"] != "make" or p["category"] != "assembly" or p["status"] == "obsolete":
         raise PlmError(say("models are configured on a made assembly"))
+    if model_of(conn, pid):
+        raise PlmError(say("this is a model: configure its base machine"))
     return p
+
+
+def model_of(conn, pid: int) -> dict | None:
+    """The base machine a generated model comes from."""
+    return conn.execute("select b.id, b.item_code, b.name from plm_models m join plm_parts b on b.id = m.base_id "
+                        "where m.part_id = %s", (pid,)).fetchone()
+
+
+def version(conn, pid: int) -> str:
+    """Changes whenever the configuration is saved: a page saving or generating from an older one is refused."""
+    r = conn.execute("select max(id) as n from plm_log where kind = 'config' and ref_id = %s and action = "
+                     "'configuration saved'", (pid,)).fetchone()
+    return str(r["n"] or 0)
+
+
+def _same_version(conn, pid: int, seen) -> None:
+    if seen is not None and str(seen) != version(conn, pid):
+        raise PlmError(say("the configuration changed meanwhile: open it again"))
 
 
 def released_bom(conn, pid: int) -> dict | None:
@@ -86,7 +106,7 @@ def models(conn, pid: int) -> list[dict]:
 def view(conn, pid: int) -> dict:
     _base(conn, pid)
     base = released_bom(conn, pid)
-    return {"config": load(conn, pid), "models": models(conn, pid),
+    return {"config": load(conn, pid), "models": models(conn, pid), "version": version(conn, pid),
             "base_bom": {"id": base["id"], "revision": base["revision"]} if base else None}
 
 
@@ -108,6 +128,8 @@ def _part(conn, code, what: str) -> dict:
 
 def save(conn, user: dict, pid: int, data: dict) -> dict:  # noqa: PLR0912, PLR0915 - one check after another
     base = _base(conn, pid)
+    bom = released_bom(conn, pid)
+    on_base = {x["code"] for x in B.lines(conn, bom["id"])} if bom else set()
     groups = data.get("groups") if isinstance(data, dict) else None
     rules = data.get("rules") or []
     if not isinstance(groups, list) or len(groups) > MAX_GROUPS or not isinstance(rules, list) or \
@@ -132,6 +154,8 @@ def save(conn, user: dict, pid: int, data: dict) -> dict:  # noqa: PLR0912, PLR0
             oc = _code(o.get("code"), say("group {code}", code=gc))
             if oc in seen_o:
                 raise PlmError(say("group {g}: two options have the code {code}", g=gc, code=oc))
+            if seen_o and len(oc) != len(next(iter(seen_o))):    # joined into the model code: no two readings
+                raise PlmError(say("group {g}: all option codes have the same length", g=gc))
             seen_o.add(oc)
             oname = str(o.get("name") or "").strip()[:60]
             if not oname:
@@ -142,13 +166,24 @@ def save(conn, user: dict, pid: int, data: dict) -> dict:  # noqa: PLR0912, PLR0
             cedits = []
             for e in edits:
                 label = f"{gc}/{oc}"
-                act = (e or {}).get("action")
+                if not isinstance(e, dict):
+                    raise PlmError(say("option {label}: a change adds, removes or replaces a part", label=label))
+                act = e.get("action")
                 if act not in ("add", "remove", "replace"):
                     raise PlmError(say("option {label}: a change adds, removes or replaces a part", label=label))
                 p = _part(conn, e.get("code"), label)
                 if p["id"] == pid:
                     raise PlmError(say("option {label}: the base machine is not in its own BOM", label=label))
                 w = _part(conn, e.get("with"), label) if act == "replace" else None
+                for x in (p if act == "add" else None, w):
+                    if x is not None and x["status"] != "released":
+                        raise PlmError(say("option {label}: {code} is not released", label=label, code=x["item_code"]))
+                if act in ("remove", "replace") and p["item_code"] not in on_base:
+                    raise PlmError(say("option {label}: {code} is not on the released base BOM", label=label,
+                                       code=p["item_code"]))
+                if act == "replace" and w["uom"] != p["uom"] and e.get("qty") in (None, ""):
+                    raise PlmError(say("option {label}: {code} counts in {uom}: give its quantity", label=label,
+                                       code=w["item_code"], uom=w["uom"]))
                 q = None
                 if act == "add" or (act == "replace" and e.get("qty") not in (None, "")):
                     try:
@@ -159,6 +194,12 @@ def save(conn, user: dict, pid: int, data: dict) -> dict:  # noqa: PLR0912, PLR0
             copts.append((oc, oname, cedits))
             where[f"{gc}/{oc}"] = None
         clean.append((gc, gname, copts))
+    for m in conn.execute("select choice, p.item_code from plm_models m join plm_parts p on p.id = m.part_id "
+                          "where m.base_id = %s", (pid,)):
+        for gcode, ocode in m["choice"].items():
+            if f"{gcode}/{ocode}" not in where:
+                raise PlmError(say("model {code} uses {g}/{o}: keep that group and option code", code=m["item_code"],
+                                   g=gcode, o=ocode))
     crules = []
     for r in rules:
         if not isinstance(r, dict) or r.get("kind") not in ("requires", "excludes"):
@@ -173,6 +214,7 @@ def save(conn, user: dict, pid: int, data: dict) -> dict:  # noqa: PLR0912, PLR0
         crules.append((r["kind"], a, b))
     with conn.transaction():
         conn.execute("select id from plm_parts where id = %s for update", (pid,))
+        _same_version(conn, pid, data.get("version"))
         conn.execute("delete from plm_option_rules where base_id = %s", (pid,))
         conn.execute("delete from plm_option_groups where base_id = %s", (pid,))
         ids = {}
@@ -260,19 +302,26 @@ def choice_key(choice: dict) -> str:
     return hashlib.sha256(json.dumps(choice, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def generate(conn, user: dict, pid: int, choice, erp: ErpClient) -> dict:
+def generate(conn, user: dict, pid: int, choice, erp: ErpClient, seen=None) -> dict:  # noqa: PLR0917
     base = _base(conn, pid)
+    _same_version(conn, pid, seen)
     cfg = load(conn, pid)
     if not cfg["groups"]:
         raise PlmError(say("set up the option groups first"))
     ch = check_choice(cfg, choice)
     have = conn.execute("select part_id from plm_models where base_id = %s and choice_key = %s",
                         (pid, choice_key(ch))).fetchone()
-    if have:
-        return {"model": have["part_id"], "existing": True}
     bom = released_bom(conn, pid)
     lines = compose(conn, cfg, ch, bom)
+    bad = [x["code"] for x in lines if conn.execute("select status from plm_parts where id = %s",
+                                                     (x["part_id"],)).fetchone()["status"] == "obsolete"]
+    if bad:                                  # checked before anything is made: no model without its BOM
+        raise PlmError(say("these parts are obsolete: {list}", list=", ".join(bad)))
+    if have:
+        return _finish(conn, user, have["part_id"], base, bom, lines)
     code = f"{base['item_code']}-{''.join(ch[g['code']] for g in cfg['groups'])}"
+    if len(code) > 60:
+        raise PlmError(say("the model code {code} is longer than 60 characters: use shorter codes", code=code))
     name = f"{base['name']} " + " / ".join(next(o["name"] for o in g["options"] if o["code"] == ch[g["code"]])
                                          for g in cfg["groups"])
     if PT.by_code(conn, code):
@@ -287,7 +336,16 @@ def generate(conn, user: dict, pid: int, choice, erp: ErpClient) -> dict:
                      "(%s, %s, %s::jsonb, %s, %s, %s)", (pid, p["id"], json.dumps(ch), choice_key(ch), bom["id"],
                                                           user["email"]))
         PT.log(conn, "config", pid, user["email"], "model generated", code)
-    b = B.start(conn, user, p["id"])
-    B.set_lines(conn, user, b["bom"]["id"], [{"code": x["code"], "qty": x["qty"], "uom": x["uom"]} for x in lines],
+    return {**_finish(conn, user, p["id"], base, bom, lines), "existing": False}
+
+
+def _finish(conn, user: dict, mid: int, base: dict, bom: dict, lines: list[dict]) -> dict:  # noqa: PLR0917
+    """The model's draft BOM: made now, or again when an earlier generation stopped before its lines were saved."""
+    have = conn.execute("select id, status from plm_boms where part_id = %s order by id desc limit 1",
+                        (mid,)).fetchone()
+    if have and (have["status"] != "draft" or B.lines(conn, have["id"])):
+        return {"model": mid, "existing": True, "bom": have["id"]}
+    bid = have["id"] if have else B.start(conn, user, mid)["bom"]["id"]
+    B.set_lines(conn, user, bid, [{"code": x["code"], "qty": x["qty"], "uom": x["uom"]} for x in lines],
                 note=say("generated from {base} BOM rev {rev}", base=base["item_code"], rev=bom["revision"]))
-    return {"model": p["id"], "existing": False, "bom": b["bom"]["id"]}
+    return {"model": mid, "existing": bool(have), "bom": bid}
