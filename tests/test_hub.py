@@ -78,7 +78,7 @@ def test_sign_in_flow(db_url):
     assert c.get("/api/me").status_code == 401                 # changing the password ended the session
     c.post("/api/login", json={"email": "dana@demo.example", "password": "Owner pass 2026"})
     people = {u["email"]: u for u in c.get("/api/users").json()}
-    assert len(people) == 7
+    assert len(people) == 8                         # one per role in the demo (ADR-0026 added engineering)
     assert people["lee@demo.example"]["last_login"] and not people["lee@demo.example"]["locked"]
     assert people["sam@demo.example"]["last_login"] is None and not people["sam@demo.example"]["has_password"]
     assert c.post("/api/users/password", json={"email": "sam@demo.example", "password": "Set by owner 1"}).json()

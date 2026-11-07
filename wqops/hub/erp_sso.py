@@ -37,6 +37,7 @@ ERP_ROLES = {
     "sales": ["Sales User"],
     "quality": ["Quality Manager", "Stock User"],
     "ai_specialist": ["Stock User", "Sales User", "Purchase User"],
+    "engineering": ["Manufacturing Manager", "Item Manager", "Stock User"],   # submits the BOMs PLM drafts (ADR-0026)
 }
 
 

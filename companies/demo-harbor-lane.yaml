@@ -39,4 +39,5 @@ people:
   - {name: Alex Sales, email: alex@demo.example, roles: [sales], department: sales}
   - {name: Jordan Quality, email: jordan@demo.example, roles: [quality], department: quality}
   - {name: Riley AI, email: riley@demo.example, roles: [ai_specialist], department: operations}
+  - {name: Morgan Engineer, email: morgan@demo.example, roles: [engineering], department: operations}
 modules: [core, hub, ai, quality]

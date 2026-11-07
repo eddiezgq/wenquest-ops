@@ -20,12 +20,13 @@ from pathlib import Path
 import yaml
 
 SCHEMA_VERSION = 1
-ROLES = ("owner", "ops_manager", "warehouse", "purchasing", "sales", "quality", "ai_specialist")
+ROLES = ("owner", "ops_manager", "warehouse", "purchasing", "sales", "quality", "ai_specialist", "engineering")
 ROLE_LABELS = {"owner": "Owner", "ops_manager": "Operations Manager", "warehouse": "Warehouse",
-               "purchasing": "Purchasing", "sales": "Sales", "quality": "Quality", "ai_specialist": "AI Specialist"}
+               "purchasing": "Purchasing", "sales": "Sales", "quality": "Quality", "ai_specialist": "AI Specialist",
+               "engineering": "Engineering"}
 SITE_KINDS = ("office", "warehouse", "plant", "store")
 WAREHOUSE_KINDS = ("stores", "receiving", "finished_goods", "shipping", "quarantine", "transit")
-MODULES = ("core", "hub", "ai", "quality", "warehousing", "production")
+MODULES = ("core", "hub", "ai", "quality", "warehousing", "production", "plm")
 REQUIRED_MODULES = ("core", "hub")
 WEIGHT_UNITS = ("lb", "kg")
 LENGTH_UNITS = ("in", "cm")
