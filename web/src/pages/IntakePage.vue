@@ -54,6 +54,12 @@ const save = () => call('PUT', `/api/plm/intake/${v.value.id}`, { plan: plan.val
 const write = () => call('POST', `/api/plm/intake/${v.value.id}/write`, { password: pw.value }, t('Written: the parts and draft BOMs are made.'))
 const reject = () => call('POST', `/api/plm/intake/${v.value.id}/reject`, { note: note.value }, t('Not taken.'))
 const istl = (s) => ({ pending: t('intake::pending'), written: t('intake::written'), rejected: t('intake::rejected') })[s] || s
+function setAction(r, action) {     // switching a row keeps only what that choice needs, with defaults for a new part
+  const guess = r.plan?.action === 'new' ? r.plan : {}
+  plan.value[r.key] = action === 'new'
+    ? { action, category: guess.category || 'other', source: guess.source || 'make', uom: guess.uom || 'Nos', link_existing: false }
+    : { action, part_id: r.part?.id }
+}
 const catL = (k) => v.value?.categories.find((c) => c.key === k)?.label || k
 </script>
 
@@ -73,7 +79,7 @@ const catL = (k) => v.value?.categories.find((c) => c.key === k)?.label || k
           <td>{{ r.code || '–' }}</td><td>{{ r.children || '' }}</td>
           <td>
             <template v-if="pending && v.can_edit">
-              <select v-model="plan[r.key].action" class="wq-select w-36"><option value="match">{{ t('An existing part') }}</option><option value="new">{{ t('A new part') }}</option></select>
+              <select :value="plan[r.key].action" class="wq-select w-36" @change="setAction(r, $event.target.value)"><option value="match">{{ t('An existing part') }}</option><option value="new">{{ t('A new part') }}</option></select>
               <template v-if="plan[r.key].action === 'match'">
                 <input v-model="codes[r.key]" class="wq-input ms-1 w-36" :placeholder="t('Part code')" @change="matchCode(r.key)">
                 <span v-if="r.like?.length" class="ms-1 text-ink-gray-5">{{ t('maybe') }}: <button v-for="l in r.like" :key="l.id" class="wq-link me-1" @click="codes[r.key] = l.item_code; plan[r.key] = { action: 'match', part_id: l.id }">{{ l.item_code }}</button></span>
@@ -82,6 +88,7 @@ const catL = (k) => v.value?.categories.find((c) => c.key === k)?.label || k
                 <select v-model="plan[r.key].category" class="wq-select ms-1 w-40"><option v-for="c in v.categories" :key="c.key" :value="c.key">{{ c.label }}</option></select>
                 <select v-model="plan[r.key].source" class="wq-select ms-1 w-24"><option value="make">{{ t('plm::Made') }}</option><option value="buy">{{ t('Bought') }}</option></select>
                 <input v-model="plan[r.key].uom" class="wq-input ms-1 w-20">
+                <label v-if="r.code" class="ms-2 text-ink-gray-6"><input v-model="plan[r.key].link_existing" type="checkbox"> {{ t('ERPNext has this item: link it') }}</label>
               </template>
             </template>
             <template v-else>

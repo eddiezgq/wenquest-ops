@@ -121,13 +121,17 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             if "plm" not in ((company()[0] or {}).get("modules") or []):
                 raise HTTPException(404, say("the PLM module is not turned on for this company"))
             size = request.headers.get("content-length", "")
-            if size.isdigit() and int(size) > MAX_DESIGN:
+            if not size.isdigit():
+                raise HTTPException(411, say("send the length of the request"))
+            if int(size) > MAX_DESIGN:
                 raise HTTPException(413, say("the request is larger than 200 MB"))
             form = await request.form(max_files=IN.RD.MAX_NODES + 1, max_fields=10, max_part_size=20_000_000)
             try:
                 data = json.loads(str(form.get("data") or "{}"))
-            except ValueError as exc:
+            except (ValueError, RecursionError) as exc:
                 raise HTTPException(400, say("the request is not JSON")) from exc
+            if has_nul(data):
+                raise HTTPException(400, say("the request holds a NUL character"))
             files, model = {}, None
             for key, val in form.multi_items():
                 if isinstance(val, UploadFile):

@@ -3,8 +3,10 @@ by the owner on the quality ERP's Integrations page with the right "plm:send"; i
 on this computer only. Works without the FreeCAD window (command line)."""
 import json
 import os
+import re
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -31,6 +33,11 @@ class NetError(Exception):
     pass
 
 
+def _q(name):
+    """A file name safe inside a quoted header value."""
+    return re.sub(r'["\\\r\n]', "_", str(name))[:200] or "file"
+
+
 def _multipart(fields, files):
     """fields: name -> text; files: [(field, file name, bytes)]."""
     b = uuid.uuid4().hex
@@ -39,14 +46,19 @@ def _multipart(fields, files):
         head = f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n'.encode()
         out.append(head + v.encode("utf-8") + b"\r\n")
     for k, name, data in files:
-        out.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"; filename="{name}"\r\n'
+        out.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"; filename="{_q(name)}"\r\n'
                    'Content-Type: application/octet-stream\r\n\r\n'.encode() + data + b"\r\n")
     out.append(f"--{b}--\r\n".encode())
     return b"".join(out), f"multipart/form-data; boundary={b}"
 
 
+LOCAL = ("localhost", "127.0.0.1", "::1")
+
+
 def _open(req, timeout):
-    if not req.full_url.startswith(("https://", "http://")):
+    """https only; http just for a quality ERP on this computer (the token must not cross a network in clear)."""
+    u = urllib.parse.urlsplit(req.full_url)
+    if not (u.scheme == "https" or (u.scheme == "http" and u.hostname in LOCAL)):
         raise NetError("地址要以 https:// 开头 / the address starts with https://")
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as r:  # noqa: S310

@@ -17,6 +17,7 @@ from decimal import Decimal, InvalidOperation
 from wqops.i18n import say
 
 MAX_NODES = 5000
+MAX_ROWS = 50000
 
 
 class ReadError(ValueError):
@@ -33,8 +34,13 @@ def _statements(text: str):
     i = text.find("DATA;")
     if i < 0:
         raise ReadError(say("this is not a STEP file (no DATA section)"))
-    buf, quote = [], False
-    for ch in text[i + 5:]:
+    buf, quote, body, k = [], False, text[i + 5:], 0
+    while k < len(body):
+        ch = body[k]
+        if not quote and body.startswith("/*", k):          # comments, which may hold apostrophes
+            end = body.find("*/", k + 2)
+            k = len(body) if end < 0 else end + 2
+            continue
         if ch == "'":
             quote = not quote
         if ch == ";" and not quote:
@@ -42,6 +48,7 @@ def _statements(text: str):
             buf = []
         else:
             buf.append(ch)
+        k += 1
 
 
 def _args(s: str) -> list[str]:
@@ -63,12 +70,22 @@ def _args(s: str) -> list[str]:
     return [a[1:-1].replace("''", "'") if len(a) >= 2 and a[0] == "'" and a[-1] == "'" else a for a in out]
 
 
+_CTRL = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def _decode(s: str) -> str:
-    """STEP's \\X2\\...\\X0\\ escapes (UTF-16 hex), as CAD programs write Chinese names."""
-    def x2(m):
+    """STEP's escapes: \\X2\\...\\X0\\ (UTF-16, as CAD programs write Chinese names), \\X4\\ (UTF-32), \\X\\hh,
+    \\\\; control characters dropped."""
+    def wide(m, enc):
         h = m.group(1)
-        return "".join(chr(int(h[k:k + 4], 16)) for k in range(0, len(h), 4))
-    return re.sub(r"\\X2\\([0-9A-Fa-f]+)\\X0\\", x2, s)
+        try:
+            return bytes.fromhex(h).decode(enc, "replace")
+        except ValueError:
+            return ""
+    s = re.sub(r"\\X2\\([0-9A-Fa-f]*)\\X0\\", lambda m: wide(m, "utf-16-be"), s)
+    s = re.sub(r"\\X4\\([0-9A-Fa-f]*)\\X0\\", lambda m: wide(m, "utf-32-be"), s)
+    s = re.sub(r"\\X\\([0-9A-Fa-f]{2})", lambda m: bytes.fromhex(m.group(1)).decode("latin-1"), s)
+    return _CTRL.sub("", s.replace("\\\\", "\\"))
 
 
 def read_step(data: bytes) -> dict:
@@ -84,7 +101,11 @@ def read_step(data: bytes) -> dict:
         if m and m.group(2) in ("PRODUCT", "PRODUCT_DEFINITION_FORMATION",
                                 "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE", "PRODUCT_DEFINITION",
                                 "NEXT_ASSEMBLY_USAGE_OCCURRENCE"):
-            ent["#" + m.group(1)] = (m.group(2), _args(m.group(3)))
+            a = _args(m.group(3))
+            need = {"PRODUCT": 2, "PRODUCT_DEFINITION": 3, "NEXT_ASSEMBLY_USAGE_OCCURRENCE": 5}.get(m.group(2), 3)
+            if len(a) < need:
+                raise ReadError(say("the STEP file is damaged near #{n}", n=m.group(1)))
+            ent["#" + m.group(1)] = (m.group(2), a)
     products = {k: v[1] for k, v in ent.items() if v[0] == "PRODUCT"}
     if not products:
         raise ReadError(say("the STEP file names no parts"))
@@ -96,6 +117,8 @@ def read_step(data: bytes) -> dict:
             parent, child = pd.get(v[1][3]), pd.get(v[1][4])
             if parent and child:
                 uses[(parent, child)] += 1
+    if len(products) > MAX_NODES:
+        raise ReadError(say("more than {n} parts in one file", n=MAX_NODES))
     nodes = []
     for k, a in products.items():
         ident, name = _decode(a[0]).strip(), _decode(a[1]).strip() or _decode(a[0]).strip()
@@ -146,7 +169,9 @@ def _level(v, row: int) -> int:
         s = str(int(v))
     if re.fullmatch(r"\d+", s):
         return int(s)
-    if re.fullmatch(r"\.+\d*", s):
+    if re.fullmatch(r"\.+\d+", s):                    # .1, ..2: the digit is the level
+        return int(s.lstrip("."))
+    if re.fullmatch(r"\.+", s):                        # dots only: one more than the dots
         return s.count(".") + 1
     if re.fullmatch(r"\d+(\.\d+)+", s):
         return s.count(".") + 1
@@ -158,59 +183,79 @@ def _source(v) -> str | None:
     return "buy" if t in ("外购", "采购", "buy", "purchased", "b") else "make" if t in ("自制", "make", "m") else None
 
 
-def read_excel(data: bytes) -> dict:  # noqa: PLR0912 - one column after another
+def read_excel(data: bytes) -> dict:  # noqa: PLR0912, PLR0915 - one column after another
     import openpyxl  # noqa: PLC0415
 
     try:
         wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception as exc:
         raise ReadError(say("this is not an Excel file (.xlsx)")) from exc
-    ws = wb.worksheets[0]
-    rows = list(ws.iter_rows(values_only=True))
+    rows = wb.worksheets[0].iter_rows(values_only=True)
     cols, start = {}, None
-    for i, r in enumerate(rows[:10]):
-        found = {_head(c): j for j, c in enumerate(r) if _head(c)}
+    for i, r in enumerate(rows, start=1):
+        found = {_head(c): j for j, c in enumerate(r or ()) if _head(c)}
         if "code" in found and ("parent" in found or "level" in found):
-            cols, start = found, i + 1
+            cols, start = found, i
+            break
+        if i >= 10:
             break
     if start is None:
         raise ReadError(say("no header row: write 父件编码, 子件编码, 数量 (flat) or 层级, 编码, 数量 (levels)"))
+
+    def get(r, k):
+        j = cols.get(k)
+        return r[j] if j is not None and j < len(r) else None
+
     nodes: dict[str, dict] = {}
     links: Counter = Counter()
-    stack: list[tuple[int, str]] = []
+    occs: dict[str, list[Counter]] = {}           # level BOMs: the parts under each appearance of an assembly
+    stack: list[tuple[int, str, Counter]] = []
 
     def node(code, name, r):
         code = str(code).strip()
         n = nodes.setdefault(code, {"key": code, "code": code, "name": str(name or code).strip()})
         for k in ("uom", "category"):
-            if k in cols and r[cols[k]] not in (None, ""):
-                n[k] = str(r[cols[k]]).strip()
-        if "source" in cols and _source(r[cols["source"]]):
-            n["source"] = _source(r[cols["source"]])
+            if get(r, k) not in (None, ""):
+                n[k] = str(get(r, k)).strip()
+        if _source(get(r, "source")):
+            n["source"] = _source(get(r, "source"))
         return code
-    for i, r in enumerate(rows[start:], start=start + 1):
-        if not r or r[cols["code"]] in (None, ""):
+    for i, raw in enumerate(rows, start=start + 1):
+        if i - start > MAX_ROWS:
+            raise ReadError(say("more than {n} rows", n=MAX_ROWS))
+        r = raw or ()
+        if get(r, "code") in (None, ""):
             continue
-        code = node(r[cols["code"]], r[cols["name"]] if "name" in cols else None, r)
-        qty = _qty(r[cols["qty"]] if "qty" in cols and r[cols["qty"]] not in (None, "") else 1, i)
+        code = node(get(r, "code"), get(r, "name"), r)
+        qty = Decimal(_qty(get(r, "qty") if get(r, "qty") not in (None, "") else 1, i))
         if "level" in cols:
-            lv = _level(r[cols["level"]], i)
+            lv = _level(get(r, "level"), i)
             while stack and stack[-1][0] >= lv:
                 stack.pop()
             if stack:
-                links[(stack[-1][1], code)] += Decimal(qty)
-            elif lv > 1:
+                stack[-1][2][code] += qty
+            elif lv > 1 and occs:
                 raise ReadError(say("row {row}: level {level} has no parent above it", row=i, level=lv))
-            stack.append((lv, code))
+            occ = Counter()
+            occs.setdefault(code, []).append(occ)
+            stack.append((lv, code, occ))
         else:
-            parent = r[cols["parent"]]
+            parent = get(r, "parent")
             if parent not in (None, ""):
                 p = str(parent).strip()
                 nodes.setdefault(p, {"key": p, "code": p, "name": p})
-                links[(p, code)] += Decimal(qty)
+                links[(p, code)] += qty
         if len(nodes) > MAX_NODES:
             raise ReadError(say("more than {n} parts in one file", n=MAX_NODES))
     if not nodes:
         raise ReadError(say("the file has no rows under the header"))
+    for code, lst in occs.items():               # a sub-assembly repeated where it is used: its parts once
+        filled = [o for o in lst if o]
+        if not filled:
+            continue
+        if any(o != filled[0] for o in filled[1:]):
+            raise ReadError(say("{code} is listed with different parts in different places", code=code))
+        for c, q in filled[0].items():
+            links[(code, c)] = q
     return {"nodes": list(nodes.values()),
             "links": [{"parent": p, "child": c, "qty": format(q.normalize(), "f")} for (p, c), q in links.items()]}

@@ -57,13 +57,17 @@ def _is_solid(o):
         return False
     if any(p.TypeId == "PartDesign::Body" for p in o.InList):
         return False
+    if any(p.TypeId.startswith("Part::") for p in o.InList):    # an input of a boolean, extrusion... : not a part
+        return False
     try:
         return o.Shape.Volume > 0
     except Exception:
         return False
 
 
-def items(doc):
+def items(doc, outside=None):
+    """``outside`` collects links to objects of other files: those are not sent (push them from their own file)."""
+    outside = [] if outside is None else outside
     out = []
     for o in doc.Objects:
         if o.TypeId in ASSEMBLY:
@@ -71,7 +75,10 @@ def items(doc):
                         "children": [c.Name for c in _kids(o)]})
         elif o.TypeId == "App::Link":
             t = o.LinkedObject
-            out.append({"name": o.Name, "label": o.Label, "kind": "link", "target": t.Name if t else None})
+            same = t is not None and t.Document is doc
+            out.append({"name": o.Name, "label": o.Label, "kind": "link", "target": t.Name if same else None})
+            if t is not None and not same:
+                outside.append(o.Label)
         elif _is_solid(o):
             vol = float(o.Shape.Volume)
             d = _density(o)
@@ -87,16 +94,16 @@ def steps(doc, data):
     """The STEP of every solid node: node key -> (file name, bytes)."""
     import Import
     out = {}
-    tmp = tempfile.mkdtemp(prefix="wqplm-")
-    for n in data["nodes"]:
-        o = doc.getObject(n["key"])
-        if o is None or o.TypeId in ASSEMBLY:
-            continue
-        safe = re.sub(r"[^\w.-]+", "_", n["name"])[:60] or n["key"]
-        path = os.path.join(tmp, safe + ".step")
-        Import.export([o], path)
-        with open(path, "rb") as f:
-            out[n["key"]] = (safe + ".step", f.read())
+    with tempfile.TemporaryDirectory(prefix="wqplm-") as tmp:
+        for i, n in enumerate(data["nodes"]):
+            o = doc.getObject(n["key"])
+            if o is None or o.TypeId in ASSEMBLY:
+                continue
+            safe = re.sub(r"[^\w.-]+", "_", n["name"])[:60] or n["key"]
+            path = os.path.join(tmp, f"{i}.step")
+            Import.export([o], path)
+            with open(path, "rb") as f:
+                out[n["key"]] = (safe + ".step", f.read())
     return out
 
 
@@ -104,11 +111,13 @@ def push(doc):
     """Send the document to the PLM inbox. Returns the server's answer ({id, parts, status})."""
     import wqplm_net as N
     import wqplm_tree as T
-    data = T.build(items(doc), doc.Label)
+    outside = []
+    data = T.build(items(doc, outside), doc.Label)
     if not data["nodes"]:
         raise N.NetError("模型里没有零件 / no parts in this model")
     model = None
     if doc.FileName and os.path.exists(doc.FileName):
         with open(doc.FileName, "rb") as f:
             model = (os.path.basename(doc.FileName), f.read())
-    return N.send(data, steps(doc, data), model)
+    r = N.send(data, steps(doc, data), model)
+    return {**r, "outside": outside}

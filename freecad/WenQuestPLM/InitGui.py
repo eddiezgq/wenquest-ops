@@ -43,9 +43,13 @@ class _Push:
         from PySide import QtGui
         try:
             r = D.push(App.ActiveDocument)
+            more = ""
+            if r.get("outside"):
+                more = ("\n链接到其他文件的没有送，请在那个文件里推送 / links to other files were not sent: " +
+                        "、".join(r["outside"][:10]))
             QtGui.QMessageBox.information(
                 None, "WenQuest PLM", f"已送出 / sent: #{r.get('id')}，{r.get('parts')} 个零件 / parts。"
-                "\n到质量 ERP“工程设计 → 设计数据”核对写入 / review it in Design data.")
+                "\n到质量 ERP“工程设计 → 设计数据”核对写入 / review it in Design data." + more)
         except Exception as e:
             QtGui.QMessageBox.warning(None, "WenQuest PLM", str(e))
 

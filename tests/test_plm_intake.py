@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from tests.test_plm import (  # noqa: F401  # noqa: F401
     CASEY,
     PW,
+    approved_change,
     erp,
     fake,
     files_dir,
@@ -201,3 +202,81 @@ def test_step_written_by_freecad():
     by = {(names[x["parent"]]["name"], names[x["child"]]["name"]): x["qty"] for x in d["links"]}
     assert by == {("针杆机构", "曲柄"): "1", ("针杆机构", "销"): "2"}
     assert all(n["code"] == "" for n in d["nodes"])
+
+
+def test_readers_repeats_damage_and_cycles():
+    """A sub-assembly listed twice in a level BOM counts its parts once per sub-assembly, not twice; listed with
+    other parts the second time it is refused. A damaged STEP or a NUL is a reading error, never a crash; a batch
+    whose assembly contains itself is refused."""
+    lv = RD.read_excel(xlsx([["层级", "编码", "数量"], [1, "H", 1], [2, "A", 2], [3, "N", 1], [3, "P", 4],
+                             [2, "S", 1], [2, "A", 1], [3, "N", 1], [3, "P", 4]]))
+    assert {(x["parent"], x["child"], x["qty"]) for x in lv["links"]} == {
+        ("H", "A", "3"), ("A", "N", "1"), ("A", "P", "4"), ("H", "S", "1")}
+    with pytest.raises(RD.ReadError, match="different parts"):
+        RD.read_excel(xlsx([["层级", "编码", "数量"], [1, "H", 1], [2, "A", 1], [3, "N", 1], [2, "A", 1],
+                            [3, "P", 1]]))
+    with pytest.raises(RD.ReadError, match="damaged"):
+        RD.read_step(STEP.replace(b"FORMATION('','',#1);", b"FORMATION(#1);"))
+    with pytest.raises(PT.PlmError):
+        IN.read_file("step", b"ISO-10303-21;\x00\xff" * 10)
+    d = RD.read_step(STEP.replace(b"Main shaft; long", b"Main\x00shaft"))
+    assert all("\x00" not in n["name"] for n in d["nodes"])
+    assert IN.check_data({"nodes": [{"key": "a\x00", "name": "x\x00y"}]})["nodes"][0] == {
+        "key": "a", "code": "", "name": "x y"}
+    loop = {"nodes": [{"key": k} for k in "ABC"],
+            "links": [{"parent": a, "child": b} for a, b in ("AB", "BC", "CA")]}
+    with pytest.raises(PT.PlmError, match="contains itself"):
+        IN.check_data(loop)
+
+
+def test_erpnext_items_cycles_with_existing_boms_and_changes(world, fake, erp, monkeypatch):  # noqa: F811
+    c = world
+    monkeypatch.setattr(B, "_supplier", lambda _c, _code: True)
+    fake.put("Item", "OLD-7", item_code="OLD-7", item_name="Old bushing", stock_uom="Nos")
+    v = IN.upload(c, u(c, CASEY), "excel", "a.xlsx", xlsx([["父件编码", "子件编码", "名称", "数量", "自制/外购"],
+                                                           ["H-2", "OLD-7", "Bushing", 2, "外购"]]))
+    v = IN.set_plan(c, u(c, CASEY), v["id"], {"OLD-7": {"action": "new", "category": "other", "source": "buy",
+                                                        "uom": "Nos"}})
+    assert any("OLD-7" in p and "ERPNext" in p for p in IN.view(c, v["id"], erp)["problems"])
+    with pytest.raises(PT.PlmError, match="not ready"):
+        IN.write(c, u(c, CASEY), v["id"], PW, erp)
+    v = IN.set_plan(c, u(c, CASEY), v["id"], {"OLD-7": {"action": "new", "category": "other", "source": "buy",
+                                                        "uom": "Nos", "link_existing": True}})
+    v = IN.write(c, u(c, CASEY), v["id"], PW, erp)
+    assert PT.by_code(c, "OLD-7")["erp_state"] == "existing"
+    # a released head that the batch would put under its own child
+    head = released(c, erp, "Head", "assembly")
+    arm = released(c, erp, "Arm", "assembly")
+    b = B.start(c, u(c, CASEY), head["id"])
+    B.set_lines(c, u(c, CASEY), b["bom"]["id"], [{"code": arm["item_code"], "qty": 1}])
+    v = IN.upload(c, u(c, CASEY), "excel", "b.xlsx", xlsx([["父件编码", "子件编码", "数量"],
+                                                           [arm["item_code"], head["item_code"], 1]]))
+    assert any("contain itself" in p for p in v["problems"])
+    # a released BOM under an approved change that does not list the part
+    B.release(c, u(c, CASEY), b["bom"]["id"], PW, erp)
+    other = released(c, erp, "Other", "shaft", d=5, length=50)
+    cid = approved_change(c, parts=[(other["id"], "part")])
+    v = IN.upload(c, u(c, CASEY), "excel", "c.xlsx", xlsx([["父件编码", "子件编码", "数量"],
+                                                           [head["item_code"], other["item_code"], 1]]))
+    v = IN.set_plan(c, u(c, CASEY), v["id"], {r["key"]: r["plan"] for r in v["rows"]}, {head["item_code"]: cid})
+    assert any("does not list" in p for p in v["problems"])
+
+
+def test_write_is_all_or_nothing_and_items_follow(world, fake, erp, monkeypatch):  # noqa: F811
+    c = world
+    v = IN.upload(c, u(c, CASEY), "excel", "x.xlsx", xlsx([["父件编码", "子件编码", "名称", "数量", "自制/外购"],
+                                                           ["H-3", "P-3", "Pin", 2, "自制"]]))
+
+    def broken(*_a, **_k):
+        raise PT.PlmError("no room")
+    monkeypatch.setattr(B, "set_lines", broken)
+    with pytest.raises(PT.PlmError, match="BOM not made: no room"):
+        IN.write(c, u(c, CASEY), v["id"], PW, erp)
+    assert IN.view(c, v["id"])["status"] == "pending" and PT.by_code(c, "H-3") is None and PT.by_code(c, "P-3") is None
+    monkeypatch.undo()
+
+    def down(*_a, **_k):
+        raise RuntimeError("ERPNext went away")
+    monkeypatch.setattr(PT, "_erp_item", down)
+    v = IN.write(c, u(c, CASEY), v["id"], PW, erp)
+    assert v["status"] == "written" and PT.by_code(c, "P-3")["erp_state"] == "failed"

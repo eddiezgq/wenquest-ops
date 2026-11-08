@@ -3485,5 +3485,19 @@
  "{why}: it cannot be used": "{why}：不能使用",
  "{why}: the readings cannot be accepted with it": "{why}：不能接收用它测得的读数",
  "{workflow} workflow version {version}, enabled by {by} on {date}, fingerprint {fp}.": "{workflow}工作流版本 {version}，由 {by} 于 {date} 启用，指纹 {fp}。",
- "“{NOT_RECORDED}” is kept for missing values; name the category": "“{NOT_RECORDED}”保留给缺失值，请换一个类别名称"
+ "“{NOT_RECORDED}” is kept for missing values; name the category": "“{NOT_RECORDED}”保留给缺失值，请换一个类别名称",
+ "the assembly contains itself: {path}": "装配里包含了它自己：{path}",
+ "the plan is a list of parts and what each is": "核对内容应是每个零件及其处理方式",
+ "two new parts have the code {codes}: match one to the other's part": "两个新零件的编码都是 {codes}：请把其中一个对上另一个的零件",
+ "the assembly would contain itself: {path}": "写入后装配会包含它自己：{path}",
+ "the file could not be read": "文件读不了",
+ "ERPNext did not answer: whether these codes are items already is unknown": "ERPNext 没有回应：这些编码是否已有物料，未知",
+ "{code} is an item in ERPNext already: tick 'link it' or match it": "ERPNext 里已有物料 {code}：请勾“关联它”，或对上已有零件",
+ "{name}: the part it is matched to is obsolete": "{name}：对上的零件已作废",
+ "{name}: {code} is a part already: match it": "{name}：{code} 已是零件，请对上它",
+ "more than {n} rows": "超过 {n} 行",
+ "{code} is listed with different parts in different places": "{code} 在不同位置下列的零件不一样",
+ "the STEP file is damaged near #{n}": "STEP 文件在 #{n} 附近损坏",
+ "ERPNext did not answer: try again": "ERPNext 没有回应，请再试",
+ "send the length of the request": "请求要带上长度（Content-Length）"
 }
