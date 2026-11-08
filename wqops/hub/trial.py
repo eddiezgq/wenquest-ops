@@ -4,7 +4,8 @@ People who ask for a trial on the WenQuest website get an account in the shared 
 source 'trial', ending after WQO_TRIAL_DAYS (30). The demo company is put back to its clean snapshot every night
 (deploy/demo-reset.sh); the trial accounts are exported before and imported after, passwords unchanged.
 
-    python -m wqops.hub.trial add --name NAME --email EMAIL [--days 30]   prints {email, password, expires}
+    python -m wqops.hub.trial add --name NAME --email EMAIL [--days 30] [--password-stdin]
+                                                                          prints {email, password, expires}
     python -m wqops.hub.trial export                                      prints the live trial accounts (JSON)
     python -m wqops.hub.trial import < accounts.json                      puts them back after the night's restore
     python -m wqops.hub.trial expire                                      stops the accounts past their date
@@ -26,6 +27,15 @@ from wqops.i18n import say
 ROLE = "quality"
 
 
+def roles() -> list[str]:
+    """The trial's roles: quality, or what WQO_TRIAL_ROLES lists (the sewing machine demo adds engineering, so a
+    visitor can walk a design change; ADR-0026 26f)."""
+    from wqops.company import ROLES  # noqa: PLC0415
+
+    got = [r.strip() for r in os.environ.get("WQO_TRIAL_ROLES", "").split(",") if r.strip() in ROLES]
+    return got or [ROLE]
+
+
 class TrialError(ValueError):
     pass
 
@@ -43,8 +53,10 @@ def now() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
 
-def add(conn, *, name: str, email: str, days: int = 30, at: dt.datetime | None = None) -> dict:
-    """Open (or, while it lasts, give a new first password to) a trial account."""
+def add(conn, *, name: str, email: str, days: int = 30, at: dt.datetime | None = None,
+        password: str | None = None) -> dict:
+    """Open (or, while it lasts, give a new first password to) a trial account. ``password``: the first password
+    given in the other demo company, so one email holds one password for both."""
     t = at or now()
     email, name = (email or "").strip().lower(), (name or "").strip()
     if not name or not A.EMAIL.match(email):
@@ -56,9 +68,11 @@ def add(conn, *, name: str, email: str, days: int = 30, at: dt.datetime | None =
         raise TrialError(say("the trial of {email} has ended", email=email))
     if u is None:
         conn.execute("insert into users (email, name, roles, source, expires_at) values (%s, %s, %s, 'trial', %s)",
-                     (email, name, [ROLE], t + dt.timedelta(days=days)))
+                     (email, name, roles(), t + dt.timedelta(days=days)))
         A.event(conn, email, "user_created", "trial account (ADR-0027)")
-    pw = new_password()
+    if password is not None and A.password_problem(password) is not None:
+        raise TrialError(say("the first password does not pass the rules"))
+    pw = password or new_password()
     A.set_password(conn, email, pw, by="trial", must_change=True)
     u = A.get(conn, email)
     return {"email": email, "password": pw, "expires": u["expires_at"].date().isoformat()}
@@ -84,11 +98,11 @@ def import_(conn, rows: list[dict]) -> int:
         if u is None:
             conn.execute("insert into users (email, name, roles, source, expires_at, password_hash, must_change) "
                          "values (%s, %s, %s, 'trial', %s, %s, %s)",
-                         (email, r["name"], [ROLE], exp, r["password_hash"], bool(r["must_change"])))
+                         (email, r["name"], roles(), exp, r["password_hash"], bool(r["must_change"])))
         else:
             conn.execute("update users set name=%s, roles=%s, active=true, expires_at=%s, password_hash=%s, "
                          "must_change=%s, updated_at=now() where id=%s",
-                         (r["name"], [ROLE], exp, r["password_hash"], bool(r["must_change"]), u["id"]))
+                         (r["name"], roles(), exp, r["password_hash"], bool(r["must_change"]), u["id"]))
         n += 1
     return n
 
@@ -109,6 +123,7 @@ def main(argv=None) -> int:
     a.add_argument("--name", required=True)
     a.add_argument("--email", required=True)
     a.add_argument("--days", type=int, default=int(os.environ.get("WQO_TRIAL_DAYS", "30") or 30))
+    a.add_argument("--password-stdin", action="store_true", help="the first password, read from stdin")
     sub.add_parser("export")
     sub.add_parser("import")
     sub.add_parser("expire")
@@ -117,7 +132,9 @@ def main(argv=None) -> int:
     DB.migrate(conn)
     try:
         if args.cmd == "add":
-            print(json.dumps(add(conn, name=args.name, email=args.email, days=args.days), ensure_ascii=False))
+            pw = sys.stdin.readline().strip() if args.password_stdin else None
+            print(json.dumps(add(conn, name=args.name, email=args.email, days=args.days, password=pw),
+                             ensure_ascii=False))
         elif args.cmd == "export":
             print(json.dumps(export(conn), ensure_ascii=False))
         elif args.cmd == "import":

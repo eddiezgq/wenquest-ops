@@ -286,6 +286,12 @@ WQO_HUB_IMAGE=wenquest-ops-hub:local ./install.sh --company company.yaml --domai
 可用内存少于 1.5 GB 时拒绝。`./tenant.sh list` 列出各家，`stop <编号>` / `start <编号>` 暂停或恢复（记录保留），
 `upgrade-all` 在演示企业之后逐家升级。每家每天 04:15 前后备份一次。
 
+**第二家演示企业**（ADR-0026 26f）：`./tenant.sh demo sewing --company company-sewing.yaml` 在旁边装一套缝纫机厂演示
+（蓝湾缝纫机械（演示），`sewing.<域名>`），导入它的演示数据（`python -m wqops.demo.load`，几分钟），拍干净快照，
+每晚 05:10 用 `demo-reset.sh` 还原；体验账号（ADR-0027）也开在那里，角色是工程设计 + 质量，和海港五金用同一个初始密码。
+国内部署每次都跑一遍这条命令（已装好、已导入的跳过）。要重新导入演示数据：删掉 `../qms-tenants/sewing/.demo-loaded`
+和整套安装后再跑。
+
 ### 美国服务器自动部署（ADR-0025，25b）
 
 `.github/workflows/deploy-us.yml` 在每次镜像构建后自动部署到美国服务器（和国内同一版本）。第一次要项目负责人做一次：

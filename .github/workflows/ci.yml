@@ -483,3 +483,65 @@ jobs:
           done
           docker compose -p qms --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" ps -a || true
           docker compose -p qms --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" logs --tail 60 hub || true
+
+  install-sewing:
+    # ADR-0026 26f: the sewing machine demo company (蓝湾缝纫机械（演示）) installed the way the server in China has it
+    # (--china --edge --small), its demo data loaded into a real ERPNext, and the story's numbers checked: the impact
+    # analysis of a change to the rotary hook (stock, purchase orders, work orders, sales orders, the machines).
+    needs: [test, scope]
+    if: needs.scope.outputs.install == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install directory
+        run: echo "WQO_DIR=$RUNNER_TEMP/wqo" >> "$GITHUB_ENV"
+      - name: Free disk (ERPNext images are large)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - name: Build the hub image (same Dockerfile as the published one; not pushed)
+        run: docker build -q -t wenquest-ops-hub:ci .
+      - name: Install the sewing machine demo company with one command
+        env:
+          WQO_HUB_IMAGE: wenquest-ops-hub:ci
+          WQO_MIN_DISK_GB: "8"
+          WQO_OWNER_PASSWORD: Ci-owner-pass-2026
+        run: |
+          set -o pipefail
+          mkdir -p "$WQO_DIR" && cp -r deploy/. "$WQO_DIR/"
+          docker network create qms-edge
+          printf 'ops.localtest.me, erp.ops.localtest.me {\n\ttls internal\n\treverse_proxy qms-demo-edge:80\n}\n' \
+            > "$RUNNER_TEMP/outer.caddy"
+          docker run -d --name outer-caddy --network qms-edge -p 443:443 \
+            -v "$RUNNER_TEMP/outer.caddy:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine
+          "$WQO_DIR/install.sh" --company companies/demo-sewing.yaml --domain ops.localtest.me --no-pull \
+            --china --edge --small --project qms 2>&1 | tee "$RUNNER_TEMP/install.log"
+      - name: Load the sewing machine demo and check its story in the hub
+        run: |
+          exec > >(tee "$RUNNER_TEMP/demo.log") 2>&1
+          set -x -o pipefail
+          dc() { docker compose -p qms --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" "$@"; }
+          time dc exec -T hub python -m wqops.demo.load | tee sewing.json
+          dc exec -T hub python - < .github/scripts/sewing_check.py
+          # a trial account as in the sewing demo on the server: engineering and quality, one given password
+          printf 'Trial-pass-2026a\n' | dc exec -T -e WQO_TRIAL_ROLES=quality,engineering hub \
+            python -m wqops.hub.trial add --name 试用 --email trial@ci.example --password-stdin | tee trial.json
+          R=(--resolve ops.localtest.me:443:127.0.0.1)
+          curl -fsk "${R[@]}" -c jar -H 'content-type: application/json' \
+               -d '{"email":"trial@ci.example","password":"Trial-pass-2026a"}' https://ops.localtest.me/api/login
+          curl -fsk "${R[@]}" -b jar https://ops.localtest.me/api/plm/intake | grep -q 绕线器
+          docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | sort | tee "$RUNNER_TEMP/mem-demo.txt"
+          echo "::notice title=memory after the sewing demo load::$(sed ':a;N;$!ba;s/\n/%0A/g' "$RUNNER_TEMP/mem-demo.txt")"
+          if docker ps -a --filter status=exited --filter label=com.docker.compose.project=qms \
+               --format '{{.Names}} {{.Status}}' | grep -v configurator | grep '(137)'; then
+            echo "::error::a container was killed for memory"; exit 1
+          fi
+      - name: Show the end of the logs as one annotation on failure
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP/install.log" "$RUNNER_TEMP/demo.log"; do
+            [ -f "$f" ] || continue
+            { grep -E 'Error|Traceback|assert|not loaded' "$f" | tail -n 15; echo ---; tail -n 25 "$f"; } \
+              | cut -c 1-300 | tr -d '\r' > "$f.short"
+            echo "::error title=sewing $(basename "$f")::$(sed ':a;N;$!ba;s/\n/%0A/g' "$f.short")"
+          done
+          docker compose -p qms --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" logs --tail 60 hub || true

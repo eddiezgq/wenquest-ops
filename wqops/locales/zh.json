@@ -3501,5 +3501,6 @@
  "{code} is listed with different parts in different places": "{code} 在不同位置下列的零件不一样",
  "the STEP file is damaged near #{n}": "STEP 文件在 #{n} 附近损坏",
  "ERPNext did not answer: try again": "ERPNext 没有回应，请再试",
- "send the length of the request": "请求要带上长度（Content-Length）"
+ "send the length of the request": "请求要带上长度（Content-Length）",
+ "the first password does not pass the rules": "初始密码不符合规则"
 }

@@ -5,6 +5,9 @@
 #
 #   ./tenant.sh new <id> --name "Company" --contact "Owner name" --email owner@company.com [--lang zh|en]
 #                        [--result FILE]     where the new owner's sign-in goes (JSON, mode 600); else printed
+#   ./tenant.sh demo <id> --company FILE     a second demo company next to the demo (ADR-0026 26f: the sewing machine
+#                                            factory): installs it, loads its demo data, opens trial accounts there
+#                                            and resets it every night like the demo (ADR-0027)
 #   ./tenant.sh list
 #   ./tenant.sh stop <id> | start <id>       stop keeps every record; start brings it back
 #   ./tenant.sh upgrade-all [tag]            the demo's upgrade for every pilot company, one after another
@@ -114,6 +117,66 @@ PY
     else printf '%s\n' "$res"; fi
     log "Pilot company $id is ready: https://$dom"
     ;;
+demo)
+    id=${1:-}; shift || true
+    COMPANY=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --company) COMPANY=$(abspath "$2"); shift 2 ;;
+            *) die "unknown option: $1 (see --help)" ;;
+        esac
+    done
+    valid_id "$id" || die "the id is 3-20 lower-case letters, digits or -, starting with a letter, and not one of:$RESERVED"
+    [ -f "$COMPANY" ] || die "give --company, the demo company's manifest"
+    grep -q '^demo: true' "$COMPANY" || die "$COMPANY is not a demo company (demo: true)"
+    [ -f "$BASE/.env" ] && [ -n "$(envval WQO_INSTALLED "$BASE/.env")" ] || die "run this from the demo installation"
+    d=$(tdir "$id")
+    if [ ! -f "$d/.env" ] || [ -z "$(envval WQO_INSTALLED "$d/.env")" ]; then
+        free_mb=$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo)
+        [ "$free_mb" -ge "${WQO_TENANT_MIN_FREE_MB:-1536}" ] \
+            || die "only ${free_mb} MB of memory free; a demo company needs about 900 MB plus room. Upgrade the server first"
+        log "Preparing $d ..."
+        mkdir -p "$d/company"
+        for f in "$BASE"/*.sh "$BASE"/docker-compose*.yml "$BASE"/Caddyfile*; do cp "$f" "$d/"; done
+        cp "$COMPANY" "$d/company/demo.yaml"
+        if [ ! -f "$d/.env" ]; then
+            touch "$d/.env" && chmod 600 "$d/.env"
+            for k in WQO_DEPLOYMENT WQO_MIRROR WQO_HUB_IMAGE WQO_ERP_IMAGE WQO_CADDY_IMAGE WQO_DB_IMAGE WQO_MARIADB_IMAGE \
+                     WQO_REDIS_IMAGE WQO_DEEPSEEK_API_KEY WQO_ANTHROPIC_API_KEY WQO_AI_PROVIDER WQO_AI_DAILY; do
+                v=$(envval "$k" "$BASE/.env"); [ -z "$v" ] || printf '%s=%s\n' "$k" "$v" >> "$d/.env"
+            done
+            # trial accounts here too (ADR-0027), as engineering and quality so a visitor can walk a design change
+            printf 'WQO_EDGE_NAME=qms-%s-edge\nWQO_TENANT=%s\nWQO_DEMO_TRIAL=1\nWQO_TRIAL_ROLES=quality,engineering\n' \
+                "$id" "$id" >> "$d/.env"
+        fi
+        cn=$(envval WQO_DEPLOYMENT "$BASE/.env")
+        dom="$id.$(envval WQO_DOMAIN "$BASE/.env")" erp="$id.$(envval WQO_ERP_DOMAIN "$BASE/.env")"
+        img=${WQO_HUB_IMAGE:-$(envval WQO_HUB_IMAGE "$BASE/.env")}; tag=${img##*:}
+        small=(); [[ ":$(envval WQO_COMPOSE_FILES "$BASE/.env"):" != *:docker-compose.small.yml:* ]] || small=(--small)
+        china=(); [ "$cn" != cn ] || china=(--china)
+        log "Installing the demo company $id as $dom (10-15 minutes) ..."
+        exec 9>/tmp/wenquest-deploy.lock
+        flock -w 1500 9 || die "another deployment holds the lock; try again later"
+        # nobody signs in as the demo's owner: visitors come in with trial accounts
+        (cd "$d" && WQO_DIR="$d" WQO_HUB_IMAGE="$img" WQO_OWNER_PASSWORD="$(rand 16)-$(rand 4)-7" \
+            WQO_MIN_DISK_GB="${WQO_MIN_DISK_GB:-15}" ./install.sh --company company/demo.yaml --domain "$dom" \
+            --erp-domain "$erp" --edge "${small[@]}" "${china[@]}" --project "qms-$id" --image "${tag:-latest}" --no-pull) \
+            || die "the installation of $id stopped (see above); run the same command again"
+        flock -u 9
+    fi
+    if [ ! -f "$d/.demo-loaded" ]; then
+        log "Loading the demo data of $id (several minutes) ..."
+        (cd "$d" && WQO_DIR="$d" bash -c '. ./lib.sh; dc exec -T hub python -m wqops.demo.load') > "$d/demo.log" 2>&1 \
+            || { tail -n 30 "$d/demo.log"; die "the demo data of $id was not loaded (see $d/demo.log)"; }
+        touch "$d/.demo-loaded"
+        (cd "$d" && WQO_DIR="$d" ./demo-reset.sh snapshot) || log "WARNING: no clean snapshot of $id yet; the first night takes it"
+    fi
+    if command -v crontab >/dev/null; then        # every night after the demo's reset (04:40)
+        line="10 5 * * * cd $d && grep -q ^WQO_DEMO_TRIAL=1 .env && ./demo-reset.sh >> $d/backups/demo-reset.log 2>&1"
+        { crontab -l 2>/dev/null | grep -v "$d && grep -q ^WQO_DEMO_TRIAL" || true; echo "$line"; } | crontab -
+    fi
+    log "Demo company $id is ready: https://$(envval WQO_DOMAIN "$d/.env")"
+    ;;
 list)
     [ -d "$TENANTS" ] || { log "no pilot companies yet"; exit 0; }
     for d in "$TENANTS"/*/; do
@@ -142,6 +205,6 @@ upgrade-all)
         else log "$id is stopped; its files are updated, it upgrades when started"; fi
     done
     ;;
--h|--help|"") sed -n '2,13p' "$0" ;;
+-h|--help|"") sed -n '2,16p' "$0" ;;
 *) die "unknown command: $cmd (see --help)" ;;
 esac

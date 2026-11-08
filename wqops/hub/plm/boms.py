@@ -185,18 +185,21 @@ def set_lines(conn, user: dict, bid: int, rows, *, note: str | None = None,  # n
     return view(conn, bid, erp)
 
 
-def erp_tag(b: dict) -> str:
-    """Written into the ERPNext BOM's remarks: finds a BOM made before an answer got lost (no second one)."""
-    return f"WenQuest Ops PLM BOM {b['id']} rev {b['revision']}"
+def _same_lines(doc: dict, ls: list[dict]) -> bool:
+    have = sorted((r.get("item_code"), Decimal(str(r.get("qty") or 0)).normalize()) for r in doc.get("items") or [])
+    want = sorted((x["code"], Decimal(x["qty"]).normalize()) for x in ls)
+    return have == want
 
 
 def _erp_bom(erp: ErpClient, b: dict, part: dict, ls: list[dict]) -> str:
-    made = erp.list("BOM", filters=[["item", "=", part["item_code"]], ["remarks", "=", erp_tag(b)]],
-                    fields=["name", "docstatus"], limit=1)
-    if made:
-        return made[0]["name"]
+    """The ERPNext BOM with exactly these lines for the item: one made before an answer got lost is found again
+    (no second one); else a new Draft."""
+    for x in erp.list("BOM", filters=[["item", "=", part["item_code"]], ["docstatus", "<", 2]],
+                      fields=["name", "docstatus"], order_by="modified desc", limit=20):
+        doc = erp.get("BOM", x["name"])
+        if doc is not None and _same_lines(doc, ls):
+            return x["name"]
     doc = erp.insert({"doctype": "BOM", "item": part["item_code"], "quantity": 1, "is_active": 1, "is_default": 1,
-                      "remarks": erp_tag(b),
                       "items": [{"item_code": x["code"], "qty": float(Decimal(x["qty"])), "uom": x["uom"]} for x in ls],
                       "docstatus": 0})
     if int(doc.get("docstatus") or 0) != 0:

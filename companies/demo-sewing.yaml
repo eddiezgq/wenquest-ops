@@ -1,0 +1,46 @@
+# 虚构演示企业（FICTIONAL demo company, ADR-0026 26f）。企业名、地址、人员、产品都是编的，如有雷同纯属巧合。
+# 缝纫机厂：平缝机 WQ-8800D、包缝机 WQ-737 两条产品线，演示 PLM（零件、BOM、型号配置、设计变更）和质量闭环。
+# 数据由 wqops/demo/sewing.py 生成（demo_story: sewing）；国内版，中文界面、人民币、北京时间、公制。
+version: 1
+demo: true
+demo_story: sewing
+company:
+  name: 蓝湾缝纫机械（演示）
+  abbr: LWFR
+  country: China
+  currency: CNY
+  timezone: Asia/Shanghai
+  fiscal_year_start: "01-01"
+  date_format: yyyy-mm-dd
+  language: zh
+  units:
+    weight: kg
+    length: cm
+sites:
+  - id: plant
+    name: 台州工厂
+    kind: plant
+    address: {line1: 演示路 8 号, city: 台州, state: 浙江, postal_code: "000000", country: China}
+warehouses:
+  - {id: receiving, name: 收货区, site: plant, kind: receiving}
+  - {id: main, name: 零件仓, site: plant, kind: stores}
+  - {id: quarantine, name: 质检隔离仓, site: plant, kind: quarantine}
+  - {id: shipping, name: 成品发货区, site: plant, kind: shipping}
+departments:
+  - {id: leadership, name: 管理层}
+  - {id: engineering, name: 技术部}
+  - {id: production, name: 生产部}
+  - {id: purchasing, name: 采购部}
+  - {id: sales, name: 销售部}
+  - {id: quality, name: 质量部}
+people:
+  - {name: 林海, email: linhai@demo.example, roles: [owner], department: leadership}
+  - {name: 吴建, email: wujian@demo.example, roles: [ops_manager], department: production}
+  - {name: 郑涛, email: zhengtao@demo.example, roles: [warehouse], department: production}
+  - {name: 何芳, email: hefang@demo.example, roles: [purchasing], department: purchasing}
+  - {name: 黄伟, email: huangwei@demo.example, roles: [sales], department: sales}
+  - {name: 许静, email: xujing@demo.example, roles: [quality], department: quality}
+  - {name: 蔡明, email: caiming@demo.example, roles: [engineering], department: engineering}
+  - {name: 叶青, email: yeqing@demo.example, roles: [engineering], department: engineering}
+  - {name: 方舟, email: fangzhou@demo.example, roles: [ai_specialist], department: production}
+modules: [core, hub, ai, quality, plm]

@@ -297,17 +297,13 @@ def test_write_is_all_or_nothing_and_items_follow(world, fake, erp, monkeypatch)
 
 
 def test_lockstitch_machine_bom(world, fake, erp, tmp_path):  # noqa: F811
-    """The demo old BOM of a lockstitch machine (fictional, demo/plm): several hundred parts in five levels,
+    """The demo old BOM of a lockstitch machine (fictional, wqops/demo/machines): several hundred parts in five levels,
     standard parts shared by many assemblies. Categories are guessed from the names; one signature writes it all
     as drafts, each assembly a draft BOM."""
-    import importlib.util
     import time
-    from pathlib import Path
 
-    src = Path(__file__).resolve().parents[1] / "demo" / "plm" / "lockstitch_bom.py"
-    spec = importlib.util.spec_from_file_location("lockstitch_bom", src)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    from wqops.demo.machines import lockstitch as mod
+
     out = tmp_path / "bom.xlsx"
     info = mod.write(out)
     assert info["parts"] >= 300
