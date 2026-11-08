@@ -144,6 +144,9 @@ def _h(code: str, n: int) -> int:
     return int(hashlib.sha256(code.encode()).hexdigest()[:8], 16) % n
 
 
+MACHINES = {"WQ88-0000": ("WQ-8800D", "电脑直驱单针平缝机，自动剪线、自动抬压脚、自动倒缝（演示）"),
+            "WQ73-0000": ("WQ-737", "电脑直驱四线包缝机，差动送布（演示）")}
+
 BEARINGS = {"6202ZZ": (15, 35, 11), "6201ZZ": (12, 32, 10), "6200ZZ": (10, 30, 9), "6000ZZ": (10, 26, 8),
             "6001ZZ": (12, 28, 8), "608ZZ": (8, 22, 7), "HK0810": (8, 12, 10), "HK1012": (10, 14, 12),
             "HK1210": (12, 16, 10), "HK0608": (6, 10, 8), "NA4900": (10, 22, 13)}
@@ -189,6 +192,8 @@ def params(category: str, code: str, name: str) -> dict:  # noqa: PLR0911, PLR09
         return {"spec": " ".join(name.split()[1:]) or name, "maker_part": f"DEMO-{code}"}
     if category == "frame":
         return {"mass": 3 + h % 30, "material": "HT250"}
+    if category == "assembly" and code in MACHINES:
+        return {"model": MACHINES[code][0], "description_short": MACHINES[code][1]}
     if category == "other":
         return {"spec": " ".join(name.split()[1:]) or "", "material": "按图纸（演示）"}
     return {}
