@@ -147,7 +147,7 @@ def upload(conn, user: dict, kind: str, name: str, raw: bytes, data: dict | None
 
 
 def suggest(conn, data: dict) -> dict:
-    """A code that is a part already is matched; others are new, made or bought by whether they have children."""
+    """A code that is a part already is matched; others are new, with a category guessed from the file or the name."""
     parents = {ln["parent"] for ln in data["links"]}
     plan = {}
     for n in data["nodes"]:
@@ -155,9 +155,9 @@ def suggest(conn, data: dict) -> dict:
         if p:
             plan[n["key"]] = {"action": "match", "part_id": p["id"]}
         else:
-            cat = n.get("category") if n.get("category") in CAT.CATEGORIES else \
-                ("assembly" if n["key"] in parents else "other")
-            src = n.get("source") if n.get("source") in PT.SOURCES else "make"
+            cat = CAT.guess(n.get("category"), n["name"], n["key"] in parents)
+            src = n.get("source") if n.get("source") in PT.SOURCES else \
+                ("buy" if cat in CAT.BOUGHT else "make")
             plan[n["key"]] = {"action": "new", "category": cat, "source": src, "uom": n.get("uom") or "Nos"}
     return plan
 
@@ -186,18 +186,43 @@ def _like(conn, name: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _tree_order(data: dict) -> list[tuple[dict, int]]:
+    """Nodes top down, each with its depth (0 at the top), so a long batch reads like the assembly."""
+    kids, under = defaultdict(list), set()
+    for ln in data["links"]:
+        if ln["child"] not in kids[ln["parent"]]:
+            kids[ln["parent"]].append(ln["child"])
+        under.add(ln["child"])
+    by, out, seen = {n["key"]: n for n in data["nodes"]}, [], set()
+    stack = [(n["key"], 0) for n in reversed(data["nodes"]) if n["key"] not in under]
+    while stack:
+        k, d = stack.pop()
+        if k in seen:                       # a part used in several assemblies is listed where it first comes
+            continue
+        seen.add(k)
+        out.append((by[k], d))
+        stack.extend((c, d + 1) for c in reversed(kids[k]))
+    return out + [(n, 0) for n in data["nodes"] if n["key"] not in seen]
+
+
 def view(conn, iid: int, erp: ErpClient | None = None) -> dict:
     r = _get(conn, iid)
     plan = r["plan"]
     children = defaultdict(list)
     for ln in r["data"]["links"]:
         children[ln["parent"]].append(ln)
+    made = {}
+    if r["status"] == "written" and (r["result"] or {}).get("ids"):
+        made = {x["id"]: dict(x) for x in conn.execute("select id, item_code, name, status, source from plm_parts "
+                                                        "where id = any(%s)", (list(r["result"]["ids"].values()),))}
     rows = []
-    for n in r["data"]["nodes"]:
+    for n, depth in _tree_order(r["data"]):
         x = {**n, "plan": plan.get(n["key"]), "children": len(children.get(n["key"], [])),
-             "file": r["files"].get(n["key"])}
+             "file": r["files"].get(n["key"]), "depth": depth}
         p = plan.get(n["key"]) or {}
-        if p.get("action") == "match":
+        if made:
+            x["part"] = made.get(r["result"]["ids"].get(n["key"]))
+        elif p.get("action") == "match":
             part = conn.execute("select id, item_code, name, status, source from plm_parts where id = %s",
                                 (p["part_id"],)).fetchone()
             x["part"] = dict(part) if part else None

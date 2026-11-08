@@ -7,6 +7,8 @@ Plain data: no AI, no network.
 
 from __future__ import annotations
 
+import re
+
 from wqops import i18n as I18N
 
 
@@ -85,3 +87,46 @@ def shown() -> list[dict]:
                     "fields": [{**x, "label": I18N.label(x["label"]), "unit": I18N.label(x["unit"]) or ""}
                                for x in c["fields"]]})
     return out
+
+
+# What an old BOM or a model calls a part, in Chinese or English, and the category it most likely is. A Chinese name
+# ends with what the thing is ("上轴前轴套" is a bushing, "旋梭定位板" a plate, not a hook), so a Chinese word counts
+# only at the end of the name's Chinese characters; English words count anywhere. Specific words come first.
+WORDS = (
+    ("旋梭", "hook"), ("送布牙", "feeddog"), ("轴套", "bushing"), ("轴承", "bearing"), ("带轮", "pulley"),
+    ("同步带", "belt"), ("凸轮", "cam"), ("偏心轮", "cam"), ("曲柄", "link"), ("连杆", "link"), ("针杆", "needlebar"),
+    ("机针", "needle"), ("电机", "motor"), ("电磁铁", "electronic"), ("传感器", "electronic"),
+    ("控制器", "electronic"), ("控制箱", "electronic"), ("操作面板", "electronic"), ("线束", "electronic"),
+    ("电源线", "electronic"), ("接地线", "electronic"), ("开关", "electronic"), ("照明灯", "electronic"),
+    ("螺钉", "fastener"), ("螺母", "fastener"), ("螺栓", "fastener"), ("垫圈", "fastener"), ("挡圈", "fastener"),
+    ("销", "fastener"), ("机壳", "frame"), ("台板", "frame"), ("机架", "frame"), ("底板", "frame"), ("轴", "shaft"),
+)
+WORDS_EN = (
+    ("rotary hook", "hook"), ("feed dog", "feeddog"), ("bushing", "bushing"), ("bearing", "bearing"),
+    ("pulley", "pulley"), ("belt", "belt"), ("cam", "cam"), ("crank", "link"), ("link", "link"),
+    ("needle bar", "needlebar"), ("needle", "needle"), ("motor", "motor"), ("solenoid", "electronic"),
+    ("sensor", "electronic"), ("screw", "fastener"), ("nut", "fastener"), ("washer", "fastener"), ("pin", "fastener"),
+    ("frame", "frame"), ("shaft", "shaft"),
+)
+# Usually bought, when the file does not say: standard parts and bought-in units
+BOUGHT = frozenset({"fastener", "bearing", "motor", "electronic", "needle", "hook", "belt"})
+
+
+def guess(given: str | None, name: str, has_parts: bool) -> str:
+    """The category a row most likely is: what the file says (key, or the label in English or Chinese, or one
+    side of it, "机壳"), else an assembly when parts are under it, else from its name, else "other".
+    Only a suggestion: the engineer sees it and changes it before writing."""
+    g = (given or "").strip().casefold()
+    if g:
+        zh = I18N.table("zh")
+        for k, c in CATEGORIES.items():
+            names = {k, c["label"].casefold(), *(x.strip().casefold() for x in zh.get(c["label"], "").split("/"))}
+            if g in names or g == zh.get(c["label"], "").casefold():
+                return k
+    if has_parts:
+        return "assembly"
+    head = "".join(re.findall(r"[\u4e00-\u9fff]+", name))
+    if head:
+        return next((k for w, k in WORDS if head.endswith(w)), "other")
+    n = name.casefold()
+    return next((k for w, k in WORDS_EN if re.search(rf"\b{w}", n)), "other")

@@ -60,6 +60,39 @@ function setAction(r, action) {     // switching a row keeps only what that choi
     ? { action, category: guess.category || 'other', source: guess.source || 'make', uom: guess.uom || 'Nos', link_existing: false }
     : { action, part_id: r.part?.id }
 }
+// a long batch (a whole machine has hundreds of rows): a count at the top, a filter, and setting many rows at once
+const q = ref('')
+const only = ref('')
+const picked = ref({})
+const bulk = ref({ category: '', source: '' })
+const counts = computed(() => {
+  const rows = v.value?.rows || []
+  const p = (r) => plan.value[r.key] || {}
+  return { all: rows.length, match: rows.filter((r) => p(r).action === 'match').length,
+    fresh: rows.filter((r) => p(r).action === 'new').length, asm: rows.filter((r) => r.children).length,
+    buy: rows.filter((r) => p(r).action === 'new' && p(r).source === 'buy').length }
+})
+const shown = computed(() => (v.value?.rows || []).filter((r) => {
+  const p = plan.value[r.key] || {}
+  const s = q.value.trim().toLowerCase()
+  if (s && !`${r.name} ${r.code}`.toLowerCase().includes(s)) return false
+  if (only.value === 'new') return p.action === 'new'
+  if (only.value === 'match') return p.action === 'match'
+  if (only.value.startsWith('cat:')) return p.action === 'new' && p.category === only.value.slice(4)
+  return true
+}))
+const nPicked = computed(() => shown.value.filter((r) => picked.value[r.key]).length)
+function pickAll(on) { for (const r of shown.value) picked.value[r.key] = on }
+function applyBulk() {
+  for (const r of shown.value) {
+    if (!picked.value[r.key]) continue
+    const p = plan.value[r.key]
+    if (p.action !== 'new') setAction(r, 'new')
+    if (bulk.value.category) plan.value[r.key].category = bulk.value.category
+    if (bulk.value.source) plan.value[r.key].source = bulk.value.source
+  }
+  picked.value = {}
+}
 const catL = (k) => v.value?.categories.find((c) => c.key === k)?.label || k
 </script>
 
@@ -73,22 +106,36 @@ const catL = (k) => v.value?.categories.find((c) => c.key === k)?.label || k
   <template v-if="v">
     <p class="mb-3 text-sm text-ink-gray-6">{{ t('From {who}', { who: v.sent_by }) }} · {{ v.source }} <a v-if="v.file_name" :href="`/api/plm/intake/${v.id}/file`" class="wq-link">{{ v.file_name }}</a></p>
     <section data-help="plm-intake-rows" class="wq-panel mb-5 p-5">
-      <table class="wq-table text-sm"><thead><tr><th>{{ t('Name') }}</th><th>{{ t('plm::Code') }}</th><th>{{ t('Under it') }}</th><th>{{ t('It is') }}</th><th /></tr></thead>
-        <tbody><tr v-for="r in v.rows" :key="r.key">
-          <td>{{ r.name }}<span v-if="r.file" class="ms-1 text-ink-gray-5">· {{ r.file.name }}</span><span v-if="r.material" class="ms-1 text-ink-gray-5">· {{ r.material }}</span></td>
-          <td>{{ r.code || '–' }}</td><td>{{ r.children || '' }}</td>
+      <p class="mb-3 text-base">{{ t('{all} rows: {match} match parts already, {fresh} are new ({buy} of them bought); {asm} have parts under them.', counts) }}</p>
+      <div class="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <input v-model="q" class="wq-input w-56" :placeholder="t('Search name or code')">
+        <select v-model="only" class="wq-select w-48"><option value="">{{ t('All rows') }}</option><option value="new">{{ t('New parts') }}</option><option value="match">{{ t('An existing part') }}</option>
+          <option v-for="c in v.categories" :key="c.key" :value="`cat:${c.key}`">{{ t('New') }} · {{ c.label }}</option></select>
+        <span class="text-ink-gray-5">{{ t('{n} shown', { n: shown.length }) }}</span>
+        <template v-if="pending && v.can_edit">
+          <span class="ms-4">{{ t('Set the ticked rows ({n}) to', { n: nPicked }) }}</span>
+          <select v-model="bulk.category" class="wq-select w-40"><option value="">{{ t('category…') }}</option><option v-for="c in v.categories" :key="c.key" :value="c.key">{{ c.label }}</option></select>
+          <select v-model="bulk.source" class="wq-select w-28"><option value="">{{ t('made / bought…') }}</option><option value="make">{{ t('plm::Made') }}</option><option value="buy">{{ t('Bought') }}</option></select>
+          <Button :label="t('Apply')" :disabled="!nPicked || (!bulk.category && !bulk.source)" @click="applyBulk" />
+        </template>
+      </div>
+      <table class="wq-table text-sm"><thead><tr><th v-if="pending && v.can_edit" class="w-8"><input type="checkbox" :title="t('Tick all shown')" @change="pickAll($event.target.checked)"></th><th>{{ t('Name') }}</th><th>{{ t('plm::Code') }}</th><th>{{ t('Under it') }}</th><th>{{ t('It is') }}</th><th /></tr></thead>
+        <tbody><tr v-for="r in shown" :key="r.key">
+          <td v-if="pending && v.can_edit"><input v-model="picked[r.key]" type="checkbox"></td>
+          <td :style="{ paddingInlineStart: `${0.75 + Math.min(r.depth || 0, 6) * 1.1}rem` }"><span :class="r.children ? 'font-semibold' : ''">{{ r.name }}</span><span v-if="r.file" class="ms-1 text-ink-gray-5">· {{ r.file.name }}</span><span v-if="r.material" class="ms-1 text-ink-gray-5">· {{ r.material }}</span></td>
+          <td class="whitespace-nowrap">{{ r.code || '–' }}</td><td>{{ r.children || '' }}</td>
           <td>
             <template v-if="pending && v.can_edit">
-              <select :value="plan[r.key].action" class="wq-select w-36" @change="setAction(r, $event.target.value)"><option value="match">{{ t('An existing part') }}</option><option value="new">{{ t('A new part') }}</option></select>
+              <select :value="plan[r.key].action" class="wq-select w-28" @change="setAction(r, $event.target.value)"><option value="match">{{ t('An existing part') }}</option><option value="new">{{ t('A new part') }}</option></select>
               <template v-if="plan[r.key].action === 'match'">
                 <input v-model="codes[r.key]" class="wq-input ms-1 w-36" :placeholder="t('Part code')" @change="matchCode(r.key)">
                 <span v-if="r.like?.length" class="ms-1 text-ink-gray-5">{{ t('maybe') }}: <button v-for="l in r.like" :key="l.id" class="wq-link me-1" @click="codes[r.key] = l.item_code; plan[r.key] = { action: 'match', part_id: l.id }">{{ l.item_code }}</button></span>
               </template>
               <template v-else>
-                <select v-model="plan[r.key].category" class="wq-select ms-1 w-40"><option v-for="c in v.categories" :key="c.key" :value="c.key">{{ c.label }}</option></select>
-                <select v-model="plan[r.key].source" class="wq-select ms-1 w-24"><option value="make">{{ t('plm::Made') }}</option><option value="buy">{{ t('Bought') }}</option></select>
-                <input v-model="plan[r.key].uom" class="wq-input ms-1 w-20">
-                <label v-if="r.code" class="ms-2 text-ink-gray-6"><input v-model="plan[r.key].link_existing" type="checkbox"> {{ t('ERPNext has this item: link it') }}</label>
+                <select v-model="plan[r.key].category" class="wq-select ms-1 w-36"><option v-for="c in v.categories" :key="c.key" :value="c.key">{{ c.label }}</option></select>
+                <select v-model="plan[r.key].source" class="wq-select ms-1 w-20"><option value="make">{{ t('plm::Made') }}</option><option value="buy">{{ t('Bought') }}</option></select>
+                <input v-model="plan[r.key].uom" class="wq-input ms-1 w-16">
+                <label v-if="r.code" class="ms-2 whitespace-nowrap text-ink-gray-6" :title="t('ERPNext has this item: link it')"><input v-model="plan[r.key].link_existing" type="checkbox"> {{ t('Link ERPNext item') }}</label>
               </template>
             </template>
             <template v-else>
@@ -113,7 +160,7 @@ const catL = (k) => v.value?.categories.find((c) => c.key === k)?.label || k
       </div>
     </section>
     <section v-if="v.result" class="wq-panel mb-5 p-5 text-sm">
-      <p>{{ t('Parts made: {list}', { list: v.result.parts_made.join(', ') || '–' }) }}</p>
+      <p>{{ t('{n} parts made', { n: v.result.parts_made.length }) }}<span v-if="v.result.parts_made.length" class="text-ink-gray-5">: {{ v.result.parts_made.slice(0, 12).join(', ') }}{{ v.result.parts_made.length > 12 ? ' …' : '' }}</span> · <RouterLink to="/plm/parts" class="wq-link">{{ t('Parts') }}</RouterLink></p>
       <p>{{ t('Draft BOMs:') }} <RouterLink v-for="b in v.result.boms" :key="b" :to="`/plm/boms/${b}`" class="wq-link me-2">#{{ b }}</RouterLink></p>
       <p v-for="n in v.result.notes" :key="n" class="text-ink-amber-7">{{ n }}</p>
     </section>

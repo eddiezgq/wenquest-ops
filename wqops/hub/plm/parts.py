@@ -203,6 +203,10 @@ def _erp_item(erp: ErpClient, part: dict, description: str) -> str:
                          fields=["name"], limit=1)
         erp.insert({"doctype": "Item Group", "item_group_name": ERP_GROUP,
                     "parent_item_group": roots[0]["name"] if roots else "All Item Groups", "is_group": 0})
+    known = erp.__dict__.setdefault("_plm_uoms", set())     # units this client has seen in ERPNext
+    if part["uom"] not in known and erp.get("UOM", part["uom"]) is None:   # an old BOM's 个, 支, 根...
+        erp.insert({"doctype": "UOM", "uom_name": part["uom"], "must_be_whole_number": 1})
+    known.add(part["uom"])
     erp.insert({"doctype": "Item", "item_code": part["item_code"], "item_name": part["name"][:140],
                 "item_group": ERP_GROUP, "stock_uom": part["uom"], "is_stock_item": 1,
                 "description": description or part["name"]})

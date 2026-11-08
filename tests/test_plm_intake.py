@@ -170,6 +170,20 @@ def test_freecad_push_with_a_machine_token(world, db_url, fake):  # noqa: F811
     del tok, other
 
 
+def test_guess_category_and_source(world):  # noqa: F811
+    from wqops.hub.plm import catalog as CAT
+
+    names = ("上轴前轴套", "旋梭定位板", "挑线曲柄销", "下轴同步带轮", "螺钉 SM9/64(40)×4", "E 型挡圈 8", "Main shaft",
+             "Spinner")
+    assert [CAT.guess(None, n, False) for n in names] == [
+        "bushing", "other", "fastener", "pulley", "fastener", "fastener", "shaft", "other"]
+    assert CAT.guess("机壳", "x", False) == "frame" and CAT.guess("Bearing", "x", True) == "bearing"
+    assert CAT.guess(None, "x", True) == "assembly"
+    plan = IN.suggest(world, {"nodes": [{"key": "a", "code": "", "name": "轴承 6202ZZ"},
+                                        {"key": "b", "code": "", "name": "针杆曲柄"}], "links": []})
+    assert (plan["a"]["source"], plan["b"]["source"]) == ("buy", "make")
+
+
 def test_freecad_add_on_tree():
     """The add-on's tree (plain Python, no FreeCAD): links count as uses of what they point at; several top objects
     get one assembly named after the document."""
@@ -280,3 +294,39 @@ def test_write_is_all_or_nothing_and_items_follow(world, fake, erp, monkeypatch)
     monkeypatch.setattr(PT, "_erp_item", down)
     v = IN.write(c, u(c, CASEY), v["id"], PW, erp)
     assert v["status"] == "written" and PT.by_code(c, "P-3")["erp_state"] == "failed"
+
+
+def test_lockstitch_machine_bom(world, fake, erp, tmp_path):  # noqa: F811
+    """The demo old BOM of a lockstitch machine (fictional, demo/plm): several hundred parts in five levels,
+    standard parts shared by many assemblies. Categories are guessed from the names; one signature writes it all
+    as drafts, each assembly a draft BOM."""
+    import importlib.util
+    import time
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "demo" / "plm" / "lockstitch_bom.py"
+    spec = importlib.util.spec_from_file_location("lockstitch_bom", src)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = tmp_path / "bom.xlsx"
+    info = mod.write(out)
+    assert info["parts"] >= 300
+    c = world
+    v = IN.upload(c, u(c, CASEY), "excel", "平缝机BOM-演示.xlsx", out.read_bytes())
+    assert len(v["rows"]) == info["parts"] and v["problems"] == []
+    plan = {r["key"]: r["plan"] for r in v["rows"]}
+    assert plan["WQ88-1711"] == {"action": "new", "category": "hook", "source": "buy", "uom": "个"}
+    assert plan["ZC-6202ZZ"]["category"] == "bearing" and plan["WQ88-1404"]["category"] == "needlebar"
+    assert plan["WQ88-1100"]["category"] == "assembly" and plan["LS-M5-12"]["category"] == "fastener"
+    assert plan["WQ88-1714"]["category"] == "other"          # 旋梭定位板: a plate for the hook, not a hook
+    assert {r["plan"]["category"] for r in v["rows"] if r["code"].startswith("JD-")} == {"fastener"}
+    t = time.monotonic()
+    v = IN.write(c, u(c, CASEY), v["id"], PW, erp)
+    assert v["status"] == "written" and len(v["result"]["parts_made"]) == info["parts"]
+    assert len(v["result"]["boms"]) == info["assemblies"]
+    assert time.monotonic() - t < 120
+    feed = B.lines(c, next(b for b in v["result"]["boms"]
+                            if B.view(c, b, erp)["bom"]["part_id"] == PT.by_code(c, "WQ88-1800")["id"]))
+    assert ("JD-SM8", "6") in {(x["code"], x["qty"]) for x in feed}
+    assert len(fake.docs["Item"]) >= info["parts"]
+    assert {"个", "支", "根"} <= {x["uom_name"] for x in fake.docs["UOM"].values()}
