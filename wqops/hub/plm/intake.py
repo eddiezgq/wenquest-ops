@@ -24,6 +24,7 @@ from wqops.i18n import say
 
 PlmError = PT.PlmError
 MAX_PENDING = 200
+ERP_CHUNK = 80          # codes asked of ERPNext per request
 
 
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")
@@ -327,9 +328,12 @@ def problems(conn, r: dict, erp: ErpClient | None = None, *, ask_erp: bool = Tru
     wanted = sorted({n["code"] for n in nodes if n["code"] and (plan.get(n["key"]) or {}).get("action") == "new"
                      and not (plan.get(n["key"]) or {}).get("link_existing")})
     if wanted and ask_erp and erp is not None:   # a page shown without ERPNext: it is asked on writing
-        try:
-            have = {x["name"] for x in erp.list("Item", filters=[["name", "in", wanted]], fields=["name"],
-                                                 limit=len(wanted))}
+        try:      # in pieces: a whole machine's codes in one request is too long a URL for ERPNext
+            have = set()
+            for i in range(0, len(wanted), ERP_CHUNK):
+                part = wanted[i:i + ERP_CHUNK]
+                have |= {x["name"] for x in erp.list("Item", filters=[["name", "in", part]], fields=["name"],
+                                                      limit=len(part))}
         except Exception:
             have = None
         if have is None:

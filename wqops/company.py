@@ -53,6 +53,11 @@ def _text(v) -> bool:
     return isinstance(v, str) and bool(v.strip())
 
 
+# what the demo loader writes for a demo company: the distribution business (ADR-0012) or the sewing machine
+# factory (ADR-0026, 26f)
+DEMO_STORIES = ("distribution", "sewing")
+
+
 def validate(m) -> list[str]:  # noqa: PLR0912, PLR0915 - one flat checklist reads best
     """Check every field; return the errors (empty list = valid)."""
     errs: list[str] = []
@@ -66,6 +71,7 @@ def validate(m) -> list[str]:  # noqa: PLR0912, PLR0915 - one flat checklist rea
         return ["manifest: not a mapping"]
     need(m.get("version") == SCHEMA_VERSION, "version", f"must be {SCHEMA_VERSION}")
     need(isinstance(m.get("demo", False), bool), "demo", "true or false")
+    need(m.get("demo_story", "distribution") in DEMO_STORIES, "demo_story", " / ".join(DEMO_STORIES))
 
     c = m.get("company")
     if need(isinstance(c, dict), "company", "required"):

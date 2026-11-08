@@ -272,6 +272,8 @@ def main(argv=None) -> int:
     I18N.set_company_language(manifest["company"].get("language"))   # the demo records in the company's language
     S.activate(manifest)
     today = a.today or OA.today(manifest)
+    if manifest.get("demo_story") == "sewing":          # the sewing machine factory (ADR-0026, 26f)
+        return _sewing(manifest, today)
     with DB.connect(os.environ["WQO_DB"]) as conn:
         DB.migrate(conn)
         try:
@@ -300,6 +302,30 @@ def main(argv=None) -> int:
         out["quality_samples"] = DQ.load(conn, manifest, today)
         OP.project(conn, manifest=manifest)
     print(json.dumps(out, indent=2))
+    return 0
+
+
+def _sewing(manifest: dict, today: dt.date) -> int:
+    from wqops.demo import sewing as SW  # noqa: PLC0415
+    from wqops.erp_setup import client_from_env  # noqa: PLC0415
+    from wqops.hub import accounts as Acc  # noqa: PLC0415
+    from wqops.hub import db as DB  # noqa: PLC0415
+    from wqops.hub import sync as Y  # noqa: PLC0415
+    from wqops.hub.ont import anomaly as AN  # noqa: PLC0415
+    from wqops.hub.ont import project as OP  # noqa: PLC0415
+
+    with DB.connect(os.environ["WQO_DB"]) as conn:
+        DB.migrate(conn)
+        Acc.sync(conn, manifest)
+        try:
+            out = SW.load(conn, client_from_env(), manifest, today)
+        except (SW.SewingError, DemoError) as exc:
+            print(f"demo data not loaded: {exc}", file=sys.stderr)
+            return 1
+        Y.run(conn, client_from_env(), trigger="demo")
+        OP.project(conn, manifest=manifest)
+        AN.detect(conn, today)
+    print(json.dumps(out, indent=2, ensure_ascii=False, default=str))
     return 0
 
 

@@ -8,12 +8,14 @@
 #   cmd-<id>.json    the gateway: {cmd: stop|start}
 #   trial-<id>.json  the gateway: a trial account in the demo company {id, name, email} (ADR-0027; only when the demo's
 #                    .env has WQO_DEMO_TRIAL=1) -> res-trial-<id>.json {id, email, password, expires, url} or
-#                    {id, error}
+#                    {id, error}; with sewing_url too when the sewing machine demo (ADR-0026 26f) is installed: the
+#                    same account and first password there
 #   host.json        this script, every run: free memory, so the platform can refuse when the server is full
 #   ./pilot-runner.sh
 . "$(dirname "$0")/lib.sh"
 
 Q=${WQO_PILOT_QUEUE:-/opt/wenquest/pilot-queue}
+SEWING=${WQO_TENANTS_DIR:-$(dirname "$WD")/qms-tenants}/sewing      # the sewing machine demo company, when installed
 [ -d "$Q" ] || exit 0
 exec 8>/tmp/wqo-pilot-runner.lock
 flock -n 8 || exit 0                         # the previous run is still installing
@@ -54,9 +56,18 @@ for t in "$Q"/trial-*.json; do              # ADR-0027: an account in the shared
     if [ "$(envval WQO_DEMO_TRIAL)" != 1 ]; then
         put "res-trial-$id.json" "{\"id\": \"$id\", \"error\": \"trial accounts are not open on this server\"}"
     elif out=$(dc exec -T hub python -m wqops.hub.trial add --name "$(field "$t" name)" --email "$(field "$t" email)" 2>&1); then
-        url="https://$(envval WQO_DOMAIN)"
-        put "res-trial-$id.json" "$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d.update(id=sys.argv[2], url=sys.argv[3]); print(json.dumps(d, ensure_ascii=False))' "$out" "$id" "$url")"
-        log "Trial account $id opened"
+        url="https://$(envval WQO_DOMAIN)" url2=""
+        # the sewing machine demo next to it (ADR-0026 26f): the same account and first password there too
+        if [ -f "$SEWING/.demo-loaded" ] && [ "$(envval WQO_DEMO_TRIAL "$SEWING/.env")" = 1 ]; then
+            pw=$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read().strip().splitlines()[-1])["password"])')
+            if out2=$(printf '%s\n' "$pw" | (cd "$SEWING" && WQO_DIR="$SEWING" bash -c '. ./lib.sh; dc exec -T hub python -m wqops.hub.trial add --name "$1" --email "$2" --password-stdin' _ "$(field "$t" name)" "$(field "$t" email)") 2>&1); then
+                url2="https://$(envval WQO_DOMAIN "$SEWING/.env")"
+            else
+                log "Trial account $id: not opened in the sewing machine demo: $out2"
+            fi
+        fi
+        put "res-trial-$id.json" "$(python3 -c 'import json,sys; d=json.loads(sys.argv[1].strip().splitlines()[-1]); d.update(id=sys.argv[2], url=sys.argv[3]); sys.argv[4] and d.update(sewing_url=sys.argv[4]); print(json.dumps(d, ensure_ascii=False))' "$out" "$id" "$url" "$url2")"
+        log "Trial account $id opened${url2:+ (and in the sewing machine demo)}"
     else
         put "res-trial-$id.json" "$(python3 -c 'import json,sys; print(json.dumps({"id": sys.argv[1], "error": sys.argv[2][-300:]}, ensure_ascii=False))' "$id" "$out")"
         log "Trial account $id refused: $out"

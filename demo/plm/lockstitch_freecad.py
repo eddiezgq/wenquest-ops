@@ -1,4 +1,4 @@
-"""演示（虚构）：按 lockstitch_bom.py 的结构在 FreeCAD 里搭一个平缝机装配模型，用来试“推送到 PLM”。
+"""演示（虚构）：按 wqops/demo/machines/lockstitch.py 的结构在 FreeCAD 里搭一个平缝机装配模型，用来试“推送到 PLM”。
 
 零件只是占位的简单形体（轴、销是圆柱，其他是方块），装配结构、编码（PartNumber 属性）和数量与旧 BOM 一致：
 部件是 App::Part，同一个零件第二次及以后用到时是链接（App::Link），数量几就几个链接。
@@ -14,8 +14,8 @@ import FreeCAD as App
 
 HERE = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else \
     os.path.join(os.getcwd(), "demo", "plm")
-sys.path.insert(0, HERE)
-import lockstitch_bom as L  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
+from wqops.demo.machines import lockstitch as L  # noqa: E402
 
 doc = App.newDocument("Lockstitch")
 doc.Label = L.MACHINE[1]

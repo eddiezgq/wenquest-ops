@@ -101,6 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           cp companies/demo-haigang.yaml deploy/company-demo.yaml
+          cp companies/demo-sewing.yaml deploy/company-sewing.yaml
           tar czf - -C deploy . | ssh cn 'tar xzf - -C /opt/wenquest/qms && chmod +x /opt/wenquest/qms/*.sh'
       - name: Install the first time, else upgrade (under the server's deploy lock)
         if: env.SKIP != '1'
@@ -139,6 +140,15 @@ jobs:
             tail -n 5 demo.log
           fi
           EOF
+      - name: The sewing machine demo company next to the demo (ADR-0026 26f; installed and loaded once)
+        if: env.SKIP != '1'
+        # its own installation like a pilot company (sewing.<demo domain>); trial accounts open there too and it is
+        # reset every night after the demo. Outside the step above: tenant.sh takes the deploy lock itself. A server
+        # without the memory for it keeps the rest of the deployment.
+        continue-on-error: true
+        run: |
+          ssh cn 'cd /opt/wenquest/qms && ./tenant.sh demo sewing --company company-sewing.yaml' 2>&1 | tail -n 40
+          exit "${PIPESTATUS[0]}"
       - name: Daily backup at 04:10, 7 kept (after the WenQuest backup at 03:30)
         if: env.SKIP != '1'
         run: |

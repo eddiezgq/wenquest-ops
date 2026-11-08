@@ -199,6 +199,12 @@ password written to the result file (send it to the owner, then delete the file)
 1.5 GB of memory is free. `./tenant.sh list` shows them, `stop <id>` / `start <id>` pause one (records kept),
 `upgrade-all` upgrades them one after another after the demo. Each gets a daily backup at 04:15 or a little later.
 
+**A second demo company** (ADR-0026 26f): `./tenant.sh demo sewing --company company-sewing.yaml` installs the sewing
+machine factory next to the demo (蓝湾缝纫机械（演示）, `sewing.<domain>`), loads its demo data, takes the clean
+snapshot and resets it every night at 05:10 with `demo-reset.sh`; trial accounts (ADR-0027) open there too, as
+engineering and quality, with the same first password as in the demo. The China deployment runs the command every time
+(skipped once installed and loaded).
+
 ### Automatic deployment to the US server (ADR-0025, 25b)
 
 `.github/workflows/deploy-us.yml` deploys every new image to the US server (the same version as China). Once, the

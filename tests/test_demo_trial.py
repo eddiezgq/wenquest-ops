@@ -105,3 +105,49 @@ def test_nightly_reset_script():
     assert "WQO_SKIP_BACKUP" in (D / "upgrade.sh").read_text()
     wf = (D.parent / ".github" / "workflows" / "deploy-cn.yml").read_text(encoding="utf-8")
     assert "demo-reset.sh" in wf and "WQO_DEMO_TRIAL=1" in wf
+
+
+def test_one_password_in_both_demos_and_engineering_in_the_sewing_one(conn, monkeypatch):
+    """ADR-0026 26f: the sewing machine demo opens the same trial account with the same first password, as
+    engineering and quality (WQO_TRIAL_ROLES), so a visitor can walk a design change up to its approval."""
+    monkeypatch.setenv("WQO_TRIAL_ROLES", "quality, engineering, nope")
+    r = T.add(conn, name="王", email="w@x.cn", at=NOW, password="Abc123def456")
+    assert r["password"] == "Abc123def456" and A.get(conn, "w@x.cn")["roles"] == ["quality", "engineering"]
+    with pytest.raises(T.TrialError, match="rules"):
+        T.add(conn, name="王", email="w@x.cn", at=NOW, password="short")
+    kept = T.export(conn, at=NOW)
+    conn.execute("delete from users where source='trial'")
+    T.import_(conn, kept)
+    assert A.get(conn, "w@x.cn")["roles"] == ["quality", "engineering"]
+    monkeypatch.delenv("WQO_TRIAL_ROLES")
+    assert T.roles() == ["quality"]
+
+
+def test_runner_opens_the_trial_in_the_sewing_demo_too(tmp_path):
+    wd, q, bin_ = tmp_path / "qms", tmp_path / "queue", tmp_path / "bin"
+    sew = tmp_path / "qms-tenants" / "sewing"
+    for d in (wd, q, bin_, sew):
+        d.mkdir(parents=True)
+    for f in ("lib.sh", "pilot-runner.sh"):
+        shutil.copy(D / f, wd)
+    shutil.copy(D / "lib.sh", sew)
+    (bin_ / "docker").write_text("""#!/usr/bin/env bash
+pw=""; case "$*" in *--password-stdin*) read -r pw ;; esac
+echo "$PWD $* [$pw]" >> "$CALLS"
+echo '{"email": "w@x.cn", "password": "Abc123def456", "expires": "2026-12-07"}'
+""")
+    (bin_ / "docker").chmod(0o755)
+    env = {**os.environ, "WQO_PILOT_QUEUE": str(q), "WQO_DIR": str(wd), "PATH": f"{bin_}:{os.environ['PATH']}",
+           "CALLS": str(tmp_path / "calls")}
+    (wd / ".env").write_text("WQO_DOMAIN=qms.example.cn\nWQO_DEMO_TRIAL=1\n")
+    (sew / ".env").write_text("WQO_DOMAIN=sewing.qms.example.cn\nWQO_DEMO_TRIAL=1\n")
+    (q / "trial-t1.json").write_text(json.dumps({"id": "t1", "name": "王", "email": "w@x.cn"}))
+    subprocess.run(["bash", str(wd / "pilot-runner.sh")], env=env, check=True, capture_output=True)
+    assert "sewing_url" not in json.loads((q / "res-trial-t1.json").read_text())     # not loaded yet
+    (sew / ".demo-loaded").touch()
+    (q / "trial-t2.json").write_text(json.dumps({"id": "t2", "name": "王", "email": "w@x.cn"}))
+    subprocess.run(["bash", str(wd / "pilot-runner.sh")], env=env, check=True, capture_output=True)
+    ok = json.loads((q / "res-trial-t2.json").read_text())
+    assert ok["url"] == "https://qms.example.cn" and ok["sewing_url"] == "https://sewing.qms.example.cn"
+    calls = (tmp_path / "calls").read_text()
+    assert f"{sew} " in calls and "--password-stdin [Abc123def456]" in calls      # the password on stdin, not argv
