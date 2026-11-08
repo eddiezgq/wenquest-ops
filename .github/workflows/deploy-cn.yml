@@ -148,6 +148,12 @@ jobs:
           # pilot companies the WenQuest platform asks for (ADR-0025): every minute, one at a time
           ssh cn 'line="* * * * * /opt/wenquest/qms/pilot-runner.sh >> /opt/wenquest/qms/pilot-runner.log 2>&1"
             { crontab -l 2>/dev/null | grep -v "pilot-runner.sh" || true; echo "$line"; } | crontab -'
+          # ADR-0027: trial accounts in the shared demo company (China first); the demo goes back to its clean
+          # snapshot every night at 04:40, after both backups
+          ssh cn 'cd /opt/wenquest/qms && { grep -q "^WQO_DEMO_TRIAL=" .env || echo "WQO_DEMO_TRIAL=1" >> .env; }
+            line="40 4 * * * cd /opt/wenquest/qms && grep -q ^WQO_DEMO_TRIAL=1 .env && ./demo-reset.sh >> /opt/wenquest/qms/backups/demo-reset.log 2>&1"
+            { crontab -l 2>/dev/null | grep -v "demo-reset.sh" || true; echo "$line"; } | crontab -
+            crontab -l | grep -E "pilot-runner|demo-reset"'
       - name: Status and memory use
         if: env.SKIP != '1'
         run: |

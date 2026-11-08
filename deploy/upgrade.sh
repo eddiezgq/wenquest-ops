@@ -13,7 +13,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -z "$COMPANY" ] || [ -f "$COMPANY" ] || die "no such company manifest: $COMPANY"
-"$WD/backup.sh" >/dev/null && log "Backed up before upgrading"
+# WQO_SKIP_BACKUP=1: the nightly demo reset (ADR-0027) has just restored a snapshot; nothing to keep
+[ "${WQO_SKIP_BACKUP:-0}" = 1 ] || { "$WD/backup.sh" >/dev/null && log "Backed up before upgrading"; }
 cur=$(envval WQO_HUB_IMAGE)                # keep the registry the installation pulls from (a mirror in China)
 envset WQO_HUB_IMAGE "${cur%/wenquest-ops-hub:*}/wenquest-ops-hub:$tag"
 [ -n "$cur" ] || envset WQO_HUB_IMAGE "ghcr.io/eddiezgq/wenquest-ops-hub:$tag"

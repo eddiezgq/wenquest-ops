@@ -3439,5 +3439,7 @@
  "{why}: it cannot be used": "{why}：不能使用",
  "{why}: the readings cannot be accepted with it": "{why}：不能接收用它测得的读数",
  "{workflow} workflow version {version}, enabled by {by} on {date}, fingerprint {fp}.": "{workflow}工作流版本 {version}，由 {by} 于 {date} 启用，指纹 {fp}。",
- "“{NOT_RECORDED}” is kept for missing values; name the category": "“{NOT_RECORDED}”保留给缺失值，请换一个类别名称"
+ "“{NOT_RECORDED}” is kept for missing values; name the category": "“{NOT_RECORDED}”保留给缺失值，请换一个类别名称",
+ "the trial of {email} has ended": "{email} 的体验期已结束",
+ "today's {n} AI runs for {email} are used up; they start again tomorrow": "{email} 今天的 {n} 次 AI 已用完，明天再来"
 }
