@@ -6,6 +6,9 @@
 #   state-<id>.json  this script: installing / active / failed (+ error)
 #   res-<id>.json    this script: the owner's sign-in; the gateway emails it and deletes the file at once
 #   cmd-<id>.json    the gateway: {cmd: stop|start}
+#   trial-<id>.json  the gateway: a trial account in the demo company {id, name, email} (ADR-0027; only when the demo's
+#                    .env has WQO_DEMO_TRIAL=1) -> res-trial-<id>.json {id, email, password, expires, url} or
+#                    {id, error}
 #   host.json        this script, every run: free memory, so the platform can refuse when the server is full
 #   ./pilot-runner.sh
 . "$(dirname "$0")/lib.sh"
@@ -43,6 +46,22 @@ for req in "$Q"/req-*.json; do
         log "Opening $id failed (see $out)"
     fi
     rm -f "$work"
+done
+
+for t in "$Q"/trial-*.json; do              # ADR-0027: an account in the shared demo company, in seconds
+    [ -f "$t" ] || continue
+    id=$(field "$t" id) || { mv -f "$t" "$t.bad"; continue; }
+    if [ "$(envval WQO_DEMO_TRIAL)" != 1 ]; then
+        put "res-trial-$id.json" "{\"id\": \"$id\", \"error\": \"trial accounts are not open on this server\"}"
+    elif out=$(dc exec -T hub python -m wqops.hub.trial add --name "$(field "$t" name)" --email "$(field "$t" email)" 2>&1); then
+        url="https://$(envval WQO_DOMAIN)"
+        put "res-trial-$id.json" "$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d.update(id=sys.argv[2], url=sys.argv[3]); print(json.dumps(d, ensure_ascii=False))' "$out" "$id" "$url")"
+        log "Trial account $id opened"
+    else
+        put "res-trial-$id.json" "$(python3 -c 'import json,sys; print(json.dumps({"id": sys.argv[1], "error": sys.argv[2][-300:]}, ensure_ascii=False))' "$id" "$out")"
+        log "Trial account $id refused: $out"
+    fi
+    rm -f "$t"
 done
 
 for c in "$Q"/cmd-*.json; do

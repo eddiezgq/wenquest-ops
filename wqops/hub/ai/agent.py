@@ -102,8 +102,17 @@ class DailyLimit(RuntimeError):
     """The company's AI runs for today are used up (WQO_AI_DAILY, ADR-0025 25d)."""
 
 
-def check_daily(conn, env=None) -> None:
-    limit = int((os.environ if env is None else env).get("WQO_AI_DAILY", "0") or 0)
+def check_daily(conn, env=None, user: dict | None = None) -> None:
+    env = os.environ if env is None else env
+    # ADR-0027: a trial account in the shared demo company has its own small daily limit
+    if user and user.get("source") == "trial":
+        mine = int(env.get("WQO_TRIAL_AI_DAILY", "20") or 0)
+        n = conn.execute("select count(*) as n from ai_runs where email=%s and created_at >= date_trunc('day', now())",
+                         (user["email"],)).fetchone()["n"]
+        if mine > 0 and n >= mine:
+            raise DailyLimit(say("today's {n} AI runs for {email} are used up; they start again tomorrow",
+                                 n=mine, email=user["email"]))
+    limit = int(env.get("WQO_AI_DAILY", "0") or 0)
     if limit <= 0:
         return
     n = conn.execute("select count(*) as n from ai_runs where created_at >= date_trunc('day', now())").fetchone()["n"]
@@ -113,7 +122,7 @@ def check_daily(conn, env=None) -> None:
 
 def start(ctx: T.Ctx, kind: str, question: str) -> int:
     """Open the run record first, so drafts made during the run can point to it."""
-    check_daily(ctx.conn)
+    check_daily(ctx.conn, user=ctx.user)
     ctx.run_id = ctx.conn.execute(
         "insert into ai_runs (email, kind, question, engine) values (%s, %s, %s, 'running') returning id",
         (ctx.user["email"], kind, question),

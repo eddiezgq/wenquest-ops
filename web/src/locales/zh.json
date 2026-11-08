@@ -2270,5 +2270,7 @@
  "…or severity is at least (optional)": "…或严重度不低于（可选）",
  "○ operation · □ inspection · ➜ move · ▽ storage · D wait. Click a step to see it and change it.": "○ 操作 · □ 检验 · ➜ 搬运 · ▽ 储存 · D 等待。点击步骤可查看并修改。",
  "○ operation · □ inspection · ➜ move · ▽ storage · D wait. Click a step to see it.": "○ 操作 · □ 检验 · ➜ 搬运 · ▽ 储存 · D 等待。点击步骤可查看。",
- "★ a finished machine. Unknown: there is no data yet (not synced from ERPNext, or ERPNext did not answer).": "★ 表示整机。未知：还没有数据（没从 ERPNext 同步过，或 ERPNext 没有回应）。"
+ "★ a finished machine. Unknown: there is no data yet (not synced from ERPNext, or ERPNext did not answer).": "★ 表示整机。未知：还没有数据（没从 ERPNext 同步过，或 ERPNext 没有回应）。",
+ "This is a shared demo company for trying the system: other people use it too and it goes back to its demo data every night. Please do not enter real company data. To try it with your own data, reply to the email you received and ask for your own pilot company.": "这是供大家体验的共用演示企业：别人也在用，每晚还原成演示数据。请不要录入真实的企业数据。想用自己的数据试，请回复开通邮件，申请独立的试点企业。",
+ "Your trial ends on {date}.": "体验到 {date} 结束。"
 }
