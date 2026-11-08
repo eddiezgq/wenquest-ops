@@ -29,7 +29,8 @@ from wqops.i18n import say
 
 SCOPES = {"measurements:send": "Send measurements for incoming inspections in progress",
           "production:send": "Send results of production steps",
-          "events:read": "Read events: lots released or rejected, nonconformance reports opened"}
+          "events:read": "Read events: lots released or rejected, nonconformance reports opened",
+          "plm:send": "Send design data from FreeCAD into the PLM inbox (ADR-0026)"}
 PREFIX = "wqo_"
 MAX_READINGS = 2000
 MAX_PENDING = 500                 # waiting items per token: a machine sending in a loop is stopped, not buried

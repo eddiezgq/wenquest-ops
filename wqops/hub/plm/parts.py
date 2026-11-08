@@ -90,7 +90,11 @@ def _next_code(conn, erp: ErpClient, category: str) -> str:
     for _ in range(100):      # an item made in ERPNext by hand may already have the next number
         n += 1
         code = f"{rule['prefix']}-{n:0{rule['digits']}d}"
-        if erp.get("Item", code) is None:
+        try:
+            free = erp.get("Item", code) is None
+        except Exception as exc:
+            raise PlmError(say("ERPNext did not answer: try again")) from exc
+        if free:
             return code
     raise PlmError(say("could not find a free number for {prefix}", prefix=rule["prefix"]))
 
@@ -199,6 +203,10 @@ def _erp_item(erp: ErpClient, part: dict, description: str) -> str:
                          fields=["name"], limit=1)
         erp.insert({"doctype": "Item Group", "item_group_name": ERP_GROUP,
                     "parent_item_group": roots[0]["name"] if roots else "All Item Groups", "is_group": 0})
+    known = erp.__dict__.setdefault("_plm_uoms", set())     # units this client has seen in ERPNext
+    if part["uom"] not in known and erp.get("UOM", part["uom"]) is None:   # an old BOM's 个, 支, 根...
+        erp.insert({"doctype": "UOM", "uom_name": part["uom"], "must_be_whole_number": 1})
+    known.add(part["uom"])
     erp.insert({"doctype": "Item", "item_code": part["item_code"], "item_name": part["name"][:140],
                 "item_group": ERP_GROUP, "stock_uom": part["uom"], "is_stock_item": 1,
                 "description": description or part["name"]})
@@ -241,7 +249,7 @@ def check_similar(conn, category: str, params: dict) -> list[dict]:
             for o in R.similar(category, params, _others(conn, category))]
 
 
-def create(conn, user: dict, data: dict, erp: ErpClient) -> dict:
+def create(conn, user: dict, data: dict, erp: ErpClient, *, push: bool = True) -> dict:
     name = str(data.get("name") or "").strip()
     if not name:
         raise PlmError(say("give the part a name"))
@@ -263,7 +271,7 @@ def create(conn, user: dict, data: dict, erp: ErpClient) -> dict:
     if code and not CODE_RE.match(code):
         raise PlmError(say("the code is letters, digits and . _ / - (up to 60)"))
     link = bool(code) and data.get("link_existing") is True
-    if code:
+    if code and push:
         try:
             have = erp.get("Item", code)
         except Exception:      # ERPNext not answering: the part is made, its item is tried again later
@@ -284,7 +292,7 @@ def create(conn, user: dict, data: dict, erp: ErpClient) -> dict:
                                                          str(data.get("description") or "").strip()[:4000],
                                                          [user["email"]], user["email"]))
         log(conn, "part", p["id"], user["email"], "created", f"{code} {name}" + (" (confirmed new)" if same else ""))
-    return _push(conn, erp, p["id"], user["email"])
+    return _push(conn, erp, p["id"], user["email"]) if push else get(conn, p["id"])
 
 
 def retry_erp(conn, user: dict, pid: int, erp: ErpClient) -> dict:

@@ -82,6 +82,7 @@ const menu = computed(() => [
             <template v-if="ws.modules?.includes('plm') && can('plm:view')">
               <SidebarLabel divider>{{ t('Engineering') }}</SidebarLabel>
               <SidebarItem :label="t('Parts')" icon="lucide-cog" route="/plm/parts" />
+              <SidebarItem :label="t('Design data')" icon="lucide-inbox" route="/plm/intake" />
             </template>
             <SidebarLabel divider>{{ t('Records') }}</SidebarLabel>
             <SidebarItem v-if="can('quality:view')" :label="t('Quality')" icon="lucide-shield-check" route="/quality" />

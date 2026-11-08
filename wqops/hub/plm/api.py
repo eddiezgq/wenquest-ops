@@ -10,6 +10,7 @@ from urllib.parse import quote
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from wqops import i18n as I18N
@@ -20,6 +21,7 @@ from wqops.hub.plm import boms as B
 from wqops.hub.plm import catalog as CAT
 from wqops.hub.plm import config as CFG
 from wqops.hub.plm import ecn as ECN
+from wqops.hub.plm import intake as IN
 from wqops.hub.plm import parts as PT
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
@@ -261,4 +263,57 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
         if action not in steps:
             raise HTTPException(404, say("not found"))
         return {**run(steps[action]), **flags(u), "can_ai": P.allows(u["roles"], "ai:use")}
+
+    # ---- design data inbox, 26e: FreeCAD (machine token), STEP and Excel uploads
+
+    @app.get("/api/plm/intake")
+    def intake_list(status: str = "pending", u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        if status not in ("pending", "written", "rejected"):
+            raise HTTPException(404, say("not found"))
+        return {"batches": IN.listing(c, status), **flags(u)}
+
+    @app.post("/api/plm/intake/upload", status_code=201)
+    async def intake_upload(request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        form = await request.form()
+        up = form.get("file")
+        kind = str(form.get("kind") or "")
+        if not isinstance(up, UploadFile) or kind not in ("step", "excel"):
+            raise HTTPException(400, say("choose a STEP or an Excel file"))
+        raw = await up.read(F.MAX_BYTES + 1)
+        try:     # reading a big STEP or workbook takes a while: off the event loop
+            data = await run_in_threadpool(IN.read_file, kind, raw)
+        except PT.PlmError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {**run(lambda: IN.upload(c, u, kind, up.filename or kind, raw, data)), **flags(u)}
+
+    @app.get("/api/plm/intake/{iid}")
+    def intake_view(iid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        return {**run(lambda: IN.view(c, ident(iid), erp_or_none())), **flags(u)}
+
+    @app.get("/api/plm/intake/{iid}/file")
+    def intake_file(iid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        name, data = run(lambda: IN.original(c, ident(iid)))
+        return Response(data, media_type="application/octet-stream",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+
+    @app.put("/api/plm/intake/{iid}")
+    async def intake_plan(iid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        d = await body(request)
+        return {**run(lambda: IN.set_plan(c, u, ident(iid), d.get("plan") or {}, d.get("changes"))), **flags(u)}
+
+    @app.post("/api/plm/intake/{iid}/{action}")
+    async def intake_act(iid: int, action: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        d = await body(request)
+        ident(iid)
+        steps = {"write": lambda: IN.write(c, u, iid, str(d.get("password") or ""), erp_client()),
+                 "reject": lambda: IN.reject(c, u, iid, d.get("note"))}
+        if action not in steps:
+            raise HTTPException(404, say("not found"))
+        return {**run(steps[action]), **flags(u)}
 

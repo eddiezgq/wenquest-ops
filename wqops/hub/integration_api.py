@@ -17,6 +17,7 @@ from wqops.hub.quality import records as Q
 from wqops.i18n import say
 
 MAX_BODY = 1_000_000
+MAX_DESIGN = 200_000_000         # a FreeCAD push with the STEP of every part
 
 
 def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 - one route after another
@@ -106,6 +107,47 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
         async def go(tok):
             return IG.receive_step(c, tok, await body(request))
         return await machine(request, "production:send", c, go)
+
+    @app.post("/api/integration/v1/plm/design-data")
+    async def send_design_data(request: Request, c=Depends(conn_dep)):
+        """PLM 26e (ADR-0026): FreeCAD sends parts and their assembly as multipart: ``data`` (JSON: nodes, links),
+        ``file:<node key>`` STEP of a part, ``model`` the FreeCAD file. It waits in the design data inbox."""
+        from starlette.datastructures import UploadFile  # noqa: PLC0415
+
+        from wqops.hub.plm import intake as IN  # noqa: PLC0415
+        from wqops.hub.plm import parts as PT  # noqa: PLC0415
+
+        async def go(tok):
+            if "plm" not in ((company()[0] or {}).get("modules") or []):
+                raise HTTPException(404, say("the PLM module is not turned on for this company"))
+            size = request.headers.get("content-length", "")
+            if not size.isdigit():
+                raise HTTPException(411, say("send the length of the request"))
+            if int(size) > MAX_DESIGN:
+                raise HTTPException(413, say("the request is larger than 200 MB"))
+            form = await request.form(max_files=IN.RD.MAX_NODES + 1, max_fields=10, max_part_size=20_000_000)
+            try:
+                data = json.loads(str(form.get("data") or "{}"))
+            except (ValueError, RecursionError) as exc:
+                raise HTTPException(400, say("the request is not JSON")) from exc
+            if has_nul(data):
+                raise HTTPException(400, say("the request holds a NUL character"))
+            files, model = {}, None
+            for key, val in form.multi_items():
+                if isinstance(val, UploadFile):
+                    raw = await val.read(IN.F.MAX_BYTES + 1)
+                    if key == "model":
+                        model = (val.filename or "model.FCStd", raw)
+                    elif key.startswith("file:"):
+                        files[key[5:]] = (val.filename or "part.step", raw)
+            try:
+                v = IN.receive(c, source="freecad", sent_by=tok["name"], data=data, token_id=tok["id"],
+                               file_name=model[0] if model else "", file_bytes=model[1] if model else None,
+                               files=files)
+            except PT.PlmError as exc:
+                raise IG.IntegrationError(str(exc)) from exc
+            return {"id": v["id"], "parts": len(v["rows"]), "status": v["status"]}
+        return await machine(request, "plm:send", c, go)
 
     @app.get("/api/integration/v1/events")
     async def read_events(request: Request, after: int = 0, limit: int = 100, c=Depends(conn_dep)):
