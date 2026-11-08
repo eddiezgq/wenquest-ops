@@ -47,7 +47,7 @@ def test_runbook_covers_every_script():
 def test_shellcheck_warnings():
     exe = shutil.which("shellcheck")
     assert exe, "shellcheck is missing: pip install -e '.[dev]'"
-    files = [str(D / s) for s in [*SCRIPTS, "lib.sh", "tenant.sh", "pilot-runner.sh"]]
+    files = [str(D / s) for s in [*SCRIPTS, "lib.sh", "tenant.sh", "pilot-runner.sh", "demo-reset.sh"]]
     files.append(str(ROOT / ".github" / "scripts" / "ci_scope.sh"))
     r = subprocess.run([exe, "-S", "warning", "-x", *files], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stdout

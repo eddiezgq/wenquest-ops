@@ -126,6 +126,11 @@ const menu = computed(() => [
           {{ t('Your password was set for you. Please change it now.') }}
           <RouterLink to="/account" class="wq-link ml-2">{{ t('Change my password') }}</RouterLink>
         </div>
+        <!-- a trial account in the shared demo company (ADR-0027) -->
+        <div v-if="ws.user.source === 'trial'" class="m-4 rounded border border-outline-gray-3 bg-surface-gray-2 p-3 text-base">
+          {{ t('This is a shared demo company for trying the system: other people use it too and it goes back to its demo data every night. Please do not enter real company data. To try it with your own data, reply to the email you received and ask for your own pilot company.') }}
+          <span v-if="ws.user.expires" class="ml-1">{{ t('Your trial ends on {date}.', { date: ws.user.expires }) }}</span>
+        </div>
         <RouterView />
       </main>
       <FeedbackButton />

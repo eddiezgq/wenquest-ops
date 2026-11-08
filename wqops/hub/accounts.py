@@ -176,6 +176,9 @@ def authenticate(conn, email: str, pw: str, now: dt.datetime | None = None) -> d
     if u is None or not u["active"]:
         event(conn, (email or "").lower(), "login_failed", "unknown or inactive")
         raise AccountError(say("wrong email or password"))
+    if u.get("expires_at") and u["expires_at"] <= now:          # a trial account past its date (ADR-0027)
+        event(conn, u["email"], "login_failed", "trial ended")
+        raise AccountError(say("the trial of {email} has ended", email=u["email"]))
     if u["locked_until"] and u["locked_until"] > now:
         event(conn, u["email"], "login_failed", "locked")
         raise AccountError(say("too many wrong passwords; try again after {LOCK_MINUTES} minutes",
@@ -209,8 +212,9 @@ def session_user(conn, token: str | None, now: dt.datetime | None = None) -> dic
         return None
     now = now or dt.datetime.now(dt.UTC)
     return conn.execute("select u.* from sessions s join users u on u.id = s.user_id "
-                        "where s.token_hash=%s and s.expires_at > %s and u.active",
-                        (_token_hash(token), now)).fetchone()
+                        "where s.token_hash=%s and s.expires_at > %s and u.active "
+                        "and (u.expires_at is null or u.expires_at > %s)",
+                        (_token_hash(token), now, now)).fetchone()
 
 
 def end_session(conn, token: str | None) -> None:
@@ -226,7 +230,8 @@ def public(u: dict) -> dict:
 
     return {"email": u["email"], "name": u["name"], "roles": list(u["roles"]), "department": u["department"],
             "active": u["active"], "has_password": bool(u["password_hash"]), "permissions": sorted(P.of(u["roles"])),
-            "source": u.get("source", "manifest"), "must_change": bool(u.get("must_change"))}
+            "source": u.get("source", "manifest"), "must_change": bool(u.get("must_change")),
+            "expires": u["expires_at"].date().isoformat() if u.get("expires_at") else None}
 
 
 def main(argv=None) -> int:
