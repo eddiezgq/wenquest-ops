@@ -3521,5 +3521,11 @@
  "this BOM revision is superseded: lay out the current one": "这个 BOM 版本已被替代：请排当前版本",
  "upload the drawing first": "请先上传图",
  "{n} balloons": "{n} 个气泡",
- "{n} names": "{n} 个名称"
+ "{n} names": "{n} 个名称",
+ "this link is revoked: please ask the maker": "这个链接已作废，请联系制造商",
+ "not every BOM in the tree is released: {list}": "BOM 树里还有没发布的 BOM：{list}",
+ "edition {n}, {p} pages": "第 {n} 版，{p} 页",
+ "make an edition of the manual first": "请先生成一版配件手册",
+ "more than {n} pages": "超过 {n} 页",
+ "no such link, or it is revoked already": "没有这个链接，或者已经作废"
 }

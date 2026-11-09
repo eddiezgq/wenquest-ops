@@ -32,6 +32,8 @@ IN_HUB = [
      "https://sources.debian.org/"),
     ("Tesseract OCR (tesseract-ocr, English and Simplified Chinese data)", "Apache-2.0",
      "https://github.com/tesseract-ocr/tesseract"),
+    ("Droid Sans Fallback font (fonts-droid-fallback, Chinese in the parts manual PDF)", "Apache-2.0",
+     "https://sources.debian.org/src/fonts-android/"),
 ]
 PYTHON = {
     "pyyaml": ("MIT", "https://github.com/yaml/pyyaml"),
@@ -46,6 +48,7 @@ PYTHON = {
     "python-docx": ("MIT", "https://github.com/python-openxml/python-docx"),
     "pillow": ("MIT-CMU", "https://github.com/python-pillow/Pillow"),
     "pytesseract": ("Apache-2.0", "https://github.com/madmaze/pytesseract"),
+    "reportlab": ("BSD-3-Clause", "https://hg.reportlab.com/hg-public/reportlab"),
 }
 NPM = {
     "@fontsource/barlow-condensed": ("OFL-1.1 (the font)", "https://github.com/fontsource/font-files"),

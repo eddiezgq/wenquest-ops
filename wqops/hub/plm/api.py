@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
@@ -24,6 +24,8 @@ from wqops.hub.plm import config as CFG
 from wqops.hub.plm import ecn as ECN
 from wqops.hub.plm import explode as EX
 from wqops.hub.plm import intake as IN
+from wqops.hub.plm import manual as MAN
+from wqops.hub.plm import manual_html as MANH
 from wqops.hub.plm import parts as PT
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
@@ -261,6 +263,84 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
         need(u, "plm:edit")
         d = await body(request)
         return run(lambda: EX.set_name_en(c, u, ident(pid), d.get("name_en"), confirm=bool(d.get("confirm"))))
+
+    # ---- the parts manual (round 124, 27c)
+    @app.get("/api/plm/manuals/part/{pid}")
+    def manual_overview(pid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        return {**run(lambda: MAN.overview(c, ident(pid))), **flags(u)}
+
+    @app.post("/api/plm/manuals/part/{pid}")
+    async def manual_make(pid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        from wqops.hub.ont import api as OA  # noqa: PLC0415
+
+        need(u, "plm:edit")
+        today = OA.today(company()[0])
+        await run_in_threadpool(lambda: run(lambda: MAN.generate(c, u, ident(pid), today=today)))
+        return {**run(lambda: MAN.overview(c, ident(pid))), **flags(u)}
+
+    @app.get("/api/plm/manuals/{mid}")
+    def manual_get(mid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        return run(lambda: MAN.get(c, ident(mid)))
+
+    @app.get("/api/plm/manuals/{mid}/pdf")
+    def manual_pdf(mid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        name, data = run(lambda: MAN.pdf(c, ident(mid)))
+        return Response(data, media_type="application/pdf",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}"})
+
+    @app.get("/api/plm/manuals/{mid}/picture/{n}")
+    def manual_picture(mid: int, n: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        data = run(lambda: MAN.picture(c, ident(mid), n))
+        return Response(data, media_type="image/jpeg" if data[:3] == b"\xff\xd8\xff" else "image/png")
+
+    @app.post("/api/plm/manuals/part/{pid}/links")
+    async def manual_link(pid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:release")           # giving the manual out of the company is the release-holder's call
+        d = await body(request)
+        return run(lambda: MAN.add_link(c, u, ident(pid), d.get("label") or ""))
+
+    @app.post("/api/plm/manual-links/{lid}/revoke")
+    def manual_revoke(lid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:release")
+        return {**run(lambda: MAN.revoke(c, u, ident(lid))), **flags(u)}
+
+    # read-only for dealers: no sign-in, only the pictures and tables of the newest edition (never the models)
+    def public(c, token: str, count: bool = False) -> dict:
+        m = MAN.by_token(c, token, count=count)
+        if m is None:
+            raise HTTPException(404, say("not found"))
+        if m.get("revoked"):
+            raise HTTPException(410, say("this link is revoked: please ask the maker"))
+        return m
+
+    @app.get("/m/{token}", response_class=HTMLResponse, include_in_schema=False)
+    def manual_public(token: str, c=Depends(conn_dep)):
+        try:
+            m = public(c, token, count=True)
+        except HTTPException as exc:          # a dealer may read either language: both, as on the page
+            return HTMLResponse(MANH.message(MANH.GONE if exc.status_code == 410 else MANH.UNKNOWN),
+                                status_code=exc.status_code)
+        return HTMLResponse(MANH.page(m, f"/m/{quote(token)}"), headers={"Cache-Control": "no-store",
+                                                                         "X-Robots-Tag": "noindex"})
+
+    @app.get("/m/{token}/pdf", include_in_schema=False)
+    def manual_public_pdf(token: str, c=Depends(conn_dep)):
+        m = public(c, token)
+        name, data = MAN.pdf(c, m["id"])
+        return Response(data, media_type="application/pdf",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}",
+                                 "X-Robots-Tag": "noindex"})
+
+    @app.get("/m/{token}/picture/{n}", include_in_schema=False)
+    def manual_public_picture(token: str, n: int, c=Depends(conn_dep)):
+        m = public(c, token)
+        data = run(lambda: MAN.picture(c, m["id"], n))
+        return Response(data, media_type="image/jpeg" if data[:3] == b"\xff\xd8\xff" else "image/png",
+                        headers={"X-Robots-Tag": "noindex"})
 
     @app.get("/api/plm/boms/{bid}/scene")
     def bom_scene(bid: int, u=Depends(user_dep), c=Depends(conn_dep)):
