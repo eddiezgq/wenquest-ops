@@ -535,6 +535,27 @@ jobs:
                --format '{{.Names}} {{.Status}}' | grep -v configurator | grep '(137)'; then
             echo "::error::a container was killed for memory"; exit 1
           fi
+      - name: Install it again for new demo data, keeping the owner's password and the trial account (round 132)
+        env:
+          WQO_HUB_IMAGE: wenquest-ops-hub:ci
+          WQO_MIN_DISK_GB: "8"
+          WQO_OWNER_PASSWORD: Ci-owner-pass-2026
+        run: |
+          exec > >(tee "$RUNNER_TEMP/reinstall.log") 2>&1
+          set -x -o pipefail
+          dc() { docker compose -p qms --env-file "$WQO_DIR/.env" -f "$WQO_DIR/docker-compose.yml" "$@"; }
+          printf 'Owner-kept-2026b\n' | dc exec -T hub python -m wqops.hub.accounts set-owner-password
+          "$WQO_DIR/demo-reinstall.sh" out
+          if docker volume ls --format '{{.Name}}' | grep -q '^qms_'; then echo "::error::the data is still there"; exit 1; fi
+          time "$WQO_DIR/install.sh" --company companies/demo-sewing.yaml --domain ops.localtest.me --no-pull \
+            --china --edge --small --project qms
+          time dc exec -T hub python -m wqops.demo.load > /dev/null
+          "$WQO_DIR/demo-reinstall.sh" in
+          R=(--resolve ops.localtest.me:443:127.0.0.1)
+          for who in '"linhai@demo.example","password":"Owner-kept-2026b"' '"trial@ci.example","password":"Trial-pass-2026a"'; do
+            curl -fsk "${R[@]}" -H 'content-type: application/json' -d "{\"email\":$who}" https://ops.localtest.me/api/login
+          done
+          dc exec -T hub python - < .github/scripts/sewing_check.py
       - name: Show the end of the logs as one annotation on failure
         if: failure()
         run: |

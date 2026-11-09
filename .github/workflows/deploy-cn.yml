@@ -140,14 +140,20 @@ jobs:
             tail -n 5 demo.log
           fi
           EOF
-      - name: The sewing machine demo company next to the demo (ADR-0026 26f; installed and loaded once)
+      - name: The sewing machine demo company next to the demo (ADR-0026 26f; again when its demo data changed)
         if: env.SKIP != '1'
         # its own installation like a pilot company (sewing.<demo domain>); trial accounts open there too and it is
         # reset every night after the demo. Outside the step above: tenant.sh takes the deploy lock itself. A server
-        # without the memory for it keeps the rest of the deployment.
+        # without the memory for it keeps the rest of the deployment. WenQuest round 132: the version of its demo
+        # data is a fingerprint of the files it is made from; when it differs from the one loaded, tenant.sh installs
+        # the company again from nothing (about 20 minutes), keeping the trial accounts and the owner's password.
         continue-on-error: true
         run: |
-          ssh cn 'cd /opt/wenquest/qms && ./tenant.sh demo sewing --company company-sewing.yaml' 2>&1 | tail -n 40
+          v=$(find wqops/demo/sewing.py wqops/demo/sewing_manual.py wqops/demo/machines wqops/demo/manual \
+                companies/demo-sewing.yaml -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-12)
+          echo "sewing demo data version $v"
+          # shellcheck disable=SC2029   # the version is meant to expand here, before ssh
+          ssh cn "cd /opt/wenquest/qms && ./tenant.sh demo sewing --company company-sewing.yaml --data-version $v" 2>&1 | tail -n 40
           exit "${PIPESTATUS[0]}"
       - name: Daily backup at 04:10, 7 kept (after the WenQuest backup at 03:30)
         if: env.SKIP != '1'

@@ -8,6 +8,9 @@
 #   ./tenant.sh demo <id> --company FILE     a second demo company next to the demo (ADR-0026 26f: the sewing machine
 #                                            factory): installs it, loads its demo data, opens trial accounts there
 #                                            and resets it every night like the demo (ADR-0027)
+#                        [--data-version V]  the version of the demo data (deploy gives it); when the company was loaded
+#                                            with another version, it is installed again from nothing (WenQuest round
+#                                            132): its trial accounts and the owner's password are kept
 #   ./tenant.sh list
 #   ./tenant.sh stop <id> | start <id>       stop keeps every record; start brings it back
 #   ./tenant.sh upgrade-all [tag]            the demo's upgrade for every pilot company, one after another
@@ -119,10 +122,11 @@ PY
     ;;
 demo)
     id=${1:-}; shift || true
-    COMPANY=""
+    COMPANY="" DATA=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --company) COMPANY=$(abspath "$2"); shift 2 ;;
+            --data-version) DATA=$2; shift 2 ;;
             *) die "unknown option: $1 (see --help)" ;;
         esac
     done
@@ -131,6 +135,16 @@ demo)
     grep -q '^demo: true' "$COMPANY" || die "$COMPANY is not a demo company (demo: true)"
     [ -f "$BASE/.env" ] && [ -n "$(envval WQO_INSTALLED "$BASE/.env")" ] || die "run this from the demo installation"
     d=$(tdir "$id")
+    if [ -n "$DATA" ] && [ -f "$d/.demo-loaded" ] && [ "$(cat "$d/.demo-loaded")" != "$DATA" ]; then
+        # the demo data changed: released parts and BOMs cannot change quietly, so the company starts again from
+        # nothing; the trial accounts and the owner's password (its hash) are kept and put back after
+        log "The demo data of $id changed ($(cat "$d/.demo-loaded" || true) -> $DATA): installing it again (about 20 minutes) ..."
+        exec 9>/tmp/wenquest-deploy.lock
+        flock -w 1500 9 || die "another deployment holds the lock; try again later"
+        (cd "$d" && cp "$BASE/demo-reinstall.sh" "$BASE/lib.sh" . && WQO_DIR="$d" ./demo-reinstall.sh out) \
+            || die "could not take $id down for the new demo data; it is as it was"
+        flock -u 9
+    fi
     if [ ! -f "$d/.env" ] || [ -z "$(envval WQO_INSTALLED "$d/.env")" ]; then
         free_mb=$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo)
         [ "$free_mb" -ge "${WQO_TENANT_MIN_FREE_MB:-1536}" ] \
@@ -168,8 +182,11 @@ demo)
         log "Loading the demo data of $id (several minutes) ..."
         (cd "$d" && WQO_DIR="$d" bash -c '. ./lib.sh; dc exec -T hub python -m wqops.demo.load') > "$d/demo.log" 2>&1 \
             || { tail -n 30 "$d/demo.log"; die "the demo data of $id was not loaded (see $d/demo.log)"; }
-        touch "$d/.demo-loaded"
+        printf '%s\n' "$DATA" > "$d/.demo-loaded"
         (cd "$d" && WQO_DIR="$d" ./demo-reset.sh snapshot) || log "WARNING: no clean snapshot of $id yet; the first night takes it"
+    fi
+    if [ -f "$d/backups/reinstall/owner.json" ]; then # after a reinstall: the people who had a way in keep it
+        (cd "$d" && WQO_DIR="$d" ./demo-reinstall.sh in) || die "the trial accounts of $id are kept in $d/backups/reinstall"
     fi
     if command -v crontab >/dev/null; then        # every night after the demo's reset (04:40)
         line="10 5 * * * cd $d && grep -q ^WQO_DEMO_TRIAL=1 .env && ./demo-reset.sh >> $d/backups/demo-reset.log 2>&1"

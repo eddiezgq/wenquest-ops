@@ -47,7 +47,8 @@ def test_runbook_covers_every_script():
 def test_shellcheck_warnings():
     exe = shutil.which("shellcheck")
     assert exe, "shellcheck is missing: pip install -e '.[dev]'"
-    files = [str(D / s) for s in [*SCRIPTS, "lib.sh", "tenant.sh", "pilot-runner.sh", "demo-reset.sh"]]
+    files = [str(D / s) for s in [*SCRIPTS, "lib.sh", "tenant.sh", "pilot-runner.sh", "demo-reset.sh",
+                                  "demo-reinstall.sh"]]
     files.append(str(ROOT / ".github" / "scripts" / "ci_scope.sh"))
     r = subprocess.run([exe, "-S", "warning", "-x", *files], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stdout
@@ -118,3 +119,64 @@ fi
     calls = (wd / "calls").read_text()
     assert '--name Acme "Tools" --contact Li --email a@b.cn --lang zh' in calls and "stop old" in calls
     assert not list(q.glob("req-*")) and not list(q.glob("cmd-*")) and not list(q.glob("work-*"))
+
+
+def test_demo_company_installed_again_when_its_data_changes(tmp_path):
+    """WenQuest round 132: `tenant.sh demo <id> --data-version V` installs the demo company again from nothing when it
+    was loaded with another version (none, for one loaded before versions); the trial accounts and the owner's
+    password hash go out before and back in after; the same version again changes nothing. Docker, the installation
+    and the snapshot are stand-ins that write down what they were asked."""
+    base, tenants, binr = tmp_path / "qms", tmp_path / "qms-tenants", tmp_path / "bin"
+    for p in (base, tenants / "sewing", binr):
+        p.mkdir(parents=True)
+    shutil.copy(D / "lib.sh", base)
+    shutil.copy(D / "tenant.sh", base)
+    shutil.copy(D / "demo-reinstall.sh", base)
+    calls = tmp_path / "calls"
+    (base / ".env").write_text("WQO_INSTALLED=2026-11-01\nWQO_DOMAIN=qms.example.cn\nWQO_ERP_DOMAIN=erp.example.cn\n")
+    (base / "install.sh").write_text(f"""#!/usr/bin/env bash
+echo "install $*" >> {calls}
+printf 'WQO_INSTALLED=now\\nWQO_ERP_API_KEY=new\\n' >> .env
+""")
+    (base / "demo-reset.sh").write_text(f'#!/usr/bin/env bash\necho "snapshot $*" >> {calls}\n')
+    (base / "docker-compose.yml").write_text("services: {}\n")
+    (base / "Caddyfile").write_text("")
+    for f in ("install.sh", "demo-reset.sh"):
+        (base / f).chmod(0o755)
+    (binr / "docker").write_text(f"""#!/usr/bin/env bash
+echo "docker $*" >> {calls}
+case "$*" in
+  *"trial export"*) echo '[{{"email": "visitor@example.com"}}]' ;;
+  *export-owner*) echo '{{"email": "linhai@demo.example", "password_hash": "scrypt$x"}}' ;;
+  *"trial import"*) cat > "{tmp_path}/got-trial-import" ;;
+  *import-owner*) cat > "{tmp_path}/got-import-owner" ;;
+esac
+""")
+    (binr / "docker").chmod(0o755)
+    (binr / "crontab").write_text("#!/usr/bin/env bash\ncat > /dev/null\n")
+    (binr / "crontab").chmod(0o755)
+    company = tmp_path / "demo-sewing.yaml"
+    company.write_text("demo: true\n")
+    d = tenants / "sewing"
+    (d / ".env").write_text("WQO_INSTALLED=2026-11-07\nWQO_ERP_API_KEY=old\nWQO_ERP_API_SECRET=old\n"
+                            "WQO_DOMAIN=sewing.qms.example.cn\nPOSTGRES_PASSWORD=kept\n")
+    (d / ".demo-loaded").write_text("")                   # loaded on 11-07, before the data had versions
+    for f in ("lib.sh", "install.sh", "demo-reset.sh"):   # an installed company has the scripts beside it
+        shutil.copy(base / f, d)
+    env = {**os.environ, "PATH": f"{binr}:{os.environ['PATH']}", "WQO_DIR": str(base),
+           "WQO_TENANT_MIN_FREE_MB": "1", "WQO_TENANTS_DIR": str(tenants)}
+    run = ["bash", str(base / "tenant.sh"), "demo", "sewing", "--company", str(company), "--data-version", "abc123"]
+    r = subprocess.run(run, env=env, capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = calls.read_text()
+    order = [log.index(x) for x in ("trial export", "export-owner", "down -v", "install ", "wqops.demo.load",
+                                     "snapshot snapshot", "trial import", "import-owner")]
+    assert order == sorted(order), log
+    assert (d / ".demo-loaded").read_text().strip() == "abc123"
+    env_now = (d / ".env").read_text()
+    assert "WQO_ERP_API_KEY=old" not in env_now and "POSTGRES_PASSWORD=kept" in env_now
+    assert "visitor@example.com" in (tmp_path / "got-trial-import").read_text()
+    assert "scrypt$x" in (tmp_path / "got-import-owner").read_text() and not (d / "backups" / "reinstall").exists()
+    calls.write_text("")
+    r = subprocess.run(run, env=env, capture_output=True, text=True, check=False)       # the same data: nothing happens
+    assert r.returncode == 0 and "down -v" not in calls.read_text() and "install " not in calls.read_text()

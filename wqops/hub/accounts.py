@@ -7,6 +7,8 @@ scrypt hashes; 5 wrong passwords lock the account for 10 minutes. Session tokens
     python -m wqops.hub.accounts set-password EMAIL # reads the password from stdin
     python -m wqops.hub.accounts set-owner-password # the first owner in the manifest; password from stdin
     python -m wqops.hub.accounts list
+    python -m wqops.hub.accounts export-owner       # the owner's password hash as JSON (a demo company's reinstall)
+    python -m wqops.hub.accounts import-owner       # puts it back from stdin, after the reinstall
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -160,6 +163,29 @@ def set_password(conn, email: str, pw: str, *, by: str | None = None, must_chang
     event(conn, u["email"], "password_set", f"by {by}" if by and by != u["email"] else "")
 
 
+def export_owner(conn, m: dict) -> dict:
+    """The manifest owner's password hash (never the password), so a demo company that is installed again keeps
+    the password someone set (WenQuest round 132). Empty when no password was set."""
+    email = next(p["email"] for p in m["people"] if "owner" in p["roles"])
+    u = get(conn, email)
+    return {"email": email, "password_hash": u["password_hash"] if u else None,
+            "must_change": bool(u and u.get("must_change"))}
+
+
+def import_owner(conn, m: dict, kept: dict) -> bool:
+    """Put back what ``export_owner`` gave, when it is the same owner and there was a password. True when put back."""
+    sync(conn, m)
+    email = next(p["email"] for p in m["people"] if "owner" in p["roles"])
+    u = get(conn, email)
+    if not kept.get("password_hash") or kept.get("email") != email or u is None:
+        return False
+    conn.execute("update users set password_hash=%s, must_change=%s, failed_logins=0, locked_until=null, "
+                 "updated_at=now() where id=%s", (kept["password_hash"], bool(kept.get("must_change")), u["id"]))
+    conn.execute("delete from sessions where user_id=%s", (u["id"],))
+    event(conn, email, "password_set", "kept through a reinstall")
+    return True
+
+
 def people(conn, now: dt.datetime | None = None) -> list[dict]:
     """Everyone in the manifest with what the people page shows (ADR-0005 item 6)."""
     now = now or dt.datetime.now(dt.UTC)
@@ -237,7 +263,8 @@ def public(u: dict) -> dict:
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     url = os.environ.get("WQO_DB")
-    if not url or not argv or argv[0] not in ("sync", "set-password", "set-owner-password", "list"):
+    if not url or not argv or argv[0] not in ("sync", "set-password", "set-owner-password", "list",
+                                                  "export-owner", "import-owner"):
         print(__doc__, file=sys.stderr)
         return 2
     conn = DB.connect(url)
@@ -257,6 +284,12 @@ def main(argv=None) -> int:
             set_password(conn, email, sys.stdin.readline().rstrip("\n"),
                          must_change=os.environ.get("WQO_MUST_CHANGE") == "1")
             print(f"Password set for {email}")
+        elif argv[0] == "export-owner":
+            print(json.dumps(export_owner(conn, C.load(os.environ["WQO_COMPANY_FILE"]))))
+        elif argv[0] == "import-owner":
+            kept = json.loads(sys.stdin.read() or "{}")
+            done = import_owner(conn, C.load(os.environ["WQO_COMPANY_FILE"]), kept)
+            print("owner password kept" if done else "no owner password to keep")
         else:
             for u in conn.execute("select * from users order by email").fetchall():
                 print(f"{u['email']:40} {'active' if u['active'] else 'inactive':9} {','.join(u['roles'])}")

@@ -289,8 +289,9 @@ WQO_HUB_IMAGE=wenquest-ops-hub:local ./install.sh --company company.yaml --domai
 **第二家演示企业**（ADR-0026 26f）：`./tenant.sh demo sewing --company company-sewing.yaml` 在旁边装一套缝纫机厂演示
 （蓝湾缝纫机械（演示），`sewing.<域名>`），导入它的演示数据（`python -m wqops.demo.load`，几分钟），拍干净快照，
 每晚 05:10 用 `demo-reset.sh` 还原；体验账号（ADR-0027）也开在那里，角色是工程设计 + 质量，和海港五金用同一个初始密码。
-国内部署每次都跑一遍这条命令（已装好、已导入的跳过）。要重新导入演示数据：删掉 `../qms-tenants/sewing/.demo-loaded`
-和整套安装后再跑。
+国内部署每次都跑一遍这条命令，带 `--data-version`（缝纫机演示数据所用文件的指纹）：和已装的版本一样就跳过；
+不一样就从头重装（`demo-reinstall.sh out` → 安装 → 导入 → 拍快照 → `demo-reinstall.sh in`，约 20 分钟，问渠第 132 轮），
+体验账号和老板密码保留。
 
 ### 美国服务器自动部署（ADR-0025，25b）
 
