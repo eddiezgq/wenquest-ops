@@ -61,5 +61,14 @@ def test_hub_side_of_the_demo(conn, monkeypatch):
     assert capa["status"] == "investigation" and "梭尖硬度" in capa["root_cause"]
     assert conn.execute("select status from changes where kind = 'product'").fetchone()["status"] == "closed"
     assert conn.execute("select count(*) as n from plm_intake where status = 'pending'").fetchone()["n"] == 1
+    # the ready parts manual (round 124, 27d): 3D pages from the design software, schematics, English names
+    man = out["manual"]
+    assert man["model"] == "WQ88-0000-5TA" and man["edition"] == 1 and man["names_open"] == 0
+    assert sorted(man["model_pages"]) == ["WQ88-1200", "WQ88-1300", "WQ88-1400", "WQ88-1700", "WQ88-1710",
+                                          "WQ88-1800"]
+    assert man["pages"] == len(man["model_pages"]) + man["schematics"] and man["pages"] >= 20
+    assert out["models_3d"] == 15
+    row = conn.execute("select pages from plm_manuals").fetchone()
+    assert all(p["picture"] for p in row["pages"]) and all(x["name_en"] for p in row["pages"] for x in p["lines"])
     with pytest.raises(SW.SewingError, match="already loaded"):
         SW.load(conn, erp, m, dt.date(2026, 11, 8), say=lambda _t: None)

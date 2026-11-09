@@ -13,6 +13,14 @@ from pathlib import Path
 
 MACHINE = ("WQ88-0000", "WQ-8800D 电脑直驱单针平缝机（演示·虚构）")
 
+# 机构三维（第 124 轮 27d）：问渠缝纫机设计软件（sewcore cad.py）里的零件 -> 这里的零件编码。每个零件一份 STEP，
+# 在 wqops/demo/manual/mechanism/，由 demo/plm/mechanism_step.py 生成，整机坐标。设计软件里的机针是外购件，不挂。
+MECHANISM = {"UpperShaft": "WQ88-1201", "NeedleCrank": "WQ88-1401", "ConnectingRod": "WQ88-1402",
+             "CrankPin": "WQ88-1403", "NeedleBar": "WQ88-1404", "TakeupCrank": "WQ88-1301",
+             "TakeupLever": "WQ88-1304", "TakeupRocker": "WQ88-1303", "RockerPivot": "WQ88-1305",
+             "LowerShaft": "WQ88-1701", "RotaryHook": "WQ88-1711", "FeedEccentric": "WQ88-1803",
+             "LiftEccentric": "WQ88-1805", "FeedDog": "WQ88-1811", "NeedlePlate": "WQ88-1812"}
+
 # 标准件和外购件：编码 -> (名称, 自制/外购, 单位)
 STD: dict[str, tuple[str, str, str]] = {}
 

@@ -15,6 +15,8 @@ Everything is invented: the company, its people, suppliers, dealers, both machin
    softer at the point (still inside the limits); two dealers complain of broken thread; a corrective action is open
    with the root cause written. Whoever looks at the demo starts the design change from there. A finished design
    change (needle plate A to B) and a FreeCAD batch waiting in the design data inbox are there as well.
+4. The parts manual (round 124): the mechanism parts with 3D from the sewing design software, exploded views (3D or a
+   schematic), English names, and edition 1 of one lockstitch model's manual (sewing_manual.py).
 
 Plain code, no AI, no network beyond ERPNext. The texts are the company's (Chinese); this company has no English
 version yet. Signatures are accepted without passwords while it runs (demo_signing, demo companies only).
@@ -28,6 +30,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from decimal import Decimal
 
+from wqops.demo import sewing_manual as SM
 from wqops.demo.machines import lockstitch as LS
 from wqops.demo.machines import overlock as OL
 from wqops.erp import ErpClient, ErpError
@@ -44,6 +47,7 @@ ENG, ENG2 = "caiming@demo.example", "yeqing@demo.example"
 HOOK = "WQ88-1711"                       # 旋梭 HSH-7.94A: the part of the story
 HOOK_SUPPLIER = "宁波精密旋梭（演示）"
 NEEDLE_PLATE = "WQ88-1812"               # 针板: the finished design change, A to B
+MANUAL_MODEL = "5TA"                     # the lockstitch model with a ready parts manual (round 124, 27d)
 
 # supplier of each bought part: the first rule whose words are in the part's name (else the standard parts maker)
 SUPPLIERS = [
@@ -309,6 +313,8 @@ class Sewing:
         # every hook lot is inspected at receiving (the hardness of the point)
         self._again(lambda: self.erp.update("Item", HOOK, {"inspection_required_before_purchase": 1}))
         self.say(f"{self.out['parts']} parts written")
+        # the mechanism in 3D from the sewing design software, onto the draft parts (round 124, 27d)
+        self.out["models_3d"] = SM.mechanism(self.conn, self.u(ENG))
 
     def suppliers(self) -> None:
         """Every bought part has an approved supplier (the BOM release checks it)."""
@@ -633,6 +639,8 @@ class Sewing:
             self.sync()
             self.story()
             self.finished_change()
+            self.out["manual"] = SM.manual(self.conn, self.u(ENG), self._model(LS, MANUAL_MODEL), self.today)
+            self.say(f"parts manual: {self.out['manual']['pages']} pages")
             self.inbox()
         return self.out
 
