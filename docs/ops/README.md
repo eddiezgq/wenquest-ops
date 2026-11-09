@@ -203,7 +203,9 @@ password written to the result file (send it to the owner, then delete the file)
 machine factory next to the demo (蓝湾缝纫机械（演示）, `sewing.<domain>`), loads its demo data, takes the clean
 snapshot and resets it every night at 05:10 with `demo-reset.sh`; trial accounts (ADR-0027) open there too, as
 engineering and quality, with the same first password as in the demo. The China deployment runs the command every time
-(skipped once installed and loaded).
+with `--data-version` (a fingerprint of the files the sewing demo data is made from): skipped while it is the version
+loaded; when it changed, the company is installed again from nothing (`demo-reinstall.sh out`, install, load, snapshot,
+`demo-reinstall.sh in`; about 20 minutes, WenQuest round 132), keeping its trial accounts and the owner's password.
 
 ### Automatic deployment to the US server (ADR-0025, 25b)
 

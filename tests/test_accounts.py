@@ -95,6 +95,30 @@ def test_cli(db_url, monkeypatch, capsys):
     assert A.main([]) == 2
 
 
+def test_owner_password_kept_through_a_reinstall(db_url, monkeypatch, capsys):
+    """Round 132: a demo company installed again keeps the owner's password (its hash, never the password)."""
+    import io
+
+    monkeypatch.setenv("WQO_DB", db_url)
+    monkeypatch.setenv("WQO_COMPANY_FILE", str(C.DEMO_FILE))
+    assert A.main(["sync"]) == 0
+    monkeypatch.setattr("sys.stdin", io.StringIO("Kept by Eddie 1\n"))
+    assert A.main(["set-owner-password"]) == 0
+    capsys.readouterr()
+    assert A.main(["export-owner"]) == 0
+    kept = capsys.readouterr().out
+    assert "Kept by Eddie" not in kept and "dana@demo.example" in kept and "scrypt" in kept
+    conn = DB.connect(db_url)
+    conn.execute("delete from sessions; delete from auth_events; delete from users")      # the reinstall
+    monkeypatch.setattr("sys.stdin", io.StringIO(kept))
+    assert A.main(["import-owner"]) == 0 and "kept" in capsys.readouterr().out
+    assert A.authenticate(conn, "dana@demo.example", "Kept by Eddie 1")["email"] == "dana@demo.example"
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"email": "dana@demo.example", "password_hash": null}'))
+    assert A.main(["import-owner"]) == 0 and "no owner password" in capsys.readouterr().out
+    # nothing to keep: unchanged
+    assert A.authenticate(conn, "dana@demo.example", "Kept by Eddie 1")["email"] == "dana@demo.example"
+
+
 def test_people_added_in_the_workspace(conn):
     """ADR-0025: the owner adds colleagues on the People page; the manifest sync leaves them alone."""
     m = C.load(C.DEMO_FILE)
