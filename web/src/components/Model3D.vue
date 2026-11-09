@@ -4,8 +4,7 @@
 // to WebAssembly (occt-import-js), loaded only when a 3D view opens; the server does no CAD work.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { t } from '../i18n'
-import occtJs from 'occt-import-js/dist/occt-import-js.js?url'
-import occtWasm from 'occt-import-js/dist/occt-import-js.wasm?url'
+import { geometries, lights, shade } from '../plm3d/step3d'
 
 const props = defineProps({ items: { type: Array, default: () => [] }, height: { type: Number, default: 420 } })
 const box = ref(null)
@@ -13,52 +12,20 @@ const status = ref('')
 const picked = ref(null)
 let stop = () => {}
 
-let occtReady = null
-function occt() {               // one copy of OpenCascade per page, loaded on first use
-  if (!occtReady) {
-    occtReady = new Promise((resolve, reject) => {
-      const s = document.createElement('script')
-      s.src = occtJs
-      s.onload = () => window.occtimportjs({ locateFile: () => occtWasm }).then(resolve, reject)
-      s.onerror = () => reject(new Error('occt'))
-      document.head.appendChild(s)
-    })
-  }
-  return occtReady
-}
-
-const shades = ['#8fa3b8', '#b8a48f', '#9fb88f', '#b88fa9', '#8fb5b8', '#b8b08f', '#a38fb8']
-function shade(code) { let h = 0; for (const ch of code || '') h = (h * 31 + ch.charCodeAt(0)) >>> 0; return shades[h % shades.length] }
-
 async function draw() {
   stop()
   if (!box.value || !props.items.length) return
   status.value = t('Reading the models…')
   const THREE = await import('three')
   const { OrbitControls } = await import('three/examples/jsm/controls/OrbitControls.js')
-  let lib
-  try { lib = await occt() } catch { status.value = t('The 3D reader did not load.'); return }
   const geoms = new Map()
   let bad = 0
   for (const url of new Set(props.items.map((x) => x.url))) {
-    try {
-      const buf = new Uint8Array(await (await fetch(url, { credentials: 'same-origin' })).arrayBuffer())
-      const res = lib.ReadStepFile(buf, null)
-      if (!res.success) throw new Error('step')
-      geoms.set(url, res.meshes.map((m) => {
-        const g = new THREE.BufferGeometry()
-        g.setAttribute('position', new THREE.Float32BufferAttribute(m.attributes.position.array, 3))
-        if (m.attributes.normal) g.setAttribute('normal', new THREE.Float32BufferAttribute(m.attributes.normal.array, 3))
-        g.setIndex(Array.from(m.index.array))
-        if (!m.attributes.normal) g.computeVertexNormals()
-        return g
-      }))
-    } catch { bad += 1 }
+    try { geoms.set(url, await geometries(THREE, url)) } catch (e) { if (e.message === 'occt') { status.value = t('The 3D reader did not load.'); return } bad += 1 }
   }
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(getComputedStyle(document.body).getPropertyValue('--wq-3d-bg').trim() || '#f4f5f7')
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 1.6))
-  const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(1, 2, 3); scene.add(sun)
+  lights(THREE, scene)
   const all = new THREE.Group()
   const mats = new Map()
   for (const it of props.items) {
@@ -100,7 +67,7 @@ async function draw() {
   status.value = bad ? t('{n} model files could not be read.', { n: bad }) : ''
   stop = () => {
     cancelAnimationFrame(frame); renderer.domElement.removeEventListener('click', onClick)
-    controls.dispose(); renderer.dispose(); geoms.forEach((gs) => gs.forEach((g) => g.dispose())); mats.forEach((m) => m.dispose())
+    controls.dispose(); renderer.dispose(); mats.forEach((m) => m.dispose())
     stop = () => {}
   }
 }

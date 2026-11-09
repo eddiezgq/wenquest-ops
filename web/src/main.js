@@ -47,6 +47,7 @@ import ChangePage from './pages/ChangePage.vue'
 import Parts from './pages/Parts.vue'
 import PartPage from './pages/PartPage.vue'
 import BomPage from './pages/BomPage.vue'
+import ExplodePage from './pages/ExplodePage.vue'
 import Intake from './pages/Intake.vue'
 import IntakePage from './pages/IntakePage.vue'
 import Gauges from './pages/Gauges.vue'
@@ -95,6 +96,7 @@ const router = createRouter({
     { path: '/plm/parts', component: Parts, meta: { title: 'Parts' } },
     { path: '/plm/parts/:id', component: PartPage, meta: { title: 'Part' } },
     { path: '/plm/boms/:id', component: BomPage, meta: { title: 'BOM' } },
+    { path: '/plm/boms/:id/explode', component: ExplodePage, meta: { title: 'Exploded view' } },
     { path: '/plm/intake', component: Intake, meta: { title: 'Design data' } },
     { path: '/plm/intake/:id', component: IntakePage, meta: { title: 'Design data' } },
     { path: '/quality/risk', component: Risk, meta: { title: 'Risk management' } },

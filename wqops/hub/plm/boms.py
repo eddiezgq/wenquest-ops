@@ -305,17 +305,19 @@ def _shown_bom(conn, pid: int) -> int | None:
     return r["id"] if r else None
 
 
-def scene(conn, bid: int) -> dict:
+def scene(conn, bid: int, *, group: bool = False) -> dict:
     """Everything under the BOM in its frame, for the 3D view: each use of a part with a STEP model where it sits
     (a 4x4 matrix); an assembly without its own model is shown through its BOM. Lines without placements or
-    models are listed, never guessed (round 124 rule 2)."""
+    models are listed, never guessed (round 124 rule 2). group: each item says which line of this BOM it belongs to
+    (``line``: that line's part id), for the exploded view, where a sub-assembly moves as one block."""
     b = get(conn, bid)
     items, missing, cut = [], {}, False
 
     def miss(ln, why: str) -> None:
         missing.setdefault(ln["item_code"], {"code": ln["item_code"], "name": ln["name"], "why": why})
 
-    def walk(bom_id: int, m: list[float], depth: int, trail: frozenset) -> None:
+    def walk(bom_id: int, m: list[float], depth: int, trail: frozenset, top: int | None = None,  # noqa: PLR0917
+             use: int = 0) -> None:
         nonlocal cut
         for ln in conn.execute("select l.part_id, l.placements, p.item_code, p.name from plm_bom_lines l join "
                                "plm_parts p on p.id = l.part_id where l.bom_id = %s order by l.pos",
@@ -328,16 +330,18 @@ def scene(conn, bid: int) -> dict:
             if not ln["placements"]:
                 miss(ln, "placement")
                 continue
-            for pl in ln["placements"]:
+            for i, pl in enumerate(ln["placements"]):
                 mm = PL.mul(m, PL.matrix(pl))
+                at = use if top else i          # which use of this BOM's own line it is part of
                 if f is not None:
                     if len(items) >= MAX_SCENE:
                         cut = True
                         return
                     items.append({"part_id": ln["part_id"], "code": ln["item_code"], "name": ln["name"],
-                                  "file": {"id": f["id"], "name": f["name"], "sha256": f["sha256"]}, "m": mm})
+                                  "file": {"id": f["id"], "name": f["name"], "sha256": f["sha256"]}, "m": mm,
+                                  **({"line": top or ln["part_id"], "use": at} if group else {})})
                 elif depth < MAX_DEPTH and ln["part_id"] not in trail:
-                    walk(sub, mm, depth + 1, trail | {ln["part_id"]})
+                    walk(sub, mm, depth + 1, trail | {ln["part_id"]}, top or ln["part_id"], at)
 
     walk(bid, PL.IDENTITY, 0, frozenset({b["part_id"]}))
     return {"bom": bid, "items": items, "missing": list(missing.values()), "cut": cut}
