@@ -2335,5 +2335,17 @@
  "Apply": "应用",
  "Tick all shown": "勾选显示的全部行",
  "Link ERPNext item": "关联 ERPNext 物料",
- "{n} parts made": "新建零件 {n} 个"
+ "{n} parts made": "新建零件 {n} 个",
+ "Reading the models…": "正在读取模型…",
+ "The 3D reader did not load.": "三维读取程序没有加载成功。",
+ "{n} model files could not be read.": "有 {n} 个模型文件读不了。",
+ "Drag to turn, scroll to zoom, click a part to name it.": "拖动转动，滚轮缩放，点零件看名称。",
+ "Hide 3D": "收起三维",
+ "3D": "三维",
+ "Show the assembly in 3D": "显示装配三维",
+ "No part of this BOM has a model and a place yet.": "这张 BOM 里还没有既有模型、又有装配位置的零件。",
+ "Only the first {n} parts are shown.": "只显示了前 {n} 个零件。",
+ "Not shown (nothing is guessed):": "没有显示（不猜）：",
+ "no model": "没有三维模型",
+ "no place in the assembly": "没有装配位置"
 }

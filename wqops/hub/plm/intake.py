@@ -18,6 +18,7 @@ from wqops.hub.docs import store as F
 from wqops.hub.plm import boms as B
 from wqops.hub.plm import catalog as CAT
 from wqops.hub.plm import parts as PT
+from wqops.hub.plm import place as PL
 from wqops.hub.plm import readers as RD
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
@@ -72,7 +73,14 @@ def check_data(data) -> dict:  # noqa: PLR0912 - one check after another
             raise PlmError(say("a link has a quantity above 0")) from exc
         if not q.is_finite() or q <= 0:
             raise PlmError(say("a link has a quantity above 0"))
-        links.append({"parent": ln["parent"], "child": ln["child"], "qty": format(q.normalize(), "f")})
+        x = {"parent": ln["parent"], "child": ln["child"], "qty": format(q.normalize(), "f")}
+        if ln.get("placements"):               # where each use sits (FreeCAD, STEP); as many as the quantity
+            try:
+                x["placements"] = PL.clean_list(ln["placements"], int(q) if q == q.to_integral_value() else -1)
+            except PL.PlaceError as exc:
+                raise PlmError(say("{parent} → {child}: {error}", parent=ln["parent"], child=ln["child"],
+                                   error=str(exc))) from exc
+        links.append(x)
     loop = _cycle({k: [x["child"] for x in links if x["parent"] == k] for k in keys})
     if loop:
         names = {n["key"]: n["name"] for n in nodes}
@@ -443,8 +451,12 @@ def _apply(conn, user: dict, iid: int, r: dict, erp: ErpClient) -> dict:  # noqa
         except PlmError as exc:
             raise _Stop(say("{name}: model not attached: {error}", name=nodes[k]["name"], error=str(exc))) from exc
     by_parent = defaultdict(lambda: defaultdict(Decimal))
+    placed = defaultdict(list)          # (parent, child) -> placements; None once a link of the pair has none
     for ln in r["data"]["links"]:
         by_parent[ln["parent"]][ln["child"]] += Decimal(ln["qty"])
+        pair = (ln["parent"], ln["child"])
+        if placed[pair] is not None:
+            placed[pair] = placed[pair] + ln["placements"] if ln.get("placements") else None
     boms = []
     for k, kids in by_parent.items():
         try:
@@ -454,7 +466,8 @@ def _apply(conn, user: dict, iid: int, r: dict, erp: ErpClient) -> dict:  # noqa
                 bid = last["id"]
             else:
                 bid = B.start(conn, user, ids[k], r["changes"].get(k) if last else None)["bom"]["id"]
-            B.set_lines(conn, user, bid, [{"part_id": ids[c], "qty": format(q.normalize(), "f")}
+            B.set_lines(conn, user, bid, [{"part_id": ids[c], "qty": format(q.normalize(), "f"),
+                                           **({"placements": placed[(k, c)]} if placed[(k, c)] else {})}
                                           for c, q in kids.items()], note=say("from design data #{id}", id=iid))
         except PlmError as exc:
             raise _Stop(say("{name}: BOM not made: {error}", name=nodes[k]["name"], error=str(exc))) from exc

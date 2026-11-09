@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
+import Model3D from '../components/Model3D.vue'
 import { api } from '../api'
 import { t } from '../i18n'
 import { diffl, erpl, stl } from '../plm'
@@ -54,6 +55,14 @@ const add = () => rows.value.push({ code: '', qty: 1, uom: '', note: '' })
 function picked(r) { const p = byCode.value[r.code.trim()]; if (p && !r.uom) r.uom = p.uom }
 const save = () => call(`/api/plm/boms/${v.value.bom.id}`, 'PUT', { lines: rows.value.filter((r) => r.code.trim()).map((r) => ({ ...r, code: r.code.trim(), uom: r.uom || undefined })), note: note.value }, t('Saved.'))
 const release = () => call(`/api/plm/boms/${v.value.bom.id}/release`, 'POST', { password: pw.value }, t('Released. Submit the Draft BOM in ERPNext.'))
+// the assembly in 3D (round 124, 27a): every part with a model where it sits; what cannot be placed is listed
+const scene = ref(null)
+const sceneItems = computed(() => (scene.value?.items || []).map((x) => ({ ...x, url: `/api/plm/parts/${x.part_id}/files/${x.file.id}` })))
+async function show3d() {
+  error.value = ''
+  try { scene.value = await api(`/api/plm/boms/${v.value.bom.id}/scene`) } catch (e) { error.value = e.message }
+}
+watch(() => route.params.id, () => { scene.value = null })
 const toErp = () => call(`/api/plm/boms/${v.value.bom.id}/to-erp`, 'POST', {}, t('Tried again.'))
 </script>
 
@@ -111,6 +120,18 @@ const toErp = () => call(`/api/plm/boms/${v.value.bom.id}/to-erp`, 'POST', {}, t
       <p v-if="!v.previous.diff.length" class="wq-muted">{{ t('No difference.') }}</p>
       <table v-else class="wq-table text-sm"><thead><tr><th>{{ t('Part') }}</th><th>{{ t('Name') }}</th><th>{{ t('Change') }}</th><th>{{ t('plm::Before') }}</th><th>{{ t('plm::After') }}</th></tr></thead>
         <tbody><tr v-for="d in v.previous.diff" :key="d.code"><td>{{ d.code }}</td><td>{{ d.name }}</td><td>{{ diffl(d.change) }}</td><td>{{ d.old || '–' }}</td><td>{{ d.new || '–' }}</td></tr></tbody></table>
+    </section>
+
+    <section data-help="plm-bom-3d" class="wq-panel mb-5 p-5">
+      <h2 class="wq-h2">{{ t('3D') }}</h2>
+      <Button v-if="!scene" :label="t('Show the assembly in 3D')" @click="show3d" />
+      <template v-else>
+        <p v-if="!scene.items.length" class="wq-muted">{{ t('No part of this BOM has a model and a place yet.') }}</p>
+        <Model3D v-else :items="sceneItems" :height="480" />
+        <p v-if="scene.cut" class="mt-2 text-sm text-ink-amber-7">{{ t('Only the first {n} parts are shown.', { n: sceneItems.length }) }}</p>
+        <p v-if="scene.missing.length" class="mt-2 text-sm text-ink-gray-6">{{ t('Not shown (nothing is guessed):') }}
+          <span v-for="m in scene.missing" :key="m.code" class="me-2">{{ m.code }} {{ m.name }} ({{ m.why === 'model' ? t('no model') : t('no place in the assembly') }})</span></p>
+      </template>
     </section>
 
     <section class="wq-panel mb-5 p-5">

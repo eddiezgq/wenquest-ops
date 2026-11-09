@@ -197,6 +197,11 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
         need(u, "plm:view")
         return run(lambda: B.compare(c, ident(a), ident(b)))
 
+    @app.get("/api/plm/boms/{bid}/scene")
+    def bom_scene(bid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        return run(lambda: B.scene(c, ident(bid)))
+
     @app.get("/api/plm/boms/{bid}")
     def bom(bid: int, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "plm:view")

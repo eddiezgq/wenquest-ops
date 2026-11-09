@@ -8,8 +8,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from psycopg.types.json import Jsonb
+
 from wqops.erp import ErpClient
 from wqops.hub.plm import parts as PT
+from wqops.hub.plm import place as PL
 from wqops.hub.plm import rules as R
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
@@ -26,10 +29,15 @@ def get(conn, bid: int) -> dict:
 
 
 def lines(conn, bid: int) -> list[dict]:
-    rows = conn.execute("select l.pos, l.qty, l.uom, l.note, p.id as part_id, p.item_code as code, p.name, p.status "
-                        "as part_status, p.source, p.category from plm_bom_lines l join plm_parts p "
-                        "on p.id = l.part_id where l.bom_id = %s order by l.pos", (bid,)).fetchall()
+    rows = conn.execute("select l.pos, l.qty, l.uom, l.note, jsonb_array_length(l.placements) as placed, p.id as "
+                        "part_id, p.item_code as code, p.name, p.status as part_status, p.source, p.category from "
+                        "plm_bom_lines l join plm_parts p on p.id = l.part_id where l.bom_id = %s order by l.pos",
+                        (bid,)).fetchall()
     return [dict(r, qty=R.qty_text(r["qty"])) for r in rows]
+
+
+def _count(q: Decimal) -> int | None:
+    return int(q) if q == q.to_integral_value() else None
 
 
 def _supplier(conn, code: str) -> bool | None:
@@ -128,8 +136,9 @@ def start(conn, user: dict, pid: int, change_id=None) -> dict:
                          (pid, R.next_revision(revs[-1]["revision"] if revs else None), ch["id"] if ch else None,
                           [user["email"]], user["email"])).fetchone()
         if last:
-            conn.execute("insert into plm_bom_lines (bom_id, pos, part_id, qty, uom, note) select %s, pos, "
-                         "part_id, qty, uom, note from plm_bom_lines where bom_id = %s", (b["id"], last["id"]))
+            conn.execute("insert into plm_bom_lines (bom_id, pos, part_id, qty, uom, note, placements) select %s, "
+                         "pos, part_id, qty, uom, note, placements from plm_bom_lines where bom_id = %s",
+                         (b["id"], last["id"]))
         PT.log(conn, "bom", b["id"], user["email"], "created",
                f"{p['item_code']} BOM rev {b['revision']}" + (f" ({ch['name']})" if ch else ""))
     return view(conn, b["id"])
@@ -145,6 +154,8 @@ def set_lines(conn, user: dict, bid: int, rows, *, note: str | None = None,  # n
         raise PlmError(say("lines are a list of up to {n} rows", n=MAX_LINES))
     clean = []
     seen = set()
+    before = {r["part_id"]: r["placements"] for r in conn.execute(
+        "select part_id, placements from plm_bom_lines where bom_id = %s", (bid,))}
     for n, r in enumerate(rows, start=1):
         if not isinstance(r, dict):
             raise PlmError(say("line {n}: not a row", n=n))
@@ -170,14 +181,24 @@ def set_lines(conn, user: dict, bid: int, rows, *, note: str | None = None,  # n
         uom = str(r.get("uom") or "").strip() or part["uom"]
         if uom != part["uom"]:      # unit conversions in a BOM: later, with ERPNext's conversion factors
             raise PlmError(say("line {n}: {code} counts in {uom}", n=n, code=part["item_code"], uom=part["uom"]))
-        clean.append((n, part["id"], q, uom, str(r.get("note") or "").strip()[:500]))
+        # where each use sits (FreeCAD, STEP): sent with the row, else kept from before while it still fits
+        if "placements" in r:
+            try:
+                pl = PL.clean_list(r["placements"] or [], _count(Decimal(q)))
+            except PL.PlaceError as exc:
+                raise PlmError(say("line {n}: {error}", n=n, error=str(exc))) from exc
+        else:
+            pl = before.get(part["id"]) or []
+            if len(pl) != (_count(Decimal(q)) or -1):
+                pl = []
+        clean.append((n, part["id"], q, uom, str(r.get("note") or "").strip()[:500], Jsonb(pl)))
     with conn.transaction():
         if conn.execute("select status from plm_boms where id = %s for update", (bid,)).fetchone()["status"] != "draft":
             raise PlmError(say("the BOM moved on meanwhile: open it again"))
         conn.execute("delete from plm_bom_lines where bom_id = %s", (bid,))
         for row in clean:
-            conn.execute("insert into plm_bom_lines (bom_id, pos, part_id, qty, uom, note) values (%s, %s, %s, %s, %s, "
-                         "%s)", (bid, *row))
+            conn.execute("insert into plm_bom_lines (bom_id, pos, part_id, qty, uom, note, placements) values "
+                         "(%s, %s, %s, %s, %s, %s, %s)", (bid, *row))
         conn.execute("update plm_boms set note = %s, updated_at = now(), editors = case when %s = any(editors) then "
                      "editors else editors || %s end where id = %s",
                      (b["note"] if note is None else str(note).strip()[:2000], user["email"], [user["email"]], bid))
@@ -265,3 +286,58 @@ def compare(conn, a: int, b: int) -> dict:
     if x["part_id"] != y["part_id"]:
         raise PlmError(say("compare two revisions of the same BOM"))
     return {"from": x["revision"], "to": y["revision"], "diff": R.diff(lines(conn, a), lines(conn, b))}
+
+
+STEP_FILES = (".step", ".stp")
+MAX_SCENE = 3000          # placed models in one 3D view
+MAX_DEPTH = 8
+
+
+def _model(conn, pid: int) -> dict | None:
+    """The STEP model on the part's current revision, if it has one."""
+    rev = PT.current(conn, pid)
+    return next((f for f in PT.files(conn, rev["id"]) if f["name"].lower().endswith(STEP_FILES)), None) if rev else None
+
+
+def _shown_bom(conn, pid: int) -> int | None:
+    r = conn.execute("select id from plm_boms where part_id = %s and status <> 'superseded' order by "
+                     "(status = 'released') desc, id desc limit 1", (pid,)).fetchone()
+    return r["id"] if r else None
+
+
+def scene(conn, bid: int) -> dict:
+    """Everything under the BOM in its frame, for the 3D view: each use of a part with a STEP model where it sits
+    (a 4x4 matrix); an assembly without its own model is shown through its BOM. Lines without placements or
+    models are listed, never guessed (round 124 rule 2)."""
+    b = get(conn, bid)
+    items, missing, cut = [], {}, False
+
+    def miss(ln, why: str) -> None:
+        missing.setdefault(ln["item_code"], {"code": ln["item_code"], "name": ln["name"], "why": why})
+
+    def walk(bom_id: int, m: list[float], depth: int, trail: frozenset) -> None:
+        nonlocal cut
+        for ln in conn.execute("select l.part_id, l.placements, p.item_code, p.name from plm_bom_lines l join "
+                               "plm_parts p on p.id = l.part_id where l.bom_id = %s order by l.pos",
+                               (bom_id,)).fetchall():
+            f = _model(conn, ln["part_id"])
+            sub = None if f else _shown_bom(conn, ln["part_id"])
+            if f is None and sub is None:
+                miss(ln, "model")
+                continue
+            if not ln["placements"]:
+                miss(ln, "placement")
+                continue
+            for pl in ln["placements"]:
+                mm = PL.mul(m, PL.matrix(pl))
+                if f is not None:
+                    if len(items) >= MAX_SCENE:
+                        cut = True
+                        return
+                    items.append({"part_id": ln["part_id"], "code": ln["item_code"], "name": ln["name"],
+                                  "file": {"id": f["id"], "name": f["name"], "sha256": f["sha256"]}, "m": mm})
+                elif depth < MAX_DEPTH and ln["part_id"] not in trail:
+                    walk(sub, mm, depth + 1, trail | {ln["part_id"]})
+
+    walk(bid, PL.IDENTITY, 0, frozenset({b["part_id"]}))
+    return {"bom": bid, "items": items, "missing": list(missing.values()), "cut": cut}

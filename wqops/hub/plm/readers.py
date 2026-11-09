@@ -14,6 +14,7 @@ import re
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 
+from wqops.hub.plm import place as PL
 from wqops.i18n import say
 
 MAX_NODES = 5000
@@ -88,7 +89,7 @@ def _decode(s: str) -> str:
     return _CTRL.sub("", s.replace("\\\\", "\\"))
 
 
-def read_step(data: bytes) -> dict:
+def read_step(data: bytes) -> dict:  # noqa: PLR0912 - one pass over the file
     try:                                   # CAD programs often write names as plain UTF-8 bytes
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -96,6 +97,8 @@ def read_step(data: bytes) -> dict:
     if "ISO-10303-21" not in text[:200]:
         raise ReadError(say("this is not a STEP file"))
     ent: dict[str, tuple[str, list[str]]] = {}
+    geo: dict[str, tuple[str, list[str]]] = {}       # what places a use of a part in its assembly
+    rrwt: dict[str, str] = {}                        # representation relationship -> its transformation
     for st in _statements(text):
         m = _ENTITY.match(st)
         if m and m.group(2) in ("PRODUCT", "PRODUCT_DEFINITION_FORMATION",
@@ -106,17 +109,26 @@ def read_step(data: bytes) -> dict:
             if len(a) < need:
                 raise ReadError(say("the STEP file is damaged near #{n}", n=m.group(1)))
             ent["#" + m.group(1)] = (m.group(2), a)
+        elif m and m.group(2) in GEO:
+            geo["#" + m.group(1)] = (m.group(2), _args(m.group(3)))
+        elif (c := _COMPLEX.match(st)) and (t := _RRWT.search(c.group(2))):
+            rrwt["#" + c.group(1)] = "#" + t.group(1)
     products = {k: v[1] for k, v in ent.items() if v[0] == "PRODUCT"}
     if not products:
         raise ReadError(say("the STEP file names no parts"))
     formation = {k: v[1][2] for k, v in ent.items() if v[0].startswith("PRODUCT_DEFINITION_FORMATION")}
     pd = {k: formation.get(v[1][2]) for k, v in ent.items() if v[0] == "PRODUCT_DEFINITION"}   # -> product
     uses = Counter()
-    for v in ent.values():
+    where = _placements(geo, rrwt)                   # NAUO -> placement, where the file says
+    placed: dict[tuple, list | None] = {}
+    for k, v in ent.items():
         if v[0] == "NEXT_ASSEMBLY_USAGE_OCCURRENCE":
             parent, child = pd.get(v[1][3]), pd.get(v[1][4])
             if parent and child:
                 uses[(parent, child)] += 1
+                pl = where.get(k)
+                got = placed.get((parent, child), [])
+                placed[(parent, child)] = None if pl is None or got is None else [*got, pl]
     if len(products) > MAX_NODES:
         raise ReadError(say("more than {n} parts in one file", n=MAX_NODES))
     nodes = []
@@ -126,8 +138,58 @@ def read_step(data: bytes) -> dict:
         nodes.append({"key": k, "code": code, "name": name})   # a part number only when the file gives one
     if len(nodes) > MAX_NODES:
         raise ReadError(say("more than {n} parts in one file", n=MAX_NODES))
-    links = [{"parent": p, "child": c, "qty": str(n)} for (p, c), n in sorted(uses.items())]
+    links = [{"parent": p, "child": c, "qty": str(n), **({"placements": placed[(p, c)]} if placed.get((p, c)) else {})}
+             for (p, c), n in sorted(uses.items())]
     return {"nodes": nodes, "links": links}
+
+
+GEO = ("AXIS2_PLACEMENT_3D", "CARTESIAN_POINT", "DIRECTION", "ITEM_DEFINED_TRANSFORMATION",
+       "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION", "PRODUCT_DEFINITION_SHAPE")
+_COMPLEX = re.compile(r"#(\d+)\s*=\s*\((.*)\)\s*$", re.S)
+_RRWT = re.compile(r"REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION\s*\(\s*#(\d+)\s*\)")
+
+
+def _numbers(s: str) -> list[float] | None:
+    try:
+        return [float(x) for x in s.strip().strip("()").split(",")]
+    except ValueError:
+        return None
+
+
+def _placements(geo: dict, rrwt: dict) -> dict[str, dict]:
+    """Each assembly use (NEXT_ASSEMBLY_USAGE_OCCURRENCE) with the place the file gives it: the transformation
+    from the part's frame to the assembly's (ITEM_DEFINED_TRANSFORMATION: item 2 after item 1 undone). A use the
+    file gives no place, or a malformed one, is left out: never guessed."""
+    def axes(ref: str):
+        e = geo.get(ref)
+        if not e or e[0] != "AXIS2_PLACEMENT_3D" or len(e[1]) < 2:
+            return None
+        def vec(r, kind):
+            g = geo.get(r)
+            return _numbers(g[1][1]) if g and g[0] == kind and len(g[1]) > 1 else None
+        o = vec(e[1][1], "CARTESIAN_POINT")
+        z = vec(e[1][2], "DIRECTION") if len(e[1]) > 2 and e[1][2].startswith("#") else None
+        x = vec(e[1][3], "DIRECTION") if len(e[1]) > 3 and e[1][3].startswith("#") else None
+        if o is None or len(o) != 3 or (z and len(z) != 3) or (x and len(x) != 3):
+            return None
+        return PL.from_axes(o, z, x)
+
+    pds = {k: v[1][2] for k, v in geo.items() if v[0] == "PRODUCT_DEFINITION_SHAPE" and len(v[1]) > 2}
+    out = {}
+    for v in geo.values():
+        if v[0] != "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION" or len(v[1]) < 2:
+            continue
+        nauo, t = pds.get(v[1][1]), geo.get(rrwt.get(v[1][0], ""))
+        if not nauo or not t or t[0] != "ITEM_DEFINED_TRANSFORMATION" or len(t[1]) < 4:
+            continue
+        a1, a2 = axes(t[1][2]), axes(t[1][3])
+        if a1 is None or a2 is None:
+            continue
+        try:
+            out[nauo] = PL.placement(PL.mul(a2, PL.inverse(a1)))
+        except PL.PlaceError:
+            continue
+    return out
 
 
 # ---- Excel

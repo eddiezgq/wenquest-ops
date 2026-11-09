@@ -7,6 +7,7 @@ import { Badge, Button } from 'frappe-ui'
 import PageTop from '../ui/PageTop.vue'
 import Trail from '../ui/Trail.vue'
 import PlmConfig from '../components/PlmConfig.vue'
+import Model3D from '../components/Model3D.vue'
 import { api, apiForm } from '../api'
 import { t } from '../i18n'
 import { fkl, stl } from '../plm'
@@ -50,6 +51,10 @@ async function call(path, method, body, msg) {
   try { set(await api(path, { method, body })); done.value = msg; pw.value = '' } catch (e) { error.value = e.message }
 }
 const id = () => v.value.part.id
+// a STEP model turned in the browser (round 124, 27a)
+const look = ref(null)
+const isStep = (x) => /\.(step|stp)$/i.test(x.name)
+const lookItems = computed(() => look.value ? [{ url: `/api/plm/parts/${v.value.part.id}/files/${look.value.id}`, m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], code: v.value.part.code, name: look.value.name }] : [])
 function save() {
   const body = { params: f.value.params, description: f.value.description }
   if (v.value.part.status === 'draft') for (const k of ['name', 'source', 'uom']) if (head.value[k] !== v.value.part[k]) body[k] = head.value[k]
@@ -105,7 +110,9 @@ const kb = (n) => (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB'
       <p v-if="!shown.files.length" class="wq-muted">{{ t('None.') }}</p>
       <ul v-else class="text-sm"><li v-for="x in shown.files" :key="x.id" class="mb-1">
         <a :href="`/api/plm/parts/${v.part.id}/files/${x.id}`" class="wq-link">{{ x.name }}</a> · {{ fkl(x.kind) }} · {{ kb(x.size_bytes) }}
+        <button v-if="isStep(x)" class="ms-2 wq-link" @click="look = look?.id === x.id ? null : x">{{ look?.id === x.id ? t('Hide 3D') : t('3D') }}</button>
         <button v-if="draft && v.can_edit" class="ms-2 text-ink-red-7" @click="removeFile(x.id)">{{ t('Remove') }}</button></li></ul>
+      <Model3D v-if="look" :items="lookItems" class="mt-3" />
       <form v-if="draft && v.can_edit" class="mt-2 flex flex-wrap items-end gap-2" @submit.prevent="upload">
         <select v-model="kind" class="wq-select w-36"><option v-for="k in ['model', 'drawing', 'image', 'other']" :key="k" :value="k">{{ fkl(k) }}</option></select>
         <input type="file" class="text-sm" @change="file = $event.target.files[0]">

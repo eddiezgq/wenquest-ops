@@ -39,6 +39,8 @@ purchasing and the books; WenQuest Ops reads and writes it through ERPNext's RES
 | echarts (npm) | 5.6.0 | Apache-2.0 | https://github.com/apache/echarts |
 | frappe-ui (npm) | 1.0.0 | MIT | https://github.com/frappe/frappe-ui |
 | markdown-it (npm) | 14.1.0 | MIT | https://github.com/markdown-it/markdown-it |
+| occt-import-js (npm) | 0.0.23 | LGPL-2.1 (with Open CASCADE Technology, LGPL-2.1 with exception; unmodified, loaded as a separate WebAssembly file) | https://github.com/kovacsv/occt-import-js |
+| three (npm) | 0.186.1 | MIT | https://github.com/mrdoob/three.js |
 | vue (npm) | 3.5.22 | MIT | https://github.com/vuejs/core |
 | vue-router (npm) | 4.5.1 | MIT | https://github.com/vuejs/router |
 | yaml (npm) | 2.9.1 | ISC | https://github.com/eemeli/yaml |

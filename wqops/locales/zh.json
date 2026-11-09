@@ -3502,5 +3502,11 @@
  "the STEP file is damaged near #{n}": "STEP 文件在 #{n} 附近损坏",
  "ERPNext did not answer: try again": "ERPNext 没有回应，请再试",
  "send the length of the request": "请求要带上长度（Content-Length）",
- "the first password does not pass the rules": "初始密码不符合规则"
+ "the first password does not pass the rules": "初始密码不符合规则",
+ "a placement is a move p and a turn q": "装配位置由位移 p 和转角 q 组成",
+ "a placement holds numbers": "装配位置只能是数字",
+ "the turn of a placement is not a unit quaternion": "装配位置的转角不是单位四元数",
+ "placements are a list": "装配位置应是一个列表",
+ "{n} placements for a quantity of {qty}": "数量是 {qty}，装配位置却有 {n} 个",
+ "{parent} → {child}: {error}": "{parent} → {child}：{error}"
 }
