@@ -65,6 +65,16 @@ def _is_solid(o):
         return False
 
 
+def _place(o):
+    """Where the object sits in its parent (an App::Part's children are placed relative to it)."""
+    try:
+        pl = o.Placement
+        return {"p": [round(pl.Base.x, 6), round(pl.Base.y, 6), round(pl.Base.z, 6)],
+                "q": [round(v, 9) for v in pl.Rotation.Q]}
+    except Exception:
+        return None
+
+
 def items(doc, outside=None):
     """``outside`` collects links to objects of other files: those are not sent (push them from their own file)."""
     outside = [] if outside is None else outside
@@ -72,18 +82,19 @@ def items(doc, outside=None):
     for o in doc.Objects:
         if o.TypeId in ASSEMBLY:
             out.append({"name": o.Name, "label": o.Label, "kind": "assembly", "code": _code(o),
-                        "children": [c.Name for c in _kids(o)]})
+                        "children": [c.Name for c in _kids(o)], "placement": _place(o)})
         elif o.TypeId == "App::Link":
             t = o.LinkedObject
             same = t is not None and t.Document is doc
-            out.append({"name": o.Name, "label": o.Label, "kind": "link", "target": t.Name if same else None})
+            out.append({"name": o.Name, "label": o.Label, "kind": "link", "target": t.Name if same else None,
+                        "placement": _place(o)})
             if t is not None and not same:
                 outside.append(o.Label)
         elif _is_solid(o):
             vol = float(o.Shape.Volume)
             d = _density(o)
             it = {"name": o.Name, "label": o.Label, "kind": "solid", "code": _code(o), "volume_mm3": round(vol, 3),
-                  "material": _material(o)}
+                  "material": _material(o), "placement": _place(o)}
             if d:
                 it["mass_kg"] = round(vol * 1e-9 * d, 6)
             out.append(it)
@@ -91,8 +102,9 @@ def items(doc, outside=None):
 
 
 def steps(doc, data):
-    """The STEP of every solid node: node key -> (file name, bytes)."""
-    import Import
+    """The STEP of every solid node in its own frame (its placement goes with the assembly links, not into the
+    file): node key -> (file name, bytes)."""
+    import FreeCAD as App
     out = {}
     with tempfile.TemporaryDirectory(prefix="wqplm-") as tmp:
         for i, n in enumerate(data["nodes"]):
@@ -101,7 +113,9 @@ def steps(doc, data):
                 continue
             safe = re.sub(r"[^\w.-]+", "_", n["name"])[:60] or n["key"]
             path = os.path.join(tmp, f"{i}.step")
-            Import.export([o], path)
+            shape = o.Shape.copy()
+            shape.Placement = App.Placement()
+            shape.exportStep(path)
             with open(path, "rb") as f:
                 out[n["key"]] = (safe + ".step", f.read())
     return out

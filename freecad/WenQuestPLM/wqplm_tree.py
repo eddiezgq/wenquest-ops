@@ -2,8 +2,10 @@
 
 Plain Python, no FreeCAD needed (tested on its own). The FreeCAD side (wqplm_doc.py) turns the document into
 ``items``: each {"name", "label", "kind": "assembly" | "solid" | "link", "children": [names], "target": name,
-"code", "material", "volume_mm3", "mass_kg"}. This gives what the PLM inbox takes:
-{"nodes": [{"key", "code", "name", ...}], "links": [{"parent", "child", "qty"}]}.
+"code", "material", "volume_mm3", "mass_kg", "placement": {"p": [x, y, z], "q": [x, y, z, w]}} (where the object
+sits in its assembly; a link's own placement). This gives what the PLM inbox takes:
+{"nodes": [{"key", "code", "name", ...}], "links": [{"parent", "child", "qty", "placements"}]}; placements only
+when every use of the pair has one (round 124, 27a).
 """
 from collections import Counter
 
@@ -24,6 +26,13 @@ def build(items, title="Model"):
 
     used = Counter()
     links = Counter()
+    where = {}
+
+    def put(pair, obj):
+        pl = (by.get(obj) or {}).get("placement")
+        got = where.get(pair, [])
+        where[pair] = None if pl is None or got is None else [*got, pl]
+
     for i in items:
         if i["kind"] != "assembly":
             continue
@@ -33,6 +42,7 @@ def build(items, title="Model"):
                 continue
             links[(i["name"], r["name"])] += 1
             used[r["name"]] += 1
+            put((i["name"], r["name"]), c)
     parts = [i for i in items if i["kind"] in ("assembly", "solid")]
     tops = [i["name"] for i in parts if not used[i["name"]]]
     nodes = []
@@ -47,4 +57,7 @@ def build(items, title="Model"):
         nodes.append({"key": root, "code": "", "name": title})
         for t in tops:
             links[(root, t)] += 1
-    return {"nodes": nodes, "links": [{"parent": p, "child": c, "qty": n} for (p, c), n in sorted(links.items())]}
+            put((root, t), t)
+    return {"nodes": nodes, "links": [{"parent": p, "child": c, "qty": n,
+                                       **({"placements": where[(p, c)]} if where.get((p, c)) else {})}
+                                      for (p, c), n in sorted(links.items())]}
