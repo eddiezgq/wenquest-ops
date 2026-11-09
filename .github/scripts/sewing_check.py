@@ -36,4 +36,11 @@ n = conn.execute("select count(*) as n from plm_parts where status = 'released'"
 capa = conn.execute("select status, root_cause from capas").fetchone()
 print(n, "parts released;", capa["status"])
 assert n >= 500 and capa["status"] == "investigation" and "梭尖硬度" in capa["root_cause"]
+# the ready parts manual (round 124, 27d): every page has a picture, 6 of them from the 3D models, names in English
+m = conn.execute("select m.edition, m.pages, m.names_open, p.item_code from plm_manuals m join plm_parts p on "
+                 "p.id = m.part_id").fetchone()
+kinds = [r["kind"] for r in conn.execute("select e.kind from plm_explodes e")]
+print(m["item_code"], "manual edition", m["edition"], len(m["pages"]), "pages;", kinds.count("model"), "from 3D")
+assert m["item_code"] == "WQ88-0000-5TA" and m["edition"] == 1 and m["names_open"] == 0
+assert all(p["picture"] for p in m["pages"]) and kinds.count("model") == 6
 print("sewing demo: OK")

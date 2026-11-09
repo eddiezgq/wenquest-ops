@@ -43,7 +43,7 @@ async function revoke(id) {
         <p v-if="v.readiness.not_released.length" class="text-ink-red-7">{{ t('Not released yet, so no manual:') }}
           <span v-for="x in v.readiness.not_released" :key="x.code" class="me-2">
             <RouterLink v-if="x.bom" :to="`/plm/boms/${x.bom}`" class="wq-link">{{ x.code }}</RouterLink><template v-else>{{ x.code }}</template> {{ x.name }}</span></p>
-        <p v-else>{{ t('{n} pages: this assembly, then each assembly below it.', { n: v.readiness.boms.length }) }}</p>
+        <p v-else>{{ t('{n} sections: this assembly, then each assembly below it.', { n: v.readiness.boms.length }) }}</p>
         <p v-if="v.readiness.no_picture.length" class="text-ink-amber-7">{{ t('No exploded view yet (the table only):') }}
           <span v-for="x in v.readiness.no_picture" :key="x.bom" class="me-2"><RouterLink :to="`/plm/boms/${x.bom}/explode`" class="wq-link">{{ x.code }}</RouterLink> {{ x.name }}</span></p>
         <p v-if="v.readiness.names_open" class="text-ink-amber-7">{{ t('{n} English names not confirmed: those parts show the Chinese name, marked “to be confirmed”.', { n: v.readiness.names_open }) }}</p>
@@ -52,7 +52,7 @@ async function revoke(id) {
 
       <h3 class="mt-5 mb-2 text-base font-medium">{{ t('Editions') }}</h3>
       <p v-if="!v.editions.length" class="wq-muted">{{ t('None.') }}</p>
-      <table v-else class="wq-table text-sm"><thead><tr><th>{{ t('manual::Edition') }}</th><th>{{ t('Pages') }}</th><th>{{ t('manual::Changes') }}</th><th>{{ t('Made by') }}</th><th>{{ t('Made at') }}</th><th /></tr></thead>
+      <table v-else class="wq-table text-sm"><thead><tr><th>{{ t('manual::Edition') }}</th><th>{{ t('Sections') }}</th><th>{{ t('manual::Changes') }}</th><th>{{ t('Made by') }}</th><th>{{ t('Made at') }}</th><th /></tr></thead>
         <tbody><tr v-for="e in v.editions" :key="e.id"><td><RouterLink :to="`/plm/manuals/${e.id}`" class="wq-link">{{ t('Edition {n}', { n: e.edition }) }}</RouterLink></td>
           <td>{{ e.pages }}</td><td>{{ e.edition === 1 ? '–' : e.changes }}</td><td>{{ e.created_by }}</td><td>{{ when(e.created_at) }}</td>
           <td><a :href="`/api/plm/manuals/${e.id}/pdf`" target="_blank" class="wq-link">PDF</a></td></tr></tbody></table>

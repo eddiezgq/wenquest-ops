@@ -2376,7 +2376,6 @@
  "Fit to the picture": "居中显示",
  "Parts manual": "配件手册",
  "Not released yet, so no manual:": "还没发布，不能生成手册：",
- "{n} pages: this assembly, then each assembly below it.": "共 {n} 页：先是本部件，再是它下面的每个部件。",
  "No exploded view yet (the table only):": "还没有爆炸图（只放零件表）：",
  "{n} English names not confirmed: those parts show the Chinese name, marked “to be confirmed”.": "有 {n} 个英文名还没确认：这些零件显示中文名，标“英文名待确认”。",
  "Make a new edition": "生成新的一版",
@@ -2409,5 +2408,7 @@
  "manual::Edition": "版次",
  "manual::Changes": "变化",
  "manual::For": "给谁",
- "manual::Revoke": "作废"
+ "manual::Revoke": "作废",
+ "{n} sections: this assembly, then each assembly below it.": "共 {n} 节：先是本部件，再是它下面的每个部件。",
+ "Sections": "节数"
 }
