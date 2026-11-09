@@ -5,6 +5,7 @@ rules need plm:release.
 
 from __future__ import annotations
 
+import json
 from urllib.parse import quote
 
 import psycopg
@@ -21,6 +22,7 @@ from wqops.hub.plm import boms as B
 from wqops.hub.plm import catalog as CAT
 from wqops.hub.plm import config as CFG
 from wqops.hub.plm import ecn as ECN
+from wqops.hub.plm import explode as EX
 from wqops.hub.plm import intake as IN
 from wqops.hub.plm import parts as PT
 from wqops.hub.quality import records as Q
@@ -61,6 +63,15 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
         except ValueError as exc:
             raise HTTPException(400, say("the request is not JSON")) from exc
         return d if isinstance(d, dict) else {}
+
+    def has_nul(v) -> bool:
+        if isinstance(v, str):
+            return "\x00" in v
+        if isinstance(v, dict):
+            return any(has_nul(k) or has_nul(x) for k, x in v.items())
+        if isinstance(v, list):
+            return any(has_nul(x) for x in v)
+        return False
 
     def ident(v: int) -> int:
         if not 0 < v < 2**63:
@@ -196,6 +207,60 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
     def compare(a: int, b: int, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "plm:view")
         return run(lambda: B.compare(c, ident(a), ident(b)))
+
+    # ---- exploded views and English names (round 124, 27b)
+    @app.get("/api/plm/explode/{bid}")
+    def explode_view(bid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        return {**run(lambda: EX.view(c, ident(bid))), **flags(u)}
+
+    @app.post("/api/plm/explode/{bid}")
+    async def explode_save(bid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        form = await request.form(max_files=2, max_fields=5, max_part_size=EX.MAX_IMAGE + 1)
+        try:
+            data = json.loads(str(form.get("data") or "{}"))
+        except (ValueError, RecursionError) as exc:
+            raise HTTPException(400, say("the request is not JSON")) from exc
+        if not isinstance(data, dict) or has_nul(data):
+            raise HTTPException(400, say("the request is not JSON"))
+        blobs = {}
+        for k in ("snapshot", "image"):
+            up = form.get(k)
+            blobs[k] = (await up.read(EX.MAX_IMAGE + 1), up.filename or k) if isinstance(up, UploadFile) else None
+        return {**run(lambda: EX.save(c, u, ident(bid), data,
+                                      snapshot=blobs["snapshot"][0] if blobs["snapshot"] else None,
+                                      image=blobs["image"][0] if blobs["image"] else None,
+                                      image_name=blobs["image"][1] if blobs["image"] else "")), **flags(u)}
+
+    @app.get("/api/plm/explode/{bid}/{which}")
+    def explode_picture(bid: int, which: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        if which not in ("snapshot", "image"):
+            raise HTTPException(404, say("not found"))
+        data = run(lambda: EX.picture(c, ident(bid), which))
+        return Response(data, media_type="image/png" if data.startswith(b"\x89PNG") else "image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/plm/explode/{bid}/names")
+    def explode_names(bid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        from wqops.hub.ai import agent as AG  # noqa: PLC0415
+        from wqops.hub.ont import api as OA  # noqa: PLC0415
+
+        need(u, "plm:edit")
+        need(u, "ai:use")
+        try:
+            return run(lambda: EX.draft_names(c, u, ident(bid), ai_model, today=OA.today(company()[0])))
+        except (AG.DailyLimit, HTTPException):
+            raise
+        except Exception as exc:
+            raise HTTPException(502, say("the model did not answer: {exc}", exc=exc)) from exc
+
+    @app.put("/api/plm/parts/{pid}/name-en")
+    async def name_en(pid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        d = await body(request)
+        return run(lambda: EX.set_name_en(c, u, ident(pid), d.get("name_en"), confirm=bool(d.get("confirm"))))
 
     @app.get("/api/plm/boms/{bid}/scene")
     def bom_scene(bid: int, u=Depends(user_dep), c=Depends(conn_dep)):

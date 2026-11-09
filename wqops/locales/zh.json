@@ -3508,5 +3508,18 @@
  "the turn of a placement is not a unit quaternion": "装配位置的转角不是单位四元数",
  "placements are a list": "装配位置应是一个列表",
  "{n} placements for a quantity of {qty}": "数量是 {qty}，装配位置却有 {n} 个",
- "{parent} → {child}: {error}": "{parent} → {child}：{error}"
+ "{parent} → {child}: {error}": "{parent} → {child}：{error}",
+ "English names under BOM {id}": "BOM {id} 下零件的英文名",
+ "an exploded view is made from the 3D models or from an uploaded drawing": "爆炸图要么用三维模型，要么用上传的图",
+ "no picture yet": "还没有图",
+ "the balloons are not readable": "气泡数据读不了",
+ "the layout is not readable": "排版数据读不了",
+ "{what} is a PNG or JPG picture of up to 20 MB": "{what}要是不超过 20 MB 的 PNG 或 JPG 图片",
+ "the picture": "截图",
+ "the drawing": "上传的图",
+ "there is no AI here: write the English names by hand": "这里没有配 AI：请手填英文名",
+ "this BOM revision is superseded: lay out the current one": "这个 BOM 版本已被替代：请排当前版本",
+ "upload the drawing first": "请先上传图",
+ "{n} balloons": "{n} 个气泡",
+ "{n} names": "{n} 个名称"
 }

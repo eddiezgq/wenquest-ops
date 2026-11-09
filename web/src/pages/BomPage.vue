@@ -124,8 +124,9 @@ const toErp = () => call(`/api/plm/boms/${v.value.bom.id}/to-erp`, 'POST', {}, t
 
     <section data-help="plm-bom-3d" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">{{ t('3D') }}</h2>
-      <Button v-if="!scene" :label="t('Show the assembly in 3D')" @click="show3d" />
-      <template v-else>
+      <div class="flex flex-wrap gap-2"><Button v-if="!scene" :label="t('Show the assembly in 3D')" @click="show3d" />
+        <RouterLink :to="`/plm/boms/${v.bom.id}/explode`"><Button :label="t('Exploded view for the parts manual')" /></RouterLink></div>
+      <template v-if="scene">
         <p v-if="!scene.items.length" class="wq-muted">{{ t('No part of this BOM has a model and a place yet.') }}</p>
         <Model3D v-else :items="sceneItems" :height="480" />
         <p v-if="scene.cut" class="mt-2 text-sm text-ink-amber-7">{{ t('Only the first {n} parts are shown.', { n: sceneItems.length }) }}</p>
