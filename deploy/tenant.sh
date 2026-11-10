@@ -141,6 +141,9 @@ demo)
         log "The demo data of $id changed ($(cat "$d/.demo-loaded" || true) -> $DATA): installing it again (about 20 minutes) ..."
         exec 9>/tmp/wenquest-deploy.lock
         flock -w 1500 9 || die "another deployment holds the lock; try again later"
+        # the hub image being deployed (the demo's), so the export has what this version of the scripts asks for
+        img=$(envval WQO_HUB_IMAGE "$BASE/.env")
+        [ -z "$img" ] || { sed -i '/^WQO_HUB_IMAGE=/d' "$d/.env"; printf 'WQO_HUB_IMAGE=%s\n' "$img" >> "$d/.env"; }
         (cd "$d" && cp "$BASE/demo-reinstall.sh" "$BASE/lib.sh" . && WQO_DIR="$d" ./demo-reinstall.sh out) \
             || die "could not take $id down for the new demo data; it is as it was"
         flock -u 9

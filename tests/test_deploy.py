@@ -133,7 +133,8 @@ def test_demo_company_installed_again_when_its_data_changes(tmp_path):
     shutil.copy(D / "tenant.sh", base)
     shutil.copy(D / "demo-reinstall.sh", base)
     calls = tmp_path / "calls"
-    (base / ".env").write_text("WQO_INSTALLED=2026-11-01\nWQO_DOMAIN=qms.example.cn\nWQO_ERP_DOMAIN=erp.example.cn\n")
+    (base / ".env").write_text("WQO_INSTALLED=2026-11-01\nWQO_DOMAIN=qms.example.cn\nWQO_ERP_DOMAIN=erp.example.cn\n"
+                               "WQO_HUB_IMAGE=127.0.0.1:5000/qms/wenquest-ops-hub:sha-new\n")
     (base / "install.sh").write_text(f"""#!/usr/bin/env bash
 echo "install $*" >> {calls}
 printf 'WQO_INSTALLED=now\\nWQO_ERP_API_KEY=new\\n' >> .env
@@ -159,7 +160,8 @@ esac
     company.write_text("demo: true\n")
     d = tenants / "sewing"
     (d / ".env").write_text("WQO_INSTALLED=2026-11-07\nWQO_ERP_API_KEY=old\nWQO_ERP_API_SECRET=old\n"
-                            "WQO_DOMAIN=sewing.qms.example.cn\nPOSTGRES_PASSWORD=kept\n")
+                            "WQO_DOMAIN=sewing.qms.example.cn\nPOSTGRES_PASSWORD=kept\n"
+                            "WQO_HUB_IMAGE=127.0.0.1:5000/qms/wenquest-ops-hub:sha-old\n")
     (d / ".demo-loaded").write_text("")                   # loaded on 11-07, before the data had versions
     for f in ("lib.sh", "install.sh", "demo-reset.sh"):   # an installed company has the scripts beside it
         shutil.copy(base / f, d)
@@ -175,6 +177,8 @@ esac
     assert (d / ".demo-loaded").read_text().strip() == "abc123"
     env_now = (d / ".env").read_text()
     assert "WQO_ERP_API_KEY=old" not in env_now and "POSTGRES_PASSWORD=kept" in env_now
+    assert "wenquest-ops-hub:sha-new" in env_now and "sha-old" not in env_now
+    assert "run --rm --no-deps -T hub python -m wqops.hub.accounts export-owner" in log     # the new image, not exec
     assert "visitor@example.com" in (tmp_path / "got-trial-import").read_text()
     assert "scrypt$x" in (tmp_path / "got-import-owner").read_text() and not (d / "backups" / "reinstall").exists()
     calls.write_text("")

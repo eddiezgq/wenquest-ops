@@ -13,9 +13,11 @@ case "${1:-}" in
 out)
     mkdir -p "$keep" && chmod 700 "$keep"
     if [ ! -f "$keep/owner.json" ]; then
-        dc exec -T hub python -m wqops.hub.trial export > "$keep/trial.json.tmp" \
+        # read with a fresh container of the image in .env (the one being deployed), not the running hub: a demo company
+        # left on an older image has no export-owner yet (2026-11-10)
+        dc run --rm --no-deps -T hub python -m wqops.hub.trial export > "$keep/trial.json.tmp" \
             || die "could not read the trial accounts; nothing changed"
-        dc exec -T hub python -m wqops.hub.accounts export-owner > "$keep/owner.json.tmp" \
+        dc run --rm --no-deps -T hub python -m wqops.hub.accounts export-owner > "$keep/owner.json.tmp" \
             || die "could not read the owner; nothing changed"
         chmod 600 "$keep"/*.tmp
         mv -f "$keep/trial.json.tmp" "$keep/trial.json" && mv -f "$keep/owner.json.tmp" "$keep/owner.json"
