@@ -180,3 +180,70 @@ esac
     calls.write_text("")
     r = subprocess.run(run, env=env, capture_output=True, text=True, check=False)       # the same data: nothing happens
     assert r.returncode == 0 and "down -v" not in calls.read_text() and "install " not in calls.read_text()
+
+
+def test_restore_starts_from_an_empty_hub_database(tmp_path, db_url):
+    """WenQuest round 132: the demo's nightly reset restored a snapshot over a database where a newer table pointed to
+    an older one; `pg_restore --clean` could not drop that one, so it kept a newer column while the list of migrations
+    went back, and the hub failed to start on the migration it had already applied. restore.sh empties it first.
+    Here docker is a stand-in that runs the database commands against a real PostgreSQL and passes over ERPNext."""
+    import psycopg
+    import pytest
+
+    tools = [shutil.which(t) for t in ("psql", "pg_dump", "pg_restore")]
+    if not all(tools):
+        if os.environ.get("CI"):
+            pytest.fail("psql, pg_dump and pg_restore are needed")
+        pytest.skip("the PostgreSQL client tools are missing")
+    name = "wqo_restore_check"
+    admin = psycopg.connect(db_url, autocommit=True)
+    admin.execute(f"drop database if exists {name}")
+    admin.execute(f"create database {name}")
+    url = db_url.rsplit("/", 1)[0] + "/" + name
+    try:
+        with psycopg.connect(url, autocommit=True) as c:          # the snapshot: migrations 001 and 002
+            c.execute("create table schema_migrations (name text primary key); insert into schema_migrations values "
+                      "('001'), ('002'); create table parts (id int primary key, code text); insert into parts values "
+                      "(1, 'WQ88-1401')")
+        work = tmp_path / "snap"
+        work.mkdir()
+        subprocess.run(["pg_dump", "-Fc", "-f", str(work / "wqo.dump"), url], check=True)
+        with psycopg.connect(url, autocommit=True) as c:          # later: migration 003 adds a column and a table
+            c.execute("alter table parts add column name_en text; create table manuals (id int primary key, "
+                      "part_id int references parts (id)); insert into schema_migrations values ('003')")
+        (work / "erpnext.tar").write_bytes(b"")
+        backup = tmp_path / "wqo-snap.tar.gz"
+        subprocess.run(["tar", "-czf", str(backup), "-C", str(work), "wqo.dump", "erpnext.tar"], check=True)
+        inst, binr = tmp_path / "qms", tmp_path / "bin"
+        inst.mkdir()
+        binr.mkdir()
+        for f in ("lib.sh", "restore.sh"):
+            shutil.copy(D / f, inst)
+        (inst / ".env").write_text("ERP_DB_ROOT_PASSWORD=x\n")
+        (binr / "docker").write_text(f"""#!/usr/bin/env bash
+args=("$@"); for i in "${{!args[@]}}"; do
+  if [ "${{args[$i]}}" = db ] && [ "${{args[$((i-1))]}}" = -T ]; then
+    cmd=("${{args[@]:$((i+1))}}"); keep=(); skip=""
+    for a in "${{cmd[@]:1}}"; do                           # the container's -U and -d: the test database instead
+      if [ -n "$skip" ]; then skip=""; elif [ "$a" = -U ] || [ "$a" = -d ]; then skip=1; else keep+=("$a"); fi
+    done
+    exec "${{cmd[0]}}" -d "{url}" "${{keep[@]}}"
+  fi
+done
+case "$*" in *"ls -t /tmp/rs"*) echo /tmp/rs/x-database.sql.gz ;; esac
+exit 0
+""")
+        (binr / "docker").chmod(0o755)
+        env = {**os.environ, "PATH": f"{binr}:{os.environ['PATH']}", "WQO_DIR": str(inst)}
+        r = subprocess.run(["bash", str(inst / "restore.sh"), str(backup), "--yes"], env=env, capture_output=True,
+                           text=True, check=False)
+        assert r.returncode == 0, r.stdout + r.stderr
+        with psycopg.connect(url, autocommit=True) as c:
+            cols = {x[0] for x in c.execute("select column_name from information_schema.columns where table_name = "
+                                            "'parts'")}
+            assert cols == {"id", "code"}                         # as in the snapshot: 003 can apply again
+            assert [x[0] for x in c.execute("select name from schema_migrations order by name")] == ["001", "002"]
+            assert c.execute("select to_regclass('manuals')").fetchone()[0] is None
+            assert c.execute("select code from parts").fetchone()[0] == "WQ88-1401"
+    finally:
+        admin.execute(f"drop database if exists {name} with (force)")
