@@ -15,7 +15,14 @@ if [ "${2:-}" != "--yes" ]; then
 fi
 log "Restoring the hub database..."
 dc stop hub
-dc exec -T db pg_restore -U wqo -d wqo --clean --if-exists < "$work/wqo.dump" || true
+# into an empty database: restoring over the current one with --clean could not drop a table that a newer table points
+# to, so that table kept its newer columns while the list of migrations went back, and the hub then failed to start
+# on a migration it had already applied (the demo's nightly reset of 2026-11-10, WenQuest round 132)
+dc exec -T db psql -q -v ON_ERROR_STOP=1 -U wqo -d wqo -c 'drop schema public cascade' -c 'create schema public' \
+    || die "could not empty the hub database; nothing restored"
+dc exec -T db pg_restore -U wqo -d wqo --no-owner < "$work/wqo.dump" || true    # notices about the schema itself
+dc exec -T db psql -q -t -U wqo -d wqo -c 'select count(*) from schema_migrations' > /dev/null \
+    || die "the hub database did not come back from $f"
 if [ -f "$work/hub-files.tar" ]; then             # backups made before the document library have none
     log "Restoring the document library files..."
     dc run --rm --no-deps -T --entrypoint sh hub -c 'find /data/files -mindepth 1 -delete && tar -xf - -C /data' \

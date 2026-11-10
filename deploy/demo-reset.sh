@@ -35,7 +35,9 @@ mv -f "$keep.tmp" "$keep" && chmod 600 "$keep"
 log "Restoring the clean snapshot ..."
 "$WD/restore.sh" "$GOLD" --yes || die "the restore stopped; see above"
 log "Bringing it up to the running version ..."
-WQO_NO_PULL=1 WQO_SKIP_BACKUP=1 "$WD/upgrade.sh" "$(envval WQO_HUB_IMAGE | sed 's/.*://')" || log "WARNING: the upgrade step after the restore failed"
+# a demo that did not come up is never taken as the next night's snapshot: the snapshot stays as it was
+WQO_NO_PULL=1 WQO_SKIP_BACKUP=1 "$WD/upgrade.sh" "$(envval WQO_HUB_IMAGE | sed 's/.*://')" \
+    || die "the upgrade after the restore failed; the snapshot is kept as it was and the trial accounts are in $keep"
 rm -rf "$WD"/backups/restore-*
 snapshot                                            # clean and current, before any trial account is back
 log "Putting the trial accounts back ..."
