@@ -10,6 +10,9 @@ from wqops.hub.plm import boms as B
 from wqops.hub.plm import config as CFG
 from wqops.hub.plm import parts as PT
 
+SHAFT_AT = {"p": [0.0, 0.0, 240.0], "q": [0.0, 0.0, 0.0, 1.0]}
+FEED_AT = {"p": [0.0, 0.0, -2.0], "q": [0.0, 0.0, 0.0, 1.0]}
+
 
 def base_machine(c, erp):  # noqa: F811
     head = released(c, erp, "Lockstitch head (demo)", "assembly")
@@ -25,8 +28,8 @@ def base_machine(c, erp):  # noqa: F811
         "plate7": released(c, erp, "Needle plate 7 mm", "other"),
     }
     b = B.start(c, u(c, CASEY), head["id"])
-    B.set_lines(c, u(c, CASEY), b["bom"]["id"], [{"code": shaft["item_code"], "qty": 1},
-                                                 {"code": feed["item_code"], "qty": 1},
+    B.set_lines(c, u(c, CASEY), b["bom"]["id"], [{"code": shaft["item_code"], "qty": 1, "placements": [SHAFT_AT]},
+                                                 {"code": feed["item_code"], "qty": 1, "placements": [FEED_AT]},
                                                  {"code": motor["item_code"], "qty": 1}])
     return head, shaft, feed, motor, others, b["bom"]["id"]
 
@@ -89,6 +92,11 @@ def test_generate_models_rules_one_per_choice_and_drift(setup, erp, fake):  # no
     assert sorted((x["code"], x["qty"]) for x in bom["lines"]) == sorted([
         (shaft["item_code"], "1"), (o["cfeed"]["item_code"], "1"), (o["servo"]["item_code"], "1"),
         (o["plate7"]["item_code"], "1"), (o["trim"]["item_code"], "1")])
+    # round 135: where each use sits comes with it; a replacing module sits where the old one did
+    at = {r["part_id"]: r["placements"] for r in c.execute("select part_id, placements from plm_bom_lines where "
+                                                           "bom_id = %s", (r["bom"],))}
+    assert at[shaft["id"]] == [SHAFT_AT] and at[o["cfeed"]["id"]] == [FEED_AT]
+    assert at[o["servo"]["id"]] == [] and at[o["trim"]["id"]] == []           # the motor had none; added: none
     again = CFG.generate(c, u(c, CASEY), head["id"], {"P": "7", "F": "C", "E": "S", "T": "T"}, erp)
     assert again["model"] == m["id"] and again["existing"] is True
     v = CFG.view(c, head["id"])

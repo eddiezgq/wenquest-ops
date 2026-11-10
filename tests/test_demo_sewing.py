@@ -12,6 +12,7 @@ import pytest
 from tests.fake_erp import FakeErp
 from wqops import company as C
 from wqops.demo import sewing as SW
+from wqops.demo import sewing_manual as SM
 from wqops.demo.machines import lockstitch as LS
 from wqops.demo.machines import overlock as OL
 from wqops.erp import ErpClient
@@ -61,14 +62,18 @@ def test_hub_side_of_the_demo(conn, monkeypatch):
     assert capa["status"] == "investigation" and "梭尖硬度" in capa["root_cause"]
     assert conn.execute("select status from changes where kind = 'product'").fetchone()["status"] == "closed"
     assert conn.execute("select count(*) as n from plm_intake where status = 'pending'").fetchone()["n"] == 1
-    # the ready parts manual (round 124, 27d): 3D pages from the design software, schematics, English names
+    # the ready parts manual (rounds 124, 135): every lockstitch part in 3D, every BOM line placed, English names
     man = out["manual"]
     assert man["model"] == "WQ88-0000-5TA" and man["edition"] == 1 and man["names_open"] == 0
-    assert sorted(man["model_pages"]) == ["WQ88-1200", "WQ88-1300", "WQ88-1400", "WQ88-1700", "WQ88-1710",
-                                          "WQ88-1800"]
-    assert man["pages"] == len(man["model_pages"]) + man["schematics"] and man["pages"] >= 20
-    assert out["models_3d"] == 15
+    assert man["pages"] == len(man["model_pages"]) + man["no_picture"] and man["pages"] >= 20
+    assert out["models_3d"] == len(list((SM.HERE / "lockstitch" / "models").glob("*.step"))) > 300
+    unplaced = conn.execute(
+        "select a.item_code as asm, p.item_code as code from plm_bom_lines l join plm_boms b on b.id = l.bom_id "
+        "join plm_parts a on a.id = b.part_id join plm_parts p on p.id = l.part_id where a.item_code like 'WQ88-%%' "
+        "and jsonb_array_length(l.placements) = 0").fetchall()
+    unplaced = [x for x in unplaced if x["code"] != "WQ88-1893"]      # added by the 7 mm option: placed by none
+    assert unplaced == []
     row = conn.execute("select pages from plm_manuals").fetchone()
-    assert all(p["picture"] for p in row["pages"]) and all(x["name_en"] for p in row["pages"] for x in p["lines"])
+    assert all(x["name_en"] for p in row["pages"] for x in p["lines"])
     with pytest.raises(SW.SewingError, match="already loaded"):
         SW.load(conn, erp, m, dt.date(2026, 11, 8), say=lambda _t: None)

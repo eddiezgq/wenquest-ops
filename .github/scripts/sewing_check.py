@@ -36,11 +36,17 @@ n = conn.execute("select count(*) as n from plm_parts where status = 'released'"
 capa = conn.execute("select status, root_cause from capas").fetchone()
 print(n, "parts released;", capa["status"])
 assert n >= 500 and capa["status"] == "investigation" and "梭尖硬度" in capa["root_cause"]
-# the ready parts manual (round 124, 27d): every page has a picture, 6 of them from the 3D models, names in English
+# the ready parts manual (rounds 124, 135): names in English; every lockstitch part in 3D, every BOM line placed
 m = conn.execute("select m.edition, m.pages, m.names_open, p.item_code from plm_manuals m join plm_parts p on "
                  "p.id = m.part_id").fetchone()
-kinds = [r["kind"] for r in conn.execute("select e.kind from plm_explodes e")]
-print(m["item_code"], "manual edition", m["edition"], len(m["pages"]), "pages;", kinds.count("model"), "from 3D")
+models = conn.execute("select count(distinct p.id) as n from plm_files f join plm_part_revisions r on r.id = "
+                      "f.revision_id join plm_parts p on p.id = r.part_id where f.kind = 'model' and p.item_code not "
+                      "like 'WQ73-%%'").fetchone()["n"]
+unplaced = conn.execute("select count(*) as n from plm_bom_lines l join plm_boms b on b.id = l.bom_id join plm_parts a "
+                        "on a.id = b.part_id where a.item_code like 'WQ88-____' and jsonb_array_length(l.placements) "
+                        "= 0").fetchone()["n"]
+print(m["item_code"], "manual edition", m["edition"], len(m["pages"]), "pages;", models, "parts with 3D;", unplaced,
+      "lines not placed")
 assert m["item_code"] == "WQ88-0000-5TA" and m["edition"] == 1 and m["names_open"] == 0
-assert all(p["picture"] for p in m["pages"]) and kinds.count("model") == 6
+assert models > 300 and unplaced == 0                  # round 135: every lockstitch part in 3D, every line placed
 print("sewing demo: OK")

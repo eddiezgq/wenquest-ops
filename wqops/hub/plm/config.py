@@ -263,6 +263,10 @@ def compose(conn, cfg: dict, choice: dict, base_bom: dict | None) -> list[dict]:
     if base_bom is None:
         raise PlmError(say("the base machine needs a released BOM"))
     lines = {x["code"]: dict(x) for x in B.lines(conn, base_bom["id"])}
+    placed = {r["part_id"]: r["placements"] for r in conn.execute(
+        "select part_id, placements from plm_bom_lines where bom_id = %s", (base_bom["id"],))}
+    for x in lines.values():                 # where each use sits (round 135): a model keeps the base machine's
+        x["placements"] = placed.get(x["part_id"]) or []
     names = {}
     for g in cfg["groups"]:
         o = next((o for o in g["options"] if o["code"] == choice.get(g["code"])), None)
@@ -281,7 +285,10 @@ def compose(conn, cfg: dict, choice: dict, base_bom: dict | None) -> list[dict]:
                     raise PlmError(say("option {label} replaces {code}, which the BOM does not have", label=label,
                                        code=e["code"]))
                 q = Decimal(e["qty"]) if e["qty"] else Decimal(old["qty"])
+                fresh = e["with"] not in lines
                 _add(conn, lines, names, e["with"], q)
+                if fresh and Decimal(lines[e["with"]]["qty"]) == Decimal(old["qty"]):
+                    lines[e["with"]]["placements"] = old["placements"]     # the new module sits where the old one did
             else:
                 _add(conn, lines, names, e["code"], Decimal(e["qty"]))
     return [lines[k] for k in sorted(lines, key=lambda k: (lines[k].get("pos") or 10**6, k))]
@@ -295,7 +302,13 @@ def _add(conn, lines: dict, names: dict, code: str, q: Decimal) -> None:
         names[code] = PT.by_code(conn, code)
     p = names[code]
     lines[code] = {"code": code, "name": p["name"], "qty": R.qty_text(q), "uom": p["uom"], "part_id": p["id"],
-                   "pos": None}
+                   "pos": None, "placements": []}
+
+
+def _fits(placements, qty) -> list:
+    """Placements carried over while they still count one per unit (a quantity changed by an option: none)."""
+    q = Decimal(qty)
+    return placements if placements and q == q.to_integral_value() and len(placements) == int(q) else []
 
 
 def choice_key(choice: dict) -> str:
@@ -346,6 +359,7 @@ def _finish(conn, user: dict, mid: int, base: dict, bom: dict, lines: list[dict]
     if have and (have["status"] != "draft" or B.lines(conn, have["id"])):
         return {"model": mid, "existing": True, "bom": have["id"]}
     bid = have["id"] if have else B.start(conn, user, mid)["bom"]["id"]
-    B.set_lines(conn, user, bid, [{"code": x["code"], "qty": x["qty"], "uom": x["uom"]} for x in lines],
+    B.set_lines(conn, user, bid, [{"code": x["code"], "qty": x["qty"], "uom": x["uom"],
+                                   "placements": _fits(x.get("placements"), x["qty"])} for x in lines],
                 note=say("generated from {base} BOM rev {rev}", base=base["item_code"], rev=bom["revision"]))
     return {"model": mid, "existing": bool(have), "bom": bid}

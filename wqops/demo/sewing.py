@@ -15,8 +15,8 @@ Everything is invented: the company, its people, suppliers, dealers, both machin
    softer at the point (still inside the limits); two dealers complain of broken thread; a corrective action is open
    with the root cause written. Whoever looks at the demo starts the design change from there. A finished design
    change (needle plate A to B) and a FreeCAD batch waiting in the design data inbox are there as well.
-4. The parts manual (round 124): the mechanism parts with 3D from the sewing design software, exploded views (3D or a
-   schematic), English names, and edition 1 of one lockstitch model's manual (sewing_manual.py).
+4. The parts manual (rounds 124, 135): every lockstitch part in 3D (FreeCAD), exploded views, English names, and
+   edition 1 of one lockstitch model's manual (sewing_manual.py).
 
 Plain code, no AI, no network beyond ERPNext. The texts are the company's (Chinese); this company has no English
 version yet. Signatures are accepted without passwords while it runs (demo_signing, demo companies only).
@@ -88,6 +88,8 @@ class SewingError(RuntimeError):
 
 def _walk(node, out: dict, links: dict) -> None:
     code, name, _qty, src, unit, kids = node
+    if code in out and kids:
+        return                       # an assembly used in two places (1850 in both feed assemblies): its lines once
     if code not in out:
         out[code] = {"key": code, "code": code, "name": name, "uom": unit, "source": "make" if src == "自制" else "buy"}
     for k in kids:
@@ -313,8 +315,8 @@ class Sewing:
         # every hook lot is inspected at receiving (the hardness of the point)
         self._again(lambda: self.erp.update("Item", HOOK, {"inspection_required_before_purchase": 1}))
         self.say(f"{self.out['parts']} parts written")
-        # the mechanism in 3D from the sewing design software, onto the draft parts (round 124, 27d)
-        self.out["models_3d"] = SM.mechanism(self.conn, self.u(ENG))
+        # every part in 3D (FreeCAD, round 135 33a), onto the draft parts, with where each use sits
+        self.out["models_3d"] = SM.models(self.conn, self.u(ENG))
 
     def suppliers(self) -> None:
         """Every bought part has an approved supplier (the BOM release checks it)."""
