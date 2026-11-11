@@ -8,6 +8,8 @@ name: Deploy to the WenQuest server in the US
 #   2. copy the deployment files there; under the server's deploy lock (shared with the WenQuest platform):
 #      install.sh the first time, upgrade.sh later, then every pilot company (tenant.sh upgrade-all);
 #   3. a daily backup at 04:10 (7 kept) and the pilot-runner every minute in the deploy user's crontab; status.
+# ADR-0029 (2026-11-11): the US target is the enterprise server (161.35.185.35); a manual run can name the host
+# (input "host") to install there before US_DEPLOY_HOST is switched.
 # Needs the secrets US_DEPLOY_HOST and US_DEPLOY_SSH_KEY (a key only for this repository, made on the server by the
 # project lead for the user deploy); without them nothing happens. The site's name comes from the WenQuest
 # platform's SITE_DOMAIN on the server (qms.<domain> and qms-erp.<domain>), or the repository variable US_QMS_DOMAIN.
@@ -18,6 +20,10 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      host:
+        description: "Deploy to this server instead of US_DEPLOY_HOST (ADR-0029: e.g. 161.35.185.35, before the switch)"
+        type: string
+        default: ""
       replace_odoo_demo:
         description: "Once (project lead 2026-11-06): back up and stop the old Odoo QMS demo (compose project qmsdemo) that holds qms.<domain>, then install WenQuest Ops there"
         type: boolean
@@ -37,7 +43,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      HOST: ${{ secrets.US_DEPLOY_HOST }}
+      HOST: ${{ inputs.host || secrets.US_DEPLOY_HOST }}
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Check the settings
