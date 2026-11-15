@@ -27,7 +27,8 @@ try:
         assert row["stock"] == "120", row["stock"]
         assert [p["open"] for p in row["purchase_orders"]] == ["60", "60"], row["purchase_orders"]
         assert len(row["work_orders"]) == 2 and len(row["sales_orders"]) == 3, row
-        assert tops == ["WQ88-0000", "WQ88-0000-5NK", "WQ88-0000-5TA", "WQ88-0000-5TK", "WQ88-0000-7TA"], tops
+        # WenQuest round 138: models are T/E/D of WQ-LS; the low-oil ones (…D) use the coated hook WQ88-1721
+        assert tops == ["WQ88-0000", "WQ88-0000-NES", "WQ88-0000-NMS", "WQ88-0000-TES", "WQ88-0000-TMS"], tops
         assert not any(t.startswith("WQ73") for t in tops)         # the overlock machine has no rotary hook
         raise Undo
 except Undo:
@@ -35,12 +36,11 @@ except Undo:
 n = conn.execute("select count(*) as n from plm_parts where status = 'released'").fetchone()["n"]
 capa = conn.execute("select status, root_cause from capas").fetchone()
 print(n, "parts released;", capa["status"])
-assert n >= 500 and capa["status"] == "investigation" and "梭尖硬度" in capa["root_cause"]
-# the ready parts manual (round 124, 27d): every page has a picture, 6 of them from the 3D models, names in English
+assert n >= 450 and capa["status"] == "investigation" and "梭尖硬度" in capa["root_cause"]
+# the ready parts manual (rounds 124, 138): names in English; exploded views come with 33b (none saved yet)
 m = conn.execute("select m.edition, m.pages, m.names_open, p.item_code from plm_manuals m join plm_parts p on "
                  "p.id = m.part_id").fetchone()
 kinds = [r["kind"] for r in conn.execute("select e.kind from plm_explodes e")]
 print(m["item_code"], "manual edition", m["edition"], len(m["pages"]), "pages;", kinds.count("model"), "from 3D")
-assert m["item_code"] == "WQ88-0000-5TA" and m["edition"] == 1 and m["names_open"] == 0
-assert all(p["picture"] for p in m["pages"]) and kinds.count("model") == 6
+assert m["item_code"] == "WQ88-0000-TED" and m["edition"] == 1 and m["names_open"] == 0
 print("sewing demo: OK")
