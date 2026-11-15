@@ -37,10 +37,13 @@ n = conn.execute("select count(*) as n from plm_parts where status = 'released'"
 capa = conn.execute("select status, root_cause from capas").fetchone()
 print(n, "parts released;", capa["status"])
 assert n >= 450 and capa["status"] == "investigation" and "梭尖硬度" in capa["root_cause"]
-# the ready parts manual (rounds 124, 138): names in English; exploded views come with 33b (none saved yet)
+# the ready parts manual (rounds 124, 138): names in English; exploded views made by the FreeCAD add-on (33b)
 m = conn.execute("select m.edition, m.pages, m.names_open, p.item_code from plm_manuals m join plm_parts p on "
                  "p.id = m.part_id").fetchone()
-kinds = [r["kind"] for r in conn.execute("select e.kind from plm_explodes e")]
-print(m["item_code"], "manual edition", m["edition"], len(m["pages"]), "pages;", kinds.count("model"), "from 3D")
+ex = [(r["state"], r["source"]) for r in conn.execute("select e.state, e.source from plm_explodes e")]
+pics = sum(1 for p in m["pages"] if p["picture"])
+print(m["item_code"], "manual edition", m["edition"], len(m["pages"]), "pages,", pics, "with an exploded view;",
+      ex.count(("confirmed", "freecad")), "from FreeCAD confirmed,", ex.count(("pending", "freecad")), "waiting")
 assert m["item_code"] == "WQ88-0000-TED" and m["edition"] == 1 and m["names_open"] == 0
+assert pics >= 8 and ex.count(("pending", "freecad")) == 1
 print("sewing demo: OK")

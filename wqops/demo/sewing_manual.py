@@ -5,8 +5,9 @@ lockstitch model.
    part code in manual/lockstitch/models/ and where each BOM line sits (manual/lockstitch/placements.json, machine
    coordinates). They go onto the parts while they are drafts, as an engineer would push them. Lines that WQ-LS does
    not model (covers, needle plate, controls, table, accessories, most standard parts) have no 3D and no placement.
-2. Exploded views: the layouts and pictures saved in manual/pages/ (by assembly code), when there are any, are written
-   as they are. Nothing is drawn in their place: a page without one says so (no schematic, WenQuest round 135 rule 1).
+2. Exploded views (33b, ADR-0030): made by the FreeCAD add-on without its window from the same 3D (manual/explode/),
+   sent as the add-on sends them and confirmed by the engineer, one left waiting. A page without one says so (no
+   schematic, WenQuest round 135 rule 1).
 3. English names from a table people wrote (machines/lockstitch_en.py), confirmed by the engineer.
 4. Edition 1 of the manual of one lockstitch model.
 
@@ -72,30 +73,30 @@ def names(conn, user: dict, bid: int) -> int:
     return n
 
 
-def pages(conn, user: dict, boms: list[int]) -> dict:
-    """Each page of the manual with a saved layout and picture (manual/pages/<assembly code>.json and .png)."""
+PENDING = ("WQ88-1710",)        # left for whoever looks at the demo to confirm (not in the TED manual)
+
+
+def pages(conn, user: dict) -> dict:
+    """The exploded views the FreeCAD add-on made without its window (manual/explode/<assembly code>.json, .svg, .png;
+    demo/plm/wqls_explode.py), sent as the add-on sends them; the engineer confirms all but one."""
+    from wqops.hub.plm import boms as B  # noqa: PLC0415
     from wqops.hub.plm import explode as EX  # noqa: PLC0415
     from wqops.hub.plm import parts as PT  # noqa: PLC0415
 
-    out = {"model": [], "none": []}
-    for bid in boms:
-        code = PT.get(conn, conn.execute("select part_id from plm_boms where id = %s", (bid,)).fetchone()["part_id"])[
-            "item_code"]
-        saved = HERE / "pages" / f"{code}.json"
-        if not saved.is_file():
-            out["none"].append(code)
+    out = {"confirmed": [], "pending": []}
+    for f in sorted((HERE / "explode").glob("*.json")):
+        code = f.stem
+        p = PT.by_code(conn, code)
+        if p is None or B._shown_bom(conn, p["id"]) is None:
             continue
-        by_code = {x["code"]: x["part_id"] for x in EX.lines(conn, bid)}
-        d = json.loads(saved.read_text(encoding="utf-8"))
-        lay = d["layout"]
-        data = {"kind": "model", "layout": {
-            **{k: lay[k] for k in ("camera", "factor") if k in lay},
-            "moves": {str(by_code[c]): v for c, v in (lay.get("moves") or {}).items() if c in by_code},
-            "drawn": {str(by_code[c]): v for c, v in (lay.get("drawn") or {}).items() if c in by_code}},
-            "balloons": [{**{k: b[k] for k in ("x", "y", "ax", "ay") if k in b}, "part_id": by_code[b["code"]]}
-                         for b in d["balloons"] if b["code"] in by_code]}
-        EX.save(conn, user, bid, data, snapshot=(HERE / "pages" / f"{code}.png").read_bytes())
-        out["model"].append(code)
+        d = json.loads(f.read_text(encoding="utf-8"))
+        r = EX.from_freecad(conn, "FreeCAD (demo batch)", code, d, f.with_suffix(".svg").read_bytes(),
+                            png=f.with_suffix(".png").read_bytes())
+        if code in PENDING:
+            out["pending"].append(code)
+            continue
+        EX.confirm(conn, user, r["bom"])
+        out["confirmed"].append(code)
     return out
 
 
@@ -108,8 +109,8 @@ def manual(conn, user: dict, model_code: str, today) -> dict:
     pid = PT.by_code(conn, model_code)["id"]
     root = B._shown_bom(conn, pid)
     n = names(conn, user, root)
-    r = MAN.readiness(conn, pid)
-    done = pages(conn, user, r["boms"])
+    done = pages(conn, user)
     m = MAN.generate(conn, user, pid, today=today)
     return {"model": model_code, "edition": m["edition"], "pages": len(m["pages"]), "names": n,
-            "model_pages": done["model"], "no_picture": len(done["none"]), "names_open": m["names_open"]}
+            "model_pages": done["confirmed"], "pending": done["pending"],
+            "no_picture": sum(1 for x in m["pages"] if not x.get("picture")), "names_open": m["names_open"]}

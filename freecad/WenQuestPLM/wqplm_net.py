@@ -97,3 +97,27 @@ def send(data, steps, model=None, timeout=300):
     req = urllib.request.Request(s["server"] + "/api/integration/v1/plm/design-data", data=body, method="POST",  # noqa: S310 - _open checks the scheme
                                  headers={"Authorization": "Bearer " + s["token"], "Content-Type": ctype})
     return _open(req, timeout)
+
+
+def explode_lines(code, timeout=30):
+    """The BOM lines of an assembly in the PLM, in order (the balloons' numbers)."""
+    s = settings()
+    _check(s)
+    url = s["server"] + "/api/integration/v1/plm/explode/" + urllib.parse.quote(str(code), safe="")
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + s["token"]})  # noqa: S310 - _open checks the scheme
+    return _open(req, timeout)
+
+
+def send_explode(code, page, png=None, timeout=120):
+    """page: moves, balloons, view and svg (wqplm_explode.page); png: the same drawing as a picture."""
+    s = settings()
+    _check(s)
+    data = {k: page[k] for k in ("moves", "balloons", "view")}
+    files = [("svg", code + ".svg", page["svg"].encode("utf-8"))]
+    if png:
+        files.append(("png", code + ".png", png))
+    body, ctype = _multipart({"data": json.dumps(data, ensure_ascii=False)}, files)
+    url = s["server"] + "/api/integration/v1/plm/explode/" + urllib.parse.quote(str(code), safe="")
+    req = urllib.request.Request(url, data=body, method="POST",  # noqa: S310 - _open checks the scheme
+                                 headers={"Authorization": "Bearer " + s["token"], "Content-Type": ctype})
+    return _open(req, timeout)

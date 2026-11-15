@@ -2,6 +2,8 @@
 // The exploded view of one assembly, a page of the parts manual (round 124, 27b): the parts directly under it
 // pulled apart in 3D (a sub-assembly moves as one block: it has a page of its own) or an uploaded drawing; numbered
 // balloons on the picture, one per drawn line; the table with the English names. A layout, not design data.
+// 33b (round 135, ADR-0030): a page the FreeCAD add-on made waits for a person: its line drawing, and the colour
+// picture drawn here from the same moves (the add-on sends the whole pull, so ours is 0) and the same direction.
 import { computed, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { Badge, Button } from 'frappe-ui'
@@ -26,6 +28,7 @@ const imageUrl = ref('')
 const imageFile = ref(null)
 const status = ref('')
 const stage = ref(null)
+const show = ref('model')       // a FreeCAD page: 'line' (its drawing) or 'model' (colour, the same moves)
 const W = 960, H = 640
 const bid = () => Number(route.params.id)
 
@@ -52,15 +55,18 @@ async function load() {
     moves.value = Object.fromEntries(Object.entries(p.layout?.moves || {}).map(([k, m]) => [Number(k), m]))
     drawn.value = Object.fromEntries(Object.entries(p.layout?.drawn || {}).map(([k, x]) => [Number(k), x]))
     balloons.value = (p.balloons || []).map((b) => ({ ...b }))
+    show.value = p.svg_sha && p.state === 'pending' ? 'line' : 'model'
     imageUrl.value = p.image_sha ? `/api/plm/explode/${bid()}/image?${p.image_sha.slice(0, 8)}` : ''
     await nextTick()
-    await draw(p.layout?.camera)
+    await draw(p.layout?.camera, p.layout?.view)
+    // the add-on's balloons sit on its line drawing; on the colour picture they are placed again, the same numbers
+    if (p.source === 'freecad' && three) requestAnimationFrame(() => { balloons.value = []; autoBalloons() })
   } catch (e) { error.value = e.message }
 }
 watch(() => route.params.id, () => { teardown(); load() }, { immediate: true })
 
 // ---- 3D
-async function draw(camera) {
+async function draw(camera, view) {
   teardown()
   if (kind.value !== 'model' || !stage.value || !v.value?.scene.items.length) return
   status.value = t('Reading the models…')
@@ -102,6 +108,8 @@ async function draw(camera) {
   if (camera?.position) {
     cam.position.set(...camera.position); controls.target.set(...(camera.target || wmid.toArray()))
     if (camera.up) cam.up.set(...camera.up)
+  } else if (view) {             // the add-on's direction of view, assembly frame -> world (the root turned -90° about x)
+    cam.position.copy(wmid).add(new THREE.Vector3(view[0], view[2], -view[1]).normalize().multiplyScalar(size * 2)); controls.target.copy(wmid)
   } else {
     cam.position.copy(wmid).add(new THREE.Vector3(size * 1.1, size * 0.75, size * 1.4)); controls.target.copy(wmid)
   }
@@ -231,7 +239,7 @@ async function save() {
   busy.value = true; error.value = ''; done.value = ''
   try {
     const cam = three ? { position: three.camera.position.toArray(), target: three.controls.target.toArray(), up: three.camera.up.toArray() } : undefined
-    const data = { kind: kind.value, layout: { camera: cam, factor: factor.value, moves: moves.value, drawn: drawn.value },
+    const data = { kind: kind.value, layout: { camera: cam, factor: factor.value, moves: moves.value, drawn: drawn.value, ...(v.value.page.layout?.view ? { view: v.value.page.layout.view } : {}) },
       balloons: balloons.value.map((b) => ({ ...b, ...(kind.value === 'model' && anchors.value[b.part_id] ? { ax: anchors.value[b.part_id].x, ay: anchors.value[b.part_id].y } : {}) })) }
     const form = new FormData()
     form.append('data', JSON.stringify(data))
@@ -240,6 +248,17 @@ async function save() {
     v.value = { ...(await apiForm(`/api/plm/explode/${bid()}`, form)) }
     imageFile.value = null
     done.value = t('Saved.')
+  } catch (e) { error.value = e.message } finally { busy.value = false }
+}
+
+// ---- a page from FreeCAD: a person looks and lets it into the manual, with the colour picture as seen here
+async function confirm() {
+  busy.value = true; error.value = ''; done.value = ''
+  try {
+    const form = new FormData()
+    if (three) { show.value = 'model'; await nextTick(); form.append('snapshot', await picture(), 'explode.png') }
+    v.value = { ...(await apiForm(`/api/plm/explode/${bid()}/confirm`, form)) }
+    done.value = t('Confirmed: this page goes into the parts manual.')
   } catch (e) { error.value = e.message } finally { busy.value = false }
 }
 
@@ -276,9 +295,22 @@ watch(kind, (k) => {
   <template v-if="v">
     <p class="mb-3 text-sm text-ink-gray-6">{{ v.part.name }} · BOM {{ v.bom.revision }}
       <span v-if="v.page.from_revision"> · {{ t('Started from the layout of revision {r}', { r: v.page.from_revision }) }}</span>
-      <span v-if="v.page.saved_at"> · {{ t('Saved by {who}', { who: v.page.saved_by }) }}</span></p>
+      <span v-if="v.page.saved_at"> · {{ t('Saved by {who}', { who: v.page.saved_by }) }}</span>
+      <span v-if="v.page.confirmed_by && v.page.source === 'freecad'"> · {{ t('Confirmed by {who}', { who: v.page.confirmed_by }) }}</span></p>
+    <div v-if="v.page.state === 'pending'" data-help="plm-explode-pending" class="mb-4 flex flex-wrap items-center gap-3 rounded-3 border border-outline-amber-2 bg-surface-amber-1 px-3 py-2 text-base">
+      <span class="flex-1">{{ t('Made in FreeCAD and waiting to be confirmed: look at the line drawing and the colour picture; only a confirmed page goes into the parts manual.') }}</span>
+      <Button v-if="v.can_edit" variant="solid" :label="t('Confirm')" :loading="busy" @click="confirm" />
+    </div>
     <div class="grid gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <section data-help="plm-explode-picture" class="wq-panel p-4">
+        <div v-if="v.page.svg_sha" class="mb-2 flex gap-1 text-sm">
+          <button v-for="[k, lab] in [['line', t('Line drawing')], ['model', t('Colour picture')]]" :key="k" class="rounded-2 px-2 py-1" :class="show === k ? 'bg-surface-gray-3 font-medium' : 'text-ink-gray-6'" @click="show = k">{{ lab }}</button>
+          <a :href="`/api/plm/explode/${v.bom.id}/svg?${v.page.svg_sha.slice(0, 8)}`" target="_blank" class="wq-link ms-2 self-center">{{ t('Open the drawing (vector)') }}</a>
+        </div>
+        <div v-if="v.page.svg_sha && show === 'line'" class="w-full overflow-hidden rounded-4 border border-outline-gray-2 bg-white">
+          <img :src="`/api/plm/explode/${v.bom.id}/svg?${v.page.svg_sha.slice(0, 8)}`" class="w-full" :alt="t('Line drawing')">
+        </div>
+        <div v-show="!(v.page.svg_sha && show === 'line')">
         <div class="mb-3 flex flex-wrap items-center gap-2 text-sm">
           <select v-model="kind" class="wq-select w-40" :disabled="!v.can_edit"><option value="model" :disabled="!v.scene.items.length">{{ t('From the 3D models') }}</option><option value="image">{{ t('From a drawing') }}</option></select>
           <template v-if="kind === 'model'">
@@ -308,6 +340,7 @@ watch(kind, (k) => {
           <Button :label="t('Clear balloons')" @click="balloons = []" />
           <Button variant="solid" :label="t('Save')" :loading="busy" @click="save" />
           <a v-if="v.page.snapshot_sha" :href="`/api/plm/explode/${v.bom.id}/snapshot?${v.page.snapshot_sha.slice(0, 8)}`" target="_blank" class="wq-link self-center text-sm">{{ t('Picture as saved') }}</a>
+        </div>
         </div>
         <p v-if="!v.scene.items.length" class="mt-2 text-sm text-ink-gray-6">{{ t('No part here has a 3D model and a place in the assembly: use a drawing.') }}</p>
       </section>
