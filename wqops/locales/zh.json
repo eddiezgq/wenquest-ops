@@ -3527,5 +3527,13 @@
  "edition {n}, {p} pages": "第 {n} 版，{p} 页",
  "make an edition of the manual first": "请先生成一版配件手册",
  "more than {n} pages": "超过 {n} 页",
- "no such link, or it is revoked already": "没有这个链接，或者已经作废"
+ "no such link, or it is revoked already": "没有这个链接，或者已经作废",
+ "send the line drawing (svg)": "请送来线条图（svg）",
+ "no part has the code {code}": "没有编码为 {code} 的零件",
+ "{code} has no BOM: push the assembly first": "{code} 还没有 BOM：先推送这个装配",
+ "the line drawing is an SVG of up to 5 MB": "线条图须是不超过 5 MB 的 SVG",
+ "the line drawing holds something other than lines and text": "线条图里有线条和文字以外的东西",
+ "there is no exploded view waiting to be confirmed here": "这里没有待确认的爆炸图",
+ "the BOM of {code} changed since the drawing was made: make it again": "{code} 的 BOM 在出图之后改过：请重新生成",
+ "waiting to be confirmed": "待确认"
 }

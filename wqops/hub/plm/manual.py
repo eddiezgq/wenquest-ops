@@ -55,7 +55,8 @@ def readiness(conn, pid: int) -> dict:
         if len(order) > MAX_PAGES:
             raise PlmError(say("more than {n} pages", n=MAX_PAGES))
     for b in order:
-        e = conn.execute("select snapshot_sha from plm_explodes where bom_id = %s", (b["id"],)).fetchone()
+        e = conn.execute("select snapshot_sha from plm_explodes where bom_id = %s and state = 'confirmed'",
+                         (b["id"],)).fetchone()
         if not (e and e["snapshot_sha"]):
             pp = PT.get(conn, b["part_id"])
             no_pic.append({"code": pp["item_code"], "name": pp["name"], "bom": b["id"]})
@@ -67,7 +68,8 @@ def readiness(conn, pid: int) -> dict:
 def _page(conn, bid: int, page_of: dict[int, int]) -> dict:
     b = B.get(conn, bid)
     p = PT.get(conn, b["part_id"])
-    e = conn.execute("select snapshot_sha from plm_explodes where bom_id = %s", (bid,)).fetchone()
+    e = conn.execute("select snapshot_sha from plm_explodes where bom_id = %s and state = 'confirmed'",
+                     (bid,)).fetchone()
     lines = []
     for ln in EX.lines(conn, bid):
         lines.append({"no": ln["no"], "code": ln["code"], "name": ln["name"],

@@ -19,6 +19,10 @@ from wqops.erp import ErpClient
 from wqops.hub import accounts as Acc
 
 
+def row_pages(conn):
+    return conn.execute("select pages from plm_manuals").fetchone()["pages"]
+
+
 @pytest.fixture(autouse=True)
 def files_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("WQO_FILES_DIR", str(tmp_path / "files"))
@@ -73,7 +77,16 @@ def test_hub_side_of_the_demo(conn, monkeypatch):
     # the ready parts manual (WenQuest rounds 124, 138): the WQ-LS head in 3D, every line with 3D placed
     man = out["manual"]
     assert man["model"] == "WQ88-0000-TED" and man["edition"] == 1 and man["names_open"] == 0
-    assert man["pages"] == len(man["model_pages"]) + man["no_picture"] and man["pages"] >= 20
+    assert man["pages"] >= 20 and man["pending"] == ["WQ88-1710"]
+    # 33b: the FreeCAD add-on's exploded views, confirmed; each page of the TED manual with 3D has one
+    pics = {p["code"] for p in row_pages(conn) if p["picture"]}
+    assert {"WQ88-1000", "WQ88-1200", "WQ88-1400", "WQ88-1700", "WQ88-1720", "WQ88-1800", "WQ88-2000",
+            "WQ88-2400"} <= pics
+    assert man["pages"] - man["no_picture"] == len(pics)
+    ex = conn.execute("select state, source, count(*) as n, count(svg_sha) as svg from plm_explodes group by 1, 2 "
+                      "order by 1").fetchall()
+    assert [(x["state"], x["source"]) for x in ex] == [("confirmed", "freecad"), ("pending", "freecad")]
+    assert all(x["svg"] == x["n"] for x in ex) and ex[0]["n"] >= 15
     assert out["models_3d"] == len(list((SM.HERE / "lockstitch" / "models").glob("*.step"))) > 80
     unplaced = conn.execute(
         "select a.item_code as asm, p.item_code as code from plm_bom_lines l join plm_boms b on b.id = l.bom_id "

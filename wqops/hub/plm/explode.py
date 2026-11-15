@@ -4,9 +4,15 @@ One page per BOM revision (an assembly): its direct lines numbered 1, 2, 3 in BO
 browser from the 3D models (pulled apart, turned, balloons placed) or an uploaded drawing with balloons placed on
 it. A layout, not design data: it may change after the BOM is released (plm:edit), every save is logged. A new
 revision starts from the layout of the one before it, matched by part. Standard parts (fasteners) are numbered and
-listed but not drawn unless someone says so (round 124 rule 4)."""
+listed but not drawn unless someone says so (round 124 rule 4).
+
+PLM 33b (round 135, ADR-0030): the FreeCAD add-on makes a page too, sent with a machine token: how far each part is
+moved, where the balloons are, the direction of view and a vector line drawing. It waits as "pending" until a person
+confirms it; only confirmed pages go into the manual. The PLM's colour picture is drawn from the same moves."""
 
 from __future__ import annotations
+
+import re
 
 from psycopg.types.json import Jsonb
 
@@ -19,6 +25,10 @@ from wqops.i18n import say
 IMAGE_TYPES = {b"\x89PNG": "png", b"\xff\xd8\xff": "jpg"}
 MAX_IMAGE = 20 * 1024 * 1024
 NOT_DRAWN = frozenset({"fastener"})          # listed, not drawn, by default
+MAX_SVG = 5 * 1024 * 1024
+# an SVG is shown in the browser: nothing in it may run or load anything
+SVG_BAD = re.compile(r"<\s*(script|foreignObject|iframe|object|embed|image|use|a|style)\b|<!(DOCTYPE|ENTITY)"
+                     r"|\bon[a-z]+\s*=|javascript:|(xlink:)?href\s*=|url\s*\(", re.IGNORECASE)
 
 
 def _kind_of(data: bytes) -> str | None:
@@ -57,6 +67,7 @@ def _inherited(conn, bid: int) -> dict | None:
     lay["drawn"] = {k: v for k, v in (lay.get("drawn") or {}).items() if int(k) in here}
     return {"kind": prev["kind"], "layout": lay, "balloons": [x for x in prev["balloons"] if x["part_id"] in here],
             "image_sha": prev["image_sha"], "image_name": prev["image_name"], "snapshot_sha": None,
+            "state": "confirmed", "source": "browser", "svg_sha": None, "line_sha": None,
             "saved_by": None, "saved_at": None, "from_revision": B.get(conn, prev["bom_id"])["revision"]}
 
 
@@ -66,6 +77,8 @@ def view(conn, bid: int) -> dict:
     page = _row(conn, bid) or _inherited(conn, bid) or {"kind": "model", "layout": {}, "balloons": [],
                                                        "image_sha": None, "image_name": None,
                                                        "snapshot_sha": None, "saved_by": None, "saved_at": None}
+    page.setdefault("state", "confirmed")
+    page.setdefault("source", "browser")
     page.pop("id", None)
     page.pop("bom_id", None)
     return {"bom": PT._iso(dict(b)), "part": {"id": part["id"], "code": part["item_code"], "name": part["name"],
@@ -85,6 +98,11 @@ def _clean_layout(x, part_ids: set[int]) -> dict:
             raise PlmError(say("the layout is not readable")) from exc
     try:
         out["factor"] = min(max(float(x.get("factor", 0.6)), 0.0), 5.0)
+        if x.get("view") is not None:
+            v = [float(a) for a in x["view"]][:3]
+            if len(v) != 3 or not any(v) or any(abs(a) > 1e6 for a in v):
+                raise ValueError(v)
+            out["view"] = v
         out["moves"] = {str(int(k)): [float(v) for v in m][:3] for k, m in (x.get("moves") or {}).items()
                         if int(k) in part_ids}
         out["drawn"] = {str(int(k)): bool(v) for k, v in (x.get("drawn") or {}).items() if int(k) in part_ids}
@@ -135,7 +153,8 @@ def save(conn, user: dict, bid: int, data: dict, *, snapshot: bytes | None = Non
             "saved_at) values (%s, %s, %s, %s, %s, %s, %s, %s, now()) on conflict (bom_id) do update set "
             "kind = excluded.kind, layout = excluded.layout, balloons = excluded.balloons, image_sha = "
             "excluded.image_sha, image_name = excluded.image_name, snapshot_sha = excluded.snapshot_sha, "
-            "saved_by = excluded.saved_by, saved_at = excluded.saved_at",
+            "saved_by = excluded.saved_by, saved_at = excluded.saved_at, state = 'confirmed', source = 'browser', "
+            "svg_sha = null, line_sha = null, confirmed_by = excluded.saved_by, confirmed_at = now()",
             (bid, kind, Jsonb(layout), Jsonb(balloons), img_sha,
              (image_name or old.get("image_name") or "")[:200] if img_sha else None, snap, user["email"]))
         PT.log(conn, "bom", bid, user["email"], "exploded view saved",
@@ -144,11 +163,102 @@ def save(conn, user: dict, bid: int, data: dict, *, snapshot: bytes | None = Non
 
 
 def picture(conn, bid: int, which: str) -> bytes:
+    """which: snapshot (the page's picture), image (an uploaded drawing), svg or line (FreeCAD's line drawing)."""
     r = _row(conn, bid) or _inherited(conn, bid)
-    sha = (r or {}).get("snapshot_sha" if which == "snapshot" else "image_sha")
+    sha = (r or {}).get({"snapshot": "snapshot_sha", "image": "image_sha", "svg": "svg_sha", "line": "line_sha"}[which])
     if not sha:
         raise KeyError(bid)
     return F.get(sha)
+
+
+# ---- from FreeCAD (33b, ADR-0030)
+
+def for_freecad(conn, code: str) -> dict:
+    """What the add-on needs before it draws an assembly: the BOM the page belongs to and its lines in order, so the
+    balloons carry the numbers the manual will print."""
+    p = PT.by_code(conn, code)
+    if p is None:
+        raise PlmError(say("no part has the code {code}", code=code))
+    bid = B._shown_bom(conn, p["id"])
+    if bid is None:
+        raise PlmError(say("{code} has no BOM: push the assembly first", code=code))
+    b = B.get(conn, bid)
+    return {"code": p["item_code"], "name": p["name"], "bom": bid, "revision": b["revision"],
+            "lines": [{"no": x["no"], "code": x["code"], "name": x["name"], "category": x["category"],
+                       "drawn": x["drawn"]} for x in lines(conn, bid)]}
+
+
+def clean_svg(data: bytes) -> bytes:
+    if not data or len(data) > MAX_SVG:
+        raise PlmError(say("the line drawing is an SVG of up to 5 MB"))
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PlmError(say("the line drawing is an SVG of up to 5 MB")) from exc
+    head = re.sub(r"^\s*(<\?xml[^>]*\?>\s*)?", "", text)[:200]
+    if not head.startswith("<svg") or SVG_BAD.search(text):
+        raise PlmError(say("the line drawing holds something other than lines and text"))
+    return data
+
+
+def from_freecad(conn, sent_by: str, code: str, data: dict, svg: bytes, *, png: bytes | None = None) -> dict:
+    """Keep the add-on's page, waiting for a person: moves {part code: [dx, dy, dz]} (mm, the assembly frame, the
+    whole pull), balloons [{code, no, x, y, ax, ay}] on the line drawing, view [x, y, z] (towards the viewer). The
+    numbers must still be the BOM's: if a line moved since, the drawing is made again."""
+    if not isinstance(data, dict):
+        raise PlmError(say("the layout is not readable"))
+    info = for_freecad(conn, code)
+    bid = info["bom"]
+    if B.get(conn, bid)["status"] == "superseded":
+        raise PlmError(say("this BOM revision is superseded: lay out the current one"))
+    by = {x["code"]: x for x in lines(conn, bid)}
+    for x in data.get("balloons") or []:
+        ln = by.get(str((x or {}).get("code") if isinstance(x, dict) else ""))
+        if ln is None or str(x.get("no")) != str(ln["no"]):
+            raise PlmError(say("the BOM of {code} changed since the drawing was made: make it again", code=code))
+    try:
+        moves = {str(by[c]["part_id"]): m for c, m in (data.get("moves") or {}).items() if c in by}
+    except AttributeError as exc:
+        raise PlmError(say("the layout is not readable")) from exc
+    ids = {x["part_id"] for x in by.values()}
+    layout = _clean_layout({"factor": 0, "moves": moves, "view": data.get("view")}, ids)
+    balloons = _clean_balloons([{**{k: b.get(k) for k in ("x", "y", "ax", "ay")}, "part_id": by[b["code"]]["part_id"]}
+                                for b in data.get("balloons") or []], ids)
+    clean_svg(svg)
+    if png is not None and (len(png) > MAX_IMAGE or _kind_of(png) != "png"):
+        raise PlmError(say("{what} is a PNG or JPG picture of up to 20 MB", what=say("the picture")))
+    svg_sha = F.put(svg)
+    line_sha = F.put(png) if png is not None else None
+    who = f"FreeCAD: {sent_by}"[:200]
+    with conn.transaction():
+        conn.execute(
+            "insert into plm_explodes (bom_id, kind, layout, balloons, image_sha, image_name, snapshot_sha, saved_by, "
+            "saved_at, state, source, svg_sha, line_sha) values (%s, 'model', %s, %s, null, null, %s, %s, now(), "
+            "'pending', 'freecad', %s, %s) on conflict (bom_id) do update set kind = 'model', layout = "
+            "excluded.layout, balloons = excluded.balloons, image_sha = null, image_name = null, snapshot_sha = "
+            "excluded.snapshot_sha, saved_by = excluded.saved_by, saved_at = excluded.saved_at, state = 'pending', "
+            "source = 'freecad', svg_sha = excluded.svg_sha, line_sha = excluded.line_sha, confirmed_by = null, "
+            "confirmed_at = null",
+            (bid, Jsonb(layout), Jsonb(balloons), line_sha, who, svg_sha, line_sha))
+        PT.log(conn, "bom", bid, who, "exploded view from FreeCAD",
+               say("{n} balloons", n=len(balloons)) + "; " + say("waiting to be confirmed"))
+    return {"bom": bid, "revision": info["revision"], "state": "pending", "balloons": len(balloons)}
+
+
+def confirm(conn, user: dict, bid: int, snapshot: bytes | None = None) -> dict:
+    """A person has looked at the add-on's page and lets it into the manual; the colour picture they saw (with its
+    balloons) becomes the page's picture, the line drawing stays for print."""
+    r = _row(conn, bid)
+    if r is None or r["state"] != "pending":
+        raise PlmError(say("there is no exploded view waiting to be confirmed here"))
+    if snapshot is not None and (len(snapshot) > MAX_IMAGE or _kind_of(snapshot) is None):
+        raise PlmError(say("{what} is a PNG or JPG picture of up to 20 MB", what=say("the picture")))
+    snap = F.put(snapshot) if snapshot is not None else r["snapshot_sha"]
+    with conn.transaction():
+        conn.execute("update plm_explodes set state = 'confirmed', confirmed_by = %s, confirmed_at = now(), "
+                     "snapshot_sha = %s where bom_id = %s", (user["email"], snap, bid))
+        PT.log(conn, "bom", bid, user["email"], "exploded view confirmed", r["saved_by"] or "")
+    return view(conn, bid)
 
 
 # ---- English names

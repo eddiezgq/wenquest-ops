@@ -238,11 +238,24 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
     @app.get("/api/plm/explode/{bid}/{which}")
     def explode_picture(bid: int, which: str, u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "plm:view")
-        if which not in ("snapshot", "image"):
+        if which not in ("snapshot", "image", "svg", "line"):
             raise HTTPException(404, say("not found"))
         data = run(lambda: EX.picture(c, ident(bid), which))
+        if which == "svg":          # checked when it came in; shown as a picture, nothing in it may run
+            return Response(data, media_type="image/svg+xml", headers={
+                "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"})
         return Response(data, media_type="image/png" if data.startswith(b"\x89PNG") else "image/jpeg",
                         headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/plm/explode/{bid}/confirm")
+    async def explode_confirm(bid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        """33b: a person lets the FreeCAD add-on's page into the manual, with the colour picture they saw."""
+        need(u, "plm:edit")
+        form = await request.form(max_files=1, max_fields=2, max_part_size=EX.MAX_IMAGE + 1)
+        up = form.get("snapshot")
+        snap = await up.read(EX.MAX_IMAGE + 1) if isinstance(up, UploadFile) else None
+        return {**run(lambda: EX.confirm(c, u, ident(bid), snap)), **flags(u)}
 
     @app.post("/api/plm/explode/{bid}/names")
     def explode_names(bid: int, u=Depends(user_dep), c=Depends(conn_dep)):

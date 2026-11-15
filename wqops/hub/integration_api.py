@@ -149,6 +149,52 @@ def mount(app: FastAPI, conn_dep, user_dep, company) -> None:  # noqa: PLR0915 -
             return {"id": v["id"], "parts": len(v["rows"]), "status": v["status"]}
         return await machine(request, "plm:send", c, go)
 
+    @app.get("/api/integration/v1/plm/explode/{code}")
+    async def explode_lines(code: str, request: Request, c=Depends(conn_dep)):
+        """33b (ADR-0030): the BOM lines of an assembly in order, for the FreeCAD add-on's balloons."""
+        from wqops.hub.plm import explode as EX  # noqa: PLC0415
+        from wqops.hub.plm import parts as PT  # noqa: PLC0415
+
+        async def go(tok):
+            if "plm" not in ((company()[0] or {}).get("modules") or []):
+                raise HTTPException(404, say("the PLM module is not turned on for this company"))
+            try:
+                return EX.for_freecad(c, code[:100])
+            except PT.PlmError as exc:
+                raise IG.IntegrationError(str(exc)) from exc
+        return await machine(request, "plm:send", c, go)
+
+    @app.post("/api/integration/v1/plm/explode/{code}")
+    async def send_explode(code: str, request: Request, c=Depends(conn_dep)):
+        """33b (ADR-0030): the add-on's exploded view of an assembly, multipart: ``data`` (JSON: moves, balloons,
+        view), ``svg`` the line drawing, ``png`` the same as a picture. It waits in the PLM for a person to confirm."""
+        from starlette.datastructures import UploadFile  # noqa: PLC0415
+
+        from wqops.hub.plm import explode as EX  # noqa: PLC0415
+        from wqops.hub.plm import parts as PT  # noqa: PLC0415
+
+        async def go(tok):
+            if "plm" not in ((company()[0] or {}).get("modules") or []):
+                raise HTTPException(404, say("the PLM module is not turned on for this company"))
+            form = await request.form(max_files=2, max_fields=2, max_part_size=EX.MAX_IMAGE + 1)
+            try:
+                data = json.loads(str(form.get("data") or "{}"))
+            except (ValueError, RecursionError) as exc:
+                raise HTTPException(400, say("the request is not JSON")) from exc
+            if not isinstance(data, dict) or has_nul(data):
+                raise HTTPException(400, say("the request is not JSON"))
+            blobs = {}
+            for k in ("svg", "png"):
+                up = form.get(k)
+                blobs[k] = await up.read(EX.MAX_IMAGE + 1) if isinstance(up, UploadFile) else None
+            if blobs["svg"] is None:
+                raise HTTPException(400, say("send the line drawing (svg)"))
+            try:
+                return EX.from_freecad(c, tok["name"], code[:100], data, blobs["svg"], png=blobs["png"])
+            except PT.PlmError as exc:
+                raise IG.IntegrationError(str(exc)) from exc
+        return await machine(request, "plm:send", c, go)
+
     @app.get("/api/integration/v1/events")
     async def read_events(request: Request, after: int = 0, limit: int = 100, c=Depends(conn_dep)):
         async def go(tok):
