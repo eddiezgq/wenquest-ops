@@ -16,7 +16,7 @@ import datetime as dt
 import io
 import os
 import re
-import xml.etree.ElementTree as ET  # noqa: S405 - only SVG the PLM checked (explode.clean_svg)
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 
 from reportlab.lib import colors
@@ -90,11 +90,12 @@ def _bounds(root) -> list[float] | None:
     return [min(xs) - pad, min(ys) - pad, max(xs) - min(xs) + 2 * pad, max(ys) - min(ys) + 2 * pad]
 
 
-def draw_svg(c, svg: bytes, x: float, y: float, w: float, h: float) -> None:
+def draw_svg(c, svg: bytes, box: tuple[float, float, float, float]) -> None:
     """The drawing fitted into the box (x, y bottom left), kept in proportion, centred, room left round it for the
     balloons; the balloons a fixed size on paper (6.4 mm, 8.5 pt numbers) whatever the drawing's scale."""
     root = ET.fromstring(svg)  # noqa: S314 - checked on the way in: no entities, no DOCTYPE
     room = 11 * mm
+    x, y, w, h = box
     x, y, w, h = x + room, y + room, w - 2 * room, h - 2 * room
     vb = _bounds(root) or [_num(v) for v in (root.get("viewBox") or "0 0 100 100").replace(",", " ").split()]
     vw, vh = max(vb[2], 1e-6), max(vb[3], 1e-6)
@@ -293,7 +294,8 @@ class Book:
     def table(self, rows: list[list], widths: list[float], *, align_right: tuple[int, ...] = ()) -> Table:
         body = [[v if isinstance(v, Paragraph) else self.para(str(v), "cell") for v in r] for r in rows]
         t = Table(body, colWidths=widths, repeatRows=1)
-        style = [("FONTNAME", (0, 0), (-1, -1), self.f), ("LINEBELOW", (0, 0), (-1, 0), 0.8, INK), ("LINEBELOW", (0, 1), (-1, -1), 0.3, RULE),
+        style = [("FONTNAME", (0, 0), (-1, -1), self.f), ("LINEBELOW", (0, 0), (-1, 0), 0.8, INK),
+                 ("LINEBELOW", (0, 1), (-1, -1), 0.3, RULE),
                  ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 0), (-1, -1), 3),
                  ("BOTTOMPADDING", (0, 0), (-1, -1), 3), ("LEFTPADDING", (0, 0), (-1, -1), 4),
                  ("RIGHTPADDING", (0, 0), (-1, -1), 4)]
@@ -336,7 +338,7 @@ def build(head: dict, pages: list[dict], changes: list[dict], *, kind: str, blob
     _changes(b, changes)
     for n, p in enumerate(pages, start=1):
         _section(b, n, p, blob)
-    if b.n % 2 == 1:                                    # the back cover is a left-hand page
+    if b.n % 2 == 0:                                    # the back cover is a left-hand page (even)
         b.start(plain=True)
     b.start(plain=True)
     _back(b)
@@ -353,8 +355,8 @@ def _cover(b: Book) -> None:
     y = TRIM_H * 0.62 - 22 * mm
     cw = TRIM_W - 2 * OUTER - 10 * mm
     for txt, size, col in ((h["name"], 20, INK), (h.get("name_en") or "", 12, GREY)):
-        para = Paragraph(_esc(txt), ParagraphStyle("c", fontName=b.f, bulletFontName=b.f, fontSize=size, leading=size * 1.3,
-                                                     textColor=col))
+        para = Paragraph(_esc(txt), ParagraphStyle("c", fontName=b.f, bulletFontName=b.f, fontSize=size,
+                                                   leading=size * 1.3, textColor=col))
         _w, ph = para.wrapOn(c, cw, 60 * mm)
         para.drawOn(c, OUTER + 5 * mm, y - ph)
         y -= ph + 4 * mm
@@ -405,9 +407,36 @@ def _changes(b: Book, changes: list[dict]) -> None:
 
     def title(cont):
         x0, y0, _w0, h0 = b.box()
-        b.text((x0, y0 + h0 - 7 * mm), "与上一版相比 Changes from the previous edition" + ("（续 cont.）" if cont else ""),
-               15)
+        title_text = "与上一版相比 Changes from the previous edition" + ("（续 cont.）" if cont else "")
+        b.text((x0, y0 + h0 - 7 * mm), title_text, 15)
     b.flow(t, title)
+
+
+def _view(b: Book, p: dict, box: tuple[float, float, float, float], blob: Callable[[str], bytes]) -> None:
+    """Print: the line drawing. Screen: the colour picture a person confirmed, else the line drawing. Neither: says
+    so."""
+    x, y, w, h = box
+    drawn = False
+    try:
+        colour = p.get("picture") if p.get("picture") and p.get("picture") != p.get("line") else None
+        if p.get("svg") and (b.kind == "print" or not colour):
+            draw_svg(b.c, blob(p["svg"]), box)
+            drawn = True
+        elif p.get("picture"):
+            img = ImageReader(io.BytesIO(blob(colour or p["picture"])))
+            iw, ih = img.getSize()
+            s = min(w / iw, h / ih)
+            b.c.drawImage(img, x + (w - iw * s) / 2, y + (h - ih * s) / 2, iw * s, ih * s)
+            drawn = True
+    except Exception:  # a damaged picture is noted on the page, never a failed manual
+        drawn = False
+    if not drawn:
+        b.c.setStrokeColor(RULE)
+        b.c.setDash(3, 3)
+        b.c.rect(x, y + h * 0.3, w, h * 0.4)
+        b.c.setDash()
+        b.text((x + w / 2, y + h / 2), "本部件暂无爆炸图 No exploded view for this assembly yet", 10, colour=GREY,
+               anchor="middle")
 
 
 def _section(b: Book, n: int, p: dict, blob: Callable[[str], bytes]) -> None:
@@ -424,29 +453,7 @@ def _section(b: Book, n: int, p: dict, blob: Callable[[str], bytes]) -> None:
     b.text((x, y + h - 7 * mm), f"{n}", 22, colour=BLUE)
     b.text((x + 14 * mm, y + h - 4 * mm), f"{p['code']}  {p['name']}", 13)
     b.text((x + 14 * mm, y + h - 10 * mm), f"{p.get('name_en') or ''}   BOM {p['revision']}", 9, colour=GREY)
-    pic_box = (x, y, w, h - 18 * mm)
-    drawn = False
-    try:
-        colour = p.get("picture") if p.get("picture") and p.get("picture") != p.get("line") else None
-        if p.get("svg") and (b.kind == "print" or not colour):     # screen: the colour picture when there is one
-            draw_svg(b.c, blob(p["svg"]), *pic_box)
-            drawn = True
-        elif p.get("picture"):
-            data = blob(colour or p["picture"])
-            img = ImageReader(io.BytesIO(data))
-            iw, ih = img.getSize()
-            s = min(pic_box[2] / iw, pic_box[3] / ih)
-            b.c.drawImage(img, x + (w - iw * s) / 2, y + (pic_box[3] - ih * s) / 2, iw * s, ih * s)
-            drawn = True
-    except Exception:  # a damaged picture is noted on the page, never a failed manual
-        drawn = False
-    if not drawn:
-        b.c.setStrokeColor(RULE)
-        b.c.setDash(3, 3)
-        b.c.rect(x, y + pic_box[3] * 0.3, w, pic_box[3] * 0.4)
-        b.c.setDash()
-        b.text((x + w / 2, y + pic_box[3] / 2), "本部件暂无爆炸图 No exploded view for this assembly yet", 10,
-               colour=GREY, anchor="middle")
+    _view(b, p, (x, y, w, h - 18 * mm), blob)
     b.start()
     rows = [["序号<br/>No.", "编码<br/>Part No.", "名称 Name", "数量<br/>Qty", "备注 Note"]]
     rows = [[b.para(v, "cell", rich=True) for v in rows[0]]]

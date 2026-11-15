@@ -68,6 +68,9 @@ def test_editions_pdf_and_links(world, fake, erp, monkeypatch, db_url):  # noqa:
     assert lines[PT.get(c, ids["Screw"])["item_code"]]["name_en"] == ""
     name, pdf = MAN.pdf(c, m["id"])
     assert pdf.startswith(b"%PDF") and name.endswith("-manual-1.pdf") and MAN.picture(c, m["id"], 1) == PNG
+    name, pdf = MAN.pdf(c, m["id"], "print")
+    assert pdf.startswith(b"%PDF") and name.endswith("-manual-1-print.pdf") and MAN.overview(c, ids["Asm"])[
+        "editions"][0]["has_print"]
     with pytest.raises(psycopg.errors.RaiseException, match="kept as it was made"):
         c.execute("update plm_manuals set edition = 9")
     # a new BOM revision with 3 screws, released: edition 2 lists the change; edition 1 stays as it was
@@ -94,10 +97,44 @@ def test_editions_pdf_and_links(world, fake, erp, monkeypatch, db_url):  # noqa:
     assert v["links"][0]["views"] == 1 and v["links"][0]["revoked_at"] and len(v["editions"]) == 2
 
 
-def test_pdf_text_keeps_latin_and_chinese_apart():
-    """Droid Sans Fallback has no Latin letters: part numbers go in Helvetica, Chinese in the CJK font."""
-    from wqops.hub.plm import manual_pdf as MP
+def test_print_and_screen_pdfs():
+    """33c: A4 portrait, print with 3 mm bleed (TrimBox, BleedBox), every font embedded, the line drawing as vectors
+    with balloons; a section opens on a left page; the screen PDF has links and bookmarks."""
+    import re
 
-    assert MP._runs("WQ88-0000 针杆 Needle（A）") == [(False, "WQ88-0000 "), (True, "针杆"), (False, " Needle"),
-                                                    (True, "（"), (False, "A"), (True, "）")]
-    assert MP._rich("a<b 针", "CJK") == 'a&lt;b <font name="CJK">针</font>'
+    from wqops.hub.plm import manual_print as MPR
+
+    svg = (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1100"><rect width="100%" height="100%" '
+           b'fill="#fff"/><g fill="none" stroke="#111" stroke-width="1.1"><polyline points="100,100 900,700 1500,'
+           b'200"/></g><g stroke="#0b4fae" fill="#fff" font-size="17" text-anchor="middle"><line x1="900" y1="700" '
+           b'x2="960" y2="760"/><circle cx="900" cy="700" r="2" fill="#0b4fae"/><circle cx="960" cy="760" r="16"/>'
+           b'<text x="960" y="766" fill="#0b4fae" stroke="none">1</text></g></svg>')
+    lines = [{"no": i, "code": f"WQ-{i:03d}", "name": "针杆", "name_en": "Needle bar", "qty": "1", "uom": "个",
+              "page": 2 if i == 1 else None, "note": ""} for i in range(1, 60)]          # two right-hand pages
+    pages = [{"code": "WQ-100", "name": "针杆部件", "name_en": "Needle bar assembly", "revision": "A",
+              "picture": None, "svg": "s", "line": None, "lines": lines},
+             {"code": "WQ-200", "name": "小部件", "name_en": "", "revision": "B", "picture": None, "svg": None,
+              "line": None, "lines": lines[:3]}]
+    head = {"code": "WQ-1", "name": "演示机（虚构）", "name_en": "Demo machine (fictional)", "edition": 1}
+    out = MPR.make(head, pages, [], blob=lambda _sha: svg, today=TODAY)
+
+    pr, sc = out["print"], out["screen"]
+    assert pr.startswith(b"%PDF") and sc.startswith(b"%PDF")
+    assert re.search(rb"/MediaBox \[ 0 0 612\.28\d* 858\.89\d* \]", pr)              # 216 x 303 mm
+    assert b"/TrimBox [ 8.50" in pr and b"/BleedBox [ 0 0" in pr
+    assert re.search(rb"/MediaBox \[ 0 0 595\.27\d* 841\.88\d* \]", sc)              # A4
+    for pdf in (pr, sc):
+        assert b"Helvetica" not in pdf and b"/FontFile2" in pdf                    # one font, embedded
+    n = len(re.findall(rb"/Type /Page\b", pr))
+    # cover, contents, changes, [blank], 1: view + 2 tables, [blank], 2: view + table, back cover on a left page
+    assert n % 2 == 0 and n >= 10
+    assert b"/Subtype /Image" not in pr                                          # lines drawn, not a picture
+    assert b"/Outlines" in sc and b"/Link" in sc and b"/Outlines" not in pr
+    with pytest.raises(MPR.ManualFontMissing):
+        MPR.FONT_FILES, old = ("/no/such/font.ttf",), MPR.FONT_FILES
+        try:
+            from reportlab.pdfbase import pdfmetrics
+            del pdfmetrics._fonts["WQ"]
+            MPR.font()
+        finally:
+            MPR.FONT_FILES = old

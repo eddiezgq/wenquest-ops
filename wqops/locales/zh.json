@@ -3535,5 +3535,6 @@
  "the line drawing holds something other than lines and text": "线条图里有线条和文字以外的东西",
  "there is no exploded view waiting to be confirmed here": "这里没有待确认的爆炸图",
  "the BOM of {code} changed since the drawing was made: make it again": "{code} 的 BOM 在出图之后改过：请重新生成",
- "waiting to be confirmed": "待确认"
+ "waiting to be confirmed": "待确认",
+ "the manual's font is not installed on the server (fonts-wqy-microhei)": "服务器上没有装手册用的字体（fonts-wqy-microhei）"
 }

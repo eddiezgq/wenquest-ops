@@ -20,7 +20,7 @@ purchasing and the books; WenQuest Ops reads and writes it through ERPNext's RES
 | Python |  | PSF-2.0 | https://www.python.org/downloads/source/ |
 | Debian packages of the python:3.12-slim image |  | various (see /usr/share/doc/*/copyright in the image) | https://sources.debian.org/ |
 | Tesseract OCR (tesseract-ocr, English and Simplified Chinese data) |  | Apache-2.0 | https://github.com/tesseract-ocr/tesseract |
-| Droid Sans Fallback font (fonts-droid-fallback, Chinese in the parts manual PDF) |  | Apache-2.0 | https://sources.debian.org/src/fonts-android/ |
+| WenQuanYi Micro Hei font (fonts-wqy-microhei, Chinese and English in the parts manual PDF) |  | Apache-2.0 or GPL-3.0-only with font exception | https://sources.debian.org/src/fonts-wqy-microhei/ |
 | fastapi (Python) |  | MIT | https://github.com/fastapi/fastapi |
 | httpx (Python) |  | BSD-3-Clause | https://github.com/encode/httpx |
 | openpyxl (Python) |  | MIT | https://foss.heptapod.net/openpyxl/openpyxl |
