@@ -60,7 +60,15 @@ def test_hub_side_of_the_demo(conn, monkeypatch):
     assert all(b.get("docstatus") == 1 for b in fake.docs["BOM"].values())
     capa = conn.execute("select status, root_cause from capas").fetchone()
     assert capa["status"] == "investigation" and "梭尖硬度" in capa["root_cause"]
-    assert conn.execute("select status from changes where kind = 'product'").fetchone()["status"] == "closed"
+    assert [r["status"] for r in conn.execute("select status from changes where kind = 'product'")] == ["closed"] * 2
+    # WQ-LS's real design change (WenQuest round 138): the lower housing at revision B with the new drawing and program
+    knee = conn.execute("select id, title from changes where title like '%%膝抬推杆过孔%%'").fetchone()
+    assert knee and out["knee_hole_change"]
+    files = {r["name"] for r in conn.execute(
+        "select f.name from plm_files f join plm_part_revisions r on r.id = f.revision_id join plm_parts p on "
+        "p.id = r.part_id where p.item_code = 'WQ88-1121' and r.status = 'released' and f.removed_at is null "
+        "order by r.id desc")}
+    assert {"WQ88-1121-B.pdf", "O1401.nc", "刀路仿真.png"} <= files
     assert conn.execute("select count(*) as n from plm_intake where status = 'pending'").fetchone()["n"] == 1
     # the ready parts manual (WenQuest rounds 124, 138): the WQ-LS head in 3D, every line with 3D placed
     man = out["manual"]

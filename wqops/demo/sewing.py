@@ -29,6 +29,7 @@ import hashlib
 from collections import defaultdict
 from collections.abc import Callable
 from decimal import Decimal
+from pathlib import Path
 
 from wqops.demo import sewing_manual as SM
 from wqops.demo.machines import lockstitch as LS
@@ -47,6 +48,8 @@ ENG, ENG2 = "caiming@demo.example", "yeqing@demo.example"
 HOOK = "WQ88-1711"                       # 旋梭 HSH-7.94A: the part of the story
 HOOK_SUPPLIER = "宁波精密旋梭（演示）"
 NEEDLE_PLATE = "WQ88-1812"               # 针板: the finished design change, A to B
+KNEE_HOLE_PART = "WQ88-1121"             # 机壳下件: WQ-LS's real change, knee-lift hole Ø12 to Ø10 (WenQuest round 138)
+KNEE_HOLE_DAY = 30
 MANUAL_MODEL = "TED"                     # the lockstitch model with a ready parts manual (WenQuest rounds 124, 138)
 
 # supplier of each bought part: the first rule whose words are in the part's name (else the standard parts maker)
@@ -555,7 +558,7 @@ class Sewing:
                              "用的是换料后的旋梭批次。"},
             today=self.today)
         c2 = C.create(conn, SALES, {"received_on": str(self.day(84)), "customer": DEALERS[5],
-                                   "description": f"{m7ta} 厚料机缝牛仔布时断线，2 台。", "item_code": m7ta,
+                                   "description": f"{m7ta} 缝牛仔布时断线，2 台。", "item_code": m7ta,
                                    "quantity": 2, "injury": "no", "malfunction": "yes", "owner": QA,
                                    "source": "customer"}, today=self.today)
         C.start(conn, QA, c2["id"])
@@ -601,6 +604,52 @@ class Sewing:
         CH.close(conn, self.u(OWNER), ch["id"], SIGN)
         self.out["finished_change"] = ch["name"]
 
+    def knee_hole_change(self) -> None:
+        """A design change that really happened in WenQuest's WQ-LS design (round 138, G4.8 deviation 6), walked through
+        on 蓝湾's lower housing: the knee-lift push rod hole Ø12 becomes Ø10, because the CAM simulation found the drill
+        cannot reach it. The evidence (the B drawing, the CNC program, the toolpath picture) is WQ-LS's, in manual/eco/.
+        Every step is in the change's log: raised, items, effect, impact analysis, submitted, approved, revision B
+        released, implemented, closed."""
+        from wqops.hub.plm import ecn as ECN  # noqa: PLC0415
+        from wqops.hub.plm import parts as PT  # noqa: PLC0415
+        from wqops.hub.quality import change_control as CH  # noqa: PLC0415
+
+        conn, eng, eng2 = self.conn, self.u(ENG), self.u(ENG2)
+        eco = Path(__file__).parent / "manual" / "eco"
+        bed = PT.by_code(conn, KNEE_HOLE_PART)
+        ch = CH.create(conn, ENG, {
+            "title": "机壳下件膝抬推杆过孔 Ø12 改 Ø10", "kind": "product",
+            "description": "机壳下件（机座）顶板上的膝抬推杆过孔由 Ø12 改为 Ø10，孔位不变（x 384.1）；推杆 Ø8 不变，"
+                           "单边间隙由 2 mm 变为 1 mm。"
+                           "改零件图（B 版）、钻孔工步（刀具 T69 Ø10 加长钻）、数控程序 O1401。",
+            "reason": "数控仿真：钻头要从机座底下向上，经下轴右轴承座（x 378.2）和机座右壁（x 390）之间 11.8 mm 的缝"
+                      "上去钻孔，Ø12 钻头连刀柄过不去（附刀路仿真图）。",
+            "owner": ENG, "target_date": str(self.day(KNEE_HOLE_DAY + 10)), "q_product": "yes",
+            "q_regulatory": "no",
+            "q_risk": "no", "q_validation": "yes",
+            "assessment": "推杆 Ø8 在 Ø10 孔里单边间隙 1 mm，膝抬行程内一转干涉检查无接触（WQ-LS 选配件干涉检查）；"
+                          "铸件不变，只改机加工。",
+            "validation_plan": "按新程序试加工 2 件机座，三坐标测孔径、孔位；装机试膝抬 200 次，看推杆有无刮擦。"})
+        ECN.add_item(conn, eng, ch["id"], {"part_id": bed["id"], "scope": "part"})
+        ECN.set_effect(conn, eng, ch["id"], {"mode": "now",
+                                             "note": "机加工改动，铸件不变；改后的程序从下一批机座起用。"})
+        ECN.analyse(conn, eng, ch["id"], self.erp)
+        CH.submit(conn, ENG, ch["id"])
+        CH.approve(conn, eng2, ch["id"], SIGN)
+        PT.new_revision(conn, eng, bed["id"], ch["id"])
+        PT.update(conn, eng, bed["id"], {"description": "膝抬推杆过孔 Ø10（B 版，原 Ø12）"})
+        PT.add_file(conn, eng, bed["id"], "drawing", "WQ88-1121-B.pdf", (eco / "WQ88-1121-B.pdf").read_bytes())
+        PT.add_file(conn, eng, bed["id"], "other", "O1401.nc", (eco / "O1401.nc").read_bytes())
+        PT.add_file(conn, eng, bed["id"], "image", "刀路仿真.png", (eco / "刀路仿真.png").read_bytes())
+        PT.release(conn, eng, bed["id"], SIGN)
+        CH.update(conn, ENG, ch["id"], {
+            "implementation": "零件图 B 版、数控程序 O1401（T69 Ø10 加长钻）发布；工艺卡钻孔工步改为 Ø10。",
+            "validation_result": "试加工 2 件：孔径 Ø10.02、Ø10.03，孔位偏差 0.04 mm 以内；装机膝抬 200 次无刮擦。"})
+        CH.implement(conn, eng, ch["id"])
+        CH.update(conn, ENG, ch["id"], {"effectiveness": "改后连续 3 批机座的这个孔一次钻成，没有再停机换刀。"})
+        CH.close(conn, self.u(OWNER), ch["id"], SIGN)
+        self.out["knee_hole_change"] = ch["name"]
+
     def inbox(self) -> None:
         """A FreeCAD batch waiting to be reviewed: the bobbin winder with a die-cast base."""
         from wqops.hub.plm import intake as IN  # noqa: PLC0415
@@ -642,6 +691,7 @@ class Sewing:
             self.sync()
             self.story()
             self.finished_change()
+            self.knee_hole_change()
             self.out["manual"] = SM.manual(self.conn, self.u(ENG), self._model(LS, MANUAL_MODEL), self.today)
             self.say(f"parts manual: {self.out['manual']['pages']} pages")
             self.inbox()
