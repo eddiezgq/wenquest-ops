@@ -68,7 +68,7 @@ def readiness(conn, pid: int) -> dict:
 def _page(conn, bid: int, page_of: dict[int, int]) -> dict:
     b = B.get(conn, bid)
     p = PT.get(conn, b["part_id"])
-    e = conn.execute("select snapshot_sha from plm_explodes where bom_id = %s and state = 'confirmed'",
+    e = conn.execute("select snapshot_sha, svg_sha, line_sha from plm_explodes where bom_id = %s and state = 'confirmed'",
                      (bid,)).fetchone()
     lines = []
     for ln in EX.lines(conn, bid):
@@ -77,7 +77,9 @@ def _page(conn, bid: int, page_of: dict[int, int]) -> dict:
                       "qty": ln["qty"], "uom": ln["uom"], "page": page_of.get(ln["part_id"]), "note": ln["note"]})
     return {"bom": bid, "revision": b["revision"], "code": p["item_code"], "name": p["name"],
             "name_en": p["name_en"] if p["name_en_state"] == "confirmed" else "",
-            "picture": e["snapshot_sha"] if e and e["snapshot_sha"] else None, "lines": lines}
+            "picture": e["snapshot_sha"] if e and e["snapshot_sha"] else None,
+            "svg": e["svg_sha"] if e and e["svg_sha"] else None,
+            "line": e["line_sha"] if e and e["line_sha"] else None, "lines": lines}
 
 
 def _changes(old: list[dict], new: list[dict]) -> list[dict]:
