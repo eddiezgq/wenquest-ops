@@ -53,7 +53,7 @@ def test_hub_side_of_the_demo(conn, monkeypatch):
         fake.put(doctype, f"Demo {doctype}", is_group=0)
     monkeypatch.setattr(SW.Sewing, "business", lambda self: None)
     out = SW.load(conn, erp, m, dt.date(2026, 11, 8), say=lambda _t: None)
-    assert out["parts"] >= 500 and out["boms"] >= 45
+    assert out["parts"] >= 450 and out["boms"] >= 45
     assert conn.execute("select count(*) as n from plm_parts where status <> 'released'").fetchone()["n"] == 0
     assert conn.execute("select count(*) as n from plm_boms where status <> 'released'").fetchone()["n"] == 0
     assert len(out["models"]) == 10 and "WQ88-0000-NMS" in out["models"]

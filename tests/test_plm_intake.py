@@ -306,7 +306,7 @@ def test_lockstitch_machine_bom(world, fake, erp, tmp_path):  # noqa: F811
 
     out = tmp_path / "bom.xlsx"
     info = mod.write(out)
-    assert info["parts"] >= 300
+    assert info["parts"] >= 250                          # WenQuest round 138: the WQ-LS head (281 parts)
     c = world
     v = IN.upload(c, u(c, CASEY), "excel", "平缝机BOM-演示.xlsx", out.read_bytes())
     assert len(v["rows"]) == info["parts"] and v["problems"] == []
