@@ -2418,5 +2418,16 @@
  "Colour picture": "彩色图",
  "Open the drawing (vector)": "打开线条图（矢量）",
  "PDF (screen)": "PDF（电子版）",
- "PDF (print)": "PDF（印刷版）"
+ "PDF (print)": "PDF（印刷版）",
+ "Instruction manual": "使用说明书",
+ "not written": "未写",
+ "Written by {who}": "{who} 写",
+ "{n} of 8 chapters confirmed. Only confirmed chapters go into an edition.": "8 章已确认 {n} 章。只有确认过的章节进说明书。",
+ "Chapters": "章数",
+ "Edition {n} made.": "第 {n} 版已生成。",
+ "Caption": "图题",
+ "Add an exploded view…": "加一张爆炸图…",
+ "or a picture of your own": "或者上传自己的图",
+ "AI drafts this chapter": "AI 起草本章",
+ "Eight chapters, Chinese and English: AI drafts, a person confirms.": "8 章，中英对照：AI 起草，人确认。"
 }

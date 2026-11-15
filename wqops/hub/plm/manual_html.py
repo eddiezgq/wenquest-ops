@@ -40,7 +40,9 @@ def _note(x: dict) -> str:
     return _e(x.get("note"))
 
 
-def page(m: dict, base: str) -> str:
+def page(m: dict, base: str, *, instructions: bool = False) -> str:
+    """instructions: the machine has an instruction manual too (33d): a link to its PDF."""
+    more = f" · <a href='{base}/instructions.pdf'>使用说明书 · Instruction manual</a>" if instructions else ""
     pages = m["pages"]
     toc = "".join(f"<li><a href='#s{n}'>{_e(p['code'])} {_e(p['name'])} <span class='en'>{_e(p.get('name_en'))}"
                   f"</span></a></li>" for n, p in enumerate(pages, start=1))
@@ -62,5 +64,5 @@ def page(m: dict, base: str) -> str:
             f"<title>{_e(m['item_code'])} 配件手册 Parts Manual</title><style>{STYLE}</style><main>"
             f"<p class='muted'>配件手册 Parts Manual · 第 {m['edition']} 版 Edition {m['edition']} · "
             f"{_e(str(m['created_at'])[:10])}</p><h1>{_e(m['name'])}</h1><p class='muted'>{_e(m['item_code'])} · "
-            f"<a href='{base}/pdf'>下载 PDF · Download PDF</a></p><nav><h2>目录 Contents</h2><ol>{toc}</ol></nav>"
+            f"<a href='{base}/pdf'>下载 PDF · Download PDF</a>{more}</p><nav><h2>目录 Contents</h2><ol>{toc}</ol></nav>"
             f"{''.join(body)}</main></html>")

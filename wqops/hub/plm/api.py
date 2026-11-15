@@ -27,6 +27,7 @@ from wqops.hub.plm import intake as IN
 from wqops.hub.plm import manual as MAN
 from wqops.hub.plm import manual_html as MANH
 from wqops.hub.plm import parts as PT
+from wqops.hub.plm import user_manual as UM
 from wqops.hub.quality import records as Q
 from wqops.i18n import say
 
@@ -277,6 +278,73 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
         d = await body(request)
         return run(lambda: EX.set_name_en(c, u, ident(pid), d.get("name_en"), confirm=bool(d.get("confirm"))))
 
+    # ---- the instruction manual (33d, ADR-0031)
+    @app.get("/api/plm/user-manual/{pid}")
+    def um_view(pid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        return {**run(lambda: UM.view(c, ident(pid))), **flags(u)}
+
+    @app.put("/api/plm/user-manual/{pid}/chapters/{key}")
+    async def um_save(pid: int, key: str, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        d = await body(request)
+        return {**run(lambda: UM.save(c, u, ident(pid), key, d)), **flags(u)}
+
+    @app.post("/api/plm/user-manual/{pid}/chapters/{key}/confirm")
+    def um_confirm(pid: int, key: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        return {**run(lambda: UM.confirm(c, u, ident(pid), key)), **flags(u)}
+
+    @app.post("/api/plm/user-manual/{pid}/chapters/{key}/draft")
+    async def um_draft(pid: int, key: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        from wqops.hub.ai import agent as AG  # noqa: PLC0415
+        from wqops.hub.ont import api as OA  # noqa: PLC0415
+
+        need(u, "plm:edit")
+        need(u, "ai:use")
+        today = OA.today(company()[0])
+        try:
+            v = await run_in_threadpool(lambda: run(lambda: UM.draft(c, u, ident(pid), key, ai_model, today=today)))
+        except (AG.DailyLimit, HTTPException):
+            raise
+        except Exception as exc:
+            raise HTTPException(502, say("the model did not answer: {exc}", exc=exc)) from exc
+        return {**v, **flags(u)}
+
+    @app.post("/api/plm/user-manual/{pid}/pictures")
+    async def um_upload(pid: int, request: Request, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:edit")
+        form = await request.form(max_files=1, max_fields=1, max_part_size=EX.MAX_IMAGE + 1)
+        up = form.get("file")
+        if not isinstance(up, UploadFile):
+            raise HTTPException(400, say("choose a picture"))
+        data = await up.read(EX.MAX_IMAGE + 1)
+        return run(lambda: UM.upload(c, u, ident(pid), up.filename or "picture", data))
+
+    @app.get("/api/plm/user-manual/{pid}/pictures/{sha}")
+    def um_picture(pid: int, sha: str, u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        data = run(lambda: UM.uploaded(c, ident(pid), sha))
+        return Response(data, media_type="image/png" if data.startswith(b"\x89PNG") else "image/jpeg")
+
+    @app.post("/api/plm/user-manual/{pid}/editions")
+    async def um_generate(pid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+        from wqops.hub.ont import api as OA  # noqa: PLC0415
+
+        need(u, "plm:edit")
+        today = OA.today(company()[0])
+        await run_in_threadpool(lambda: run(lambda: UM.generate(c, u, ident(pid), today=today)))
+        return {**run(lambda: UM.view(c, ident(pid))), **flags(u)}
+
+    @app.get("/api/plm/user-manual/editions/{eid}/pdf")
+    def um_pdf(eid: int, kind: str = "screen", u=Depends(user_dep), c=Depends(conn_dep)):
+        need(u, "plm:view")
+        if kind not in ("screen", "print"):
+            raise HTTPException(404, say("not found"))
+        name, data = run(lambda: UM.pdf(c, ident(eid), kind))
+        return Response(data, media_type="application/pdf",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}"})
+
     # ---- the parts manual (round 124, 27c)
     @app.get("/api/plm/manuals/part/{pid}")
     def manual_overview(pid: int, u=Depends(user_dep), c=Depends(conn_dep)):
@@ -339,8 +407,19 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
         except HTTPException as exc:          # a dealer may read either language: both, as on the page
             return HTMLResponse(MANH.message(MANH.GONE if exc.status_code == 410 else MANH.UNKNOWN),
                                 status_code=exc.status_code)
-        return HTMLResponse(MANH.page(m, f"/m/{quote(token)}"), headers={"Cache-Control": "no-store",
-                                                                         "X-Robots-Tag": "noindex"})
+        return HTMLResponse(MANH.page(m, f"/m/{quote(token)}", instructions=UM.newest(c, m["part_id"]) is not None),
+                            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})
+
+    @app.get("/m/{token}/instructions.pdf", include_in_schema=False)
+    def manual_public_instructions(token: str, c=Depends(conn_dep)):
+        m = public(c, token)
+        eid = UM.newest(c, m["part_id"])
+        if eid is None:
+            raise HTTPException(404, say("not found"))
+        name, data = UM.pdf(c, eid)
+        return Response(data, media_type="application/pdf",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}",
+                                 "X-Robots-Tag": "noindex"})
 
     @app.get("/m/{token}/pdf", include_in_schema=False)
     def manual_public_pdf(token: str, c=Depends(conn_dep)):

@@ -26,7 +26,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas as rl_canvas
-from reportlab.platypus import Paragraph, Table, TableStyle
+from reportlab.platypus import Flowable, Paragraph, Spacer, Table, TableStyle
 
 TRIM_W, TRIM_H, BLEED = 210 * mm, 297 * mm, 3 * mm
 INNER, OUTER, TOP, BOTTOM = 20 * mm, 15 * mm, 20 * mm, 18 * mm
@@ -210,7 +210,8 @@ class Book:
         self.bleed = BLEED if kind == "print" else 0.0
         self.c = rl_canvas.Canvas(self.out, pagesize=(TRIM_W + 2 * self.bleed, TRIM_H + 2 * self.bleed),
                                   pageCompression=1, initialFontName=self.f, initialFontSize=9)
-        self.c.setTitle(f"{head['code']} {head['name']} — 配件手册 Parts Manual, "
+        self.zh, self.en = head.get("book_zh", "配件手册"), head.get("book_en", "Parts Manual")
+        self.c.setTitle(f"{head['code']} {head['name']} — {self.zh} {self.en}, "
                         f"{'印刷版 print' if kind == 'print' else '电子版 screen'}")
         self.c.setAuthor("WenQuest PLM")
         self.n = 0
@@ -279,7 +280,7 @@ class Book:
         out_a, in_a = ("end", "start") if self.right else ("start", "end")
         ty = TRIM_H - TOP + 8 * mm
         self.text((out_x, ty), self.fit(h.get("short") or h["name"], 8, w * 0.6), 8, colour=GREY, anchor=out_a)
-        self.text((in_x, ty), f"配件手册 Parts Manual · {h['code']}", 8, colour=GREY, anchor=in_a)
+        self.text((in_x, ty), f"{self.zh} {self.en} · {h['code']}", 8, colour=GREY, anchor=in_a)
         c.setStrokeColor(RULE)
         c.setLineWidth(0.5)
         c.line(x, ty - 2.5 * mm, x + w, ty - 2.5 * mm)
@@ -350,8 +351,8 @@ def _cover(b: Book) -> None:
     h, c = b.head, b.c
     c.setFillColor(colors.HexColor("#0f2a4a"))
     c.rect(-b.bleed, TRIM_H * 0.62, TRIM_W + 2 * b.bleed, TRIM_H * 0.38 + b.bleed, stroke=0, fill=1)
-    b.text((OUTER + 5 * mm, TRIM_H - 40 * mm), "配件手册", 30, colour=colors.white)
-    b.text((OUTER + 5 * mm, TRIM_H - 52 * mm), "Parts Manual", 22, colour=colors.HexColor("#c9d6e8"))
+    b.text((OUTER + 5 * mm, TRIM_H - 40 * mm), b.zh, 30, colour=colors.white)
+    b.text((OUTER + 5 * mm, TRIM_H - 52 * mm), b.en, 22, colour=colors.HexColor("#c9d6e8"))
     y = TRIM_H * 0.62 - 22 * mm
     cw = TRIM_W - 2 * OUTER - 10 * mm
     for txt, size, col in ((h["name"], 20, INK), (h.get("name_en") or "", 12, GREY)):
@@ -482,7 +483,7 @@ def _back(b: Book) -> None:
     b.c.setFillColor(colors.HexColor("#0f2a4a"))
     b.c.rect(-b.bleed, -b.bleed, TRIM_W + 2 * b.bleed, 40 * mm + b.bleed, stroke=0, fill=1)
     b.text((OUTER, 22 * mm), f"{h['name']}  ·  {h['code']}", 10, colour=colors.white)
-    b.text((OUTER, 15 * mm), f"配件手册 第 {h['edition']} 版 · Parts Manual, Edition {h['edition']} · "
+    b.text((OUTER, 15 * mm), f"{b.zh} 第 {h['edition']} 版 · {b.en}, Edition {h['edition']} · "
                              f"{b.today.isoformat()}", 8, colour=colors.HexColor("#c9d6e8"))
 
 
@@ -490,3 +491,117 @@ def make(head: dict, pages: list[dict], changes: list[dict], *, blob: Callable[[
          today: dt.date) -> dict[str, bytes]:
     """Both PDFs."""
     return {k: build(head, pages, changes, kind=k, blob=blob, today=today) for k in ("print", "screen")}
+
+
+# ---- the instruction manual (33d): cover, contents, the chapters (Chinese, then English), back cover
+
+class _Figure(Flowable):
+    """A chapter's picture: the line drawing (print, or screen without a colour picture) or the picture."""
+
+    def __init__(self, book: Book, colour: bytes | None, svg: bytes | None, caption: str, width: float):
+        super().__init__()
+        self.book, self.colour, self.svg, self.caption = book, colour, svg, caption
+        self.width, self.height = width, 105 * mm
+
+    def draw(self):
+        b, c = self.book, self.canv
+        box = (0, 8 * mm, self.width, self.height - 8 * mm)
+        use_svg = self.svg is not None and (b.kind == "print" or self.colour is None)
+        try:
+            if use_svg:
+                draw_svg(c, self.svg, box)
+            elif self.colour is not None:
+                img = ImageReader(io.BytesIO(self.colour))
+                iw, ih = img.getSize()
+                s = min(box[2] / iw, box[3] / ih)
+                c.drawImage(img, (box[2] - iw * s) / 2, box[1] + (box[3] - ih * s) / 2, iw * s, ih * s)
+            else:
+                raise ValueError("no picture")
+        except Exception:  # a missing or damaged picture is noted, never a failed manual
+            c.setFillColor(GREY)
+            c.setFont(b.f, 9)
+            c.drawCentredString(self.width / 2, self.height / 2, "图缺 Picture missing")
+        c.setFillColor(GREY)
+        c.setFont(b.f, 8.5)
+        c.drawCentredString(self.width / 2, 2 * mm, self.caption)
+
+
+def _blocks(b: Book, text: str, *, en: bool) -> list:
+    """Paragraphs, "- " lists and "1. " steps; English in grey."""
+    st = ParagraphStyle("en" if en else "zh", parent=b.st["p"], textColor=GREY if en else INK, spaceAfter=4)
+    li = ParagraphStyle("li", parent=st, leftIndent=12, firstLineIndent=-8, spaceAfter=2)
+    out = []
+    for block in re.split(r"\n\s*\n", text.strip()):
+        for raw in block.split("\n"):
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("- "):
+                out.append(Paragraph("• " + _esc(line[2:]), li))
+            elif re.match(r"^\d+[.、]\s*", line):
+                out.append(Paragraph(_esc(line), li))
+            else:
+                out.append(Paragraph(_esc(line), st))
+        out.append(Spacer(1, 3))
+    return out
+
+
+def _flow_items(b: Book, items: list, title: Callable[[bool], None], top_gap: float = 14 * mm) -> None:
+    """Flowables down the page, a new page when the next one does not fit."""
+    x, y, w, h = b.box()
+    title(False)
+    cur = y + h - top_gap
+    for it in items:
+        _w, ih = it.wrapOn(b.c, w, h)
+        if cur - ih < y:
+            b.start()
+            x, y, w, h = b.box()
+            title(True)
+            cur = y + h - top_gap
+        it.drawOn(b.c, x, cur - ih)
+        cur -= ih
+
+
+def build_user(head: dict, chapters: list[dict], figs: dict, *, kind: str, today: dt.date) -> bytes:
+    b = Book({**head, "book_zh": "使用说明书", "book_en": "Instruction Manual"}, kind=kind, today=today)
+    _cover(b)
+    b.start()
+    if kind == "screen":
+        b.c.bookmarkPage("contents")
+        b.c.addOutlineEntry("目录 Contents", "contents", 0)
+    x, y, w, h = b.box()
+    b.text((x, y + h - 7 * mm), "目录 Contents", 15)
+    for n, c in enumerate(chapters, start=1):
+        yy = y + h - 22 * mm - (n - 1) * 11 * mm
+        b.text((x, yy), f"{n}", 12, colour=BLUE)
+        b.text((x + 10 * mm, yy), c["title_zh"], 12)
+        b.text((x + 10 * mm, yy - 4.5 * mm), c["title_en"], 9, colour=GREY)
+        if kind == "screen":
+            b.c.linkRect("", f"ch{n}", (x, yy - 6 * mm, x + w, yy + 5 * mm), relative=1, thickness=0)
+    for n, c in enumerate(chapters, start=1):
+        b.start()
+        if kind == "screen":
+            b.c.bookmarkPage(f"ch{n}")
+            b.c.addOutlineEntry(f"{n}  {c['title_zh']} {c['title_en']}", f"ch{n}", 0)
+        w = b.box()[2]
+        items = [*_blocks(b, c["body_zh"], en=False), Spacer(1, 4 * mm), *_blocks(b, c["body_en"], en=True)]
+        for i, f in enumerate(c["figures"]):
+            colour, svg = figs.get((c["key"], i), (None, None))
+            items += [Spacer(1, 4 * mm), _Figure(b, colour, svg, f.get("caption") or f.get("code") or "", w)]
+
+        def title(cont, n=n, c=c):
+            x0, y0, _w0, h0 = b.box()
+            b.text((x0, y0 + h0 - 7 * mm), f"{n}", 20, colour=BLUE)
+            b.text((x0 + 12 * mm, y0 + h0 - 5 * mm), c["title_zh"] + ("（续）" if cont else ""), 14)
+            b.text((x0 + 12 * mm, y0 + h0 - 10.5 * mm), c["title_en"] + (" (cont.)" if cont else ""), 9, colour=GREY)
+        _flow_items(b, items, title, top_gap=18 * mm)
+    if b.n % 2 == 0:
+        b.start(plain=True)
+    b.start(plain=True)
+    _back(b)
+    return b.finish()
+
+
+def make_user(head: dict, chapters: list[dict], figs: dict, *, today: dt.date) -> dict[str, bytes]:
+    """Both PDFs of an instruction manual; figs: (chapter key, index) -> (colour picture, line drawing SVG)."""
+    return {k: build_user(head, chapters, figs, kind=k, today=today) for k in ("print", "screen")}

@@ -87,6 +87,10 @@ def test_hub_side_of_the_demo(conn, monkeypatch):
                       "order by 1").fetchall()
     assert [(x["state"], x["source"]) for x in ex] == [("confirmed", "freecad"), ("pending", "freecad")]
     assert all(x["svg"] == x["n"] for x in ex) and ex[0]["n"] >= 15
+    # 33d: the instruction manual of the same model, eight chapters confirmed, edition 1 with pictures from 3D
+    assert out["instructions"]["edition"] == 1 and out["instructions"]["chapters"] == 8
+    ed = conn.execute("select chapters from plm_um_editions").fetchone()["chapters"]
+    assert all(c["body_zh"] and c["body_en"] for c in ed) and sum(len(c["figures"]) for c in ed) >= 8
     assert out["models_3d"] == len(list((SM.HERE / "lockstitch" / "models").glob("*.step"))) > 80
     unplaced = conn.execute(
         "select a.item_code as asm, p.item_code as code from plm_bom_lines l join plm_boms b on b.id = l.bom_id "

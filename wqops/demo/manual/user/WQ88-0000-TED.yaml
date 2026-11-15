@@ -1,0 +1,237 @@
+# Demo data (fictional company 蓝湾, WenQuest round 138 G7.1 33d): the instruction manual of WQ88-0000-TED, eight
+# chapters, Chinese and English. Written in advance for the demo the way the PLM's AI drafts a chapter, then read and
+# confirmed by the engineer when the demo is loaded. Numbers are WQ-LS's example design values (WenQuest
+# tools/wqls/spec.py; no prototype has been built); what the design does not say is left "〔待填 to be filled〕".
+model: WQ88-0000-TED
+chapters:
+  safety:
+    figures: []
+    zh: |
+      本说明书适用于 WQ-8800D 电脑直驱单针平缝机 TED 型（自动剪线、电子针距、少油旋梭）。这是演示用的虚构机型，按问渠 WQ-LS 示例设计编写，未经实物试制。
+
+      使用前请读完本说明书，并交给操作和保养这台机器的人。
+
+      - 只有受过培训的人才能操作、调整和保养本机。
+      - 穿线、换针、换梭芯、清洁、加油、离开机器时，先关电源；只在说明书写明的地方通电调整。
+      - 机器运转时，手指、头发、衣袖不要靠近机针、挑线杆、手轮和皮带。
+      - 不要拆下机器上的护指器、皮带罩、挑线杆护罩开机。
+      - 电源必须接地，电压与铭牌一致；插头、电线破损时不得使用。
+      - 自动剪线的动刀很锋利，清理线头时用镊子或刷子，不要用手。
+      - 搬运机头至少两人；放倒、竖起机头时扶住机头，不要只拉手轮。
+      - 发现异响、异味、冒烟，立即关电源，查明原因后再开机。
+    en: |
+      This manual covers the WQ-8800D computer-controlled direct-drive single-needle lockstitch machine, model TED (automatic thread trimmer, electronic stitch length, low-oil hook). It is a fictional demonstration model written from WenQuest's WQ-LS example design; no prototype has been built.
+
+      Read the whole manual before use and give it to the people who run and look after the machine.
+
+      - Only trained people may operate, adjust or service the machine.
+      - Switch off the power before threading, changing the needle or bobbin, cleaning, oiling or leaving the machine; adjust with the power on only where this manual says so.
+      - Keep fingers, hair and sleeves away from the needle, the thread take-up lever, the handwheel and the belt while the machine runs.
+      - Do not run the machine with the finger guard, belt cover or take-up lever cover removed.
+      - The supply must be earthed and match the rating plate; do not use a damaged plug or cable.
+      - The trimmer's moving knife is sharp: clear thread ends with tweezers or a brush, not your fingers.
+      - Lift the machine head with two people; hold the head when tilting it back or up, never only by the handwheel.
+      - If you hear an unusual noise, smell burning or see smoke, switch off at once and find the cause before restarting.
+  install:
+    figures:
+      - {code: WQ88-1000, caption: 机头部件 Machine head}
+    zh: |
+      开箱后对照装箱单清点：机头、台板机架、电控箱与操作面板、线架、附件包。附件包里的东西见配件手册“附件包”一节。
+
+      1. 按台板机架附带的说明装好机架和台板，调平，四脚着地不晃。
+      2. 把电控箱装在台板下面，电机线、编码器线、剪线和针距电磁铁的线按标签插到电控箱上。
+      3. 两人抬起机头，放进台板开口，装上铰链，让机头能向后放倒。
+      4. 装上膝控抬压脚的膝靠板，调到操作者膝盖舒服的位置。
+      5. 装好线架，线架杆在机头正上方。
+      6. 油盘（机座下盖）里加油到油标上下线之间，油的牌号〔待填 to be filled〕。
+      7. 接电源前确认电压：本机电控适用单相交流 110–250 V，接地必须可靠。
+      8. 通电，不穿线，先用操作面板设低速（约 1000 r/min）空运转 5 分钟，听有无异响，看旋梭处有没有油甩出。
+    en: |
+      Unpack and check against the packing list: machine head, table and stand, control box with operating panel, thread stand, accessory kit. What the accessory kit holds is listed in the parts manual, section "Accessory kit".
+
+      1. Assemble the stand and table following the instructions that come with them; level them so all four feet stand firm.
+      2. Fit the control box under the table; plug the motor, encoder, trimmer and stitch-length solenoid cables into the control box as labelled.
+      3. With two people, lift the head into the table opening and fit the hinges so the head can be tilted back.
+      4. Fit the knee lifter plate and set it where the operator's knee rests comfortably.
+      5. Fit the thread stand with its rod straight above the head.
+      6. Fill the oil reservoir (the bed's bottom cover) to between the marks on the oil gauge; oil grade 〔待填 to be filled〕.
+      7. Before connecting the supply, check the voltage: the control works on single-phase AC 110–250 V; the earth must be sound.
+      8. Switch on and, without threads, run the machine at low speed (about 1000 r/min, set on the panel) for 5 minutes; listen for unusual noise and check that oil is thrown at the hook.
+  parts:
+    figures:
+      - {code: WQ88-1000, caption: 机头部件 Machine head}
+      - {code: WQ88-1200, caption: 上轴部件（电机在手轮内） Upper shaft assembly, motor inside the handwheel}
+    zh: |
+      机头上主要部分（名称和配件手册一致）：
+
+      - 机壳部件：上件（机臂、立柱）和下件（机座），机座下面是油盘。
+      - 上轴部件：上轴、直驱电机（在手轮里）、手轮、上轴同步带轮。
+      - 挑线部件、针杆部件：挑线杆、针杆、机针（DB×1）。
+      - 压脚部件：压脚杆、压脚、手动抬压脚扳手；膝控抬压脚部件。
+      - 夹线部件、预夹线部件、松线部件：控制面线的张力。
+      - 下轴部件：下轴、同步带，由同步带带动；旋梭部件（少油型）：旋梭、梭壳、梭芯。
+      - 送布部件：送布牙和抬牙、送布机构。
+      - 电子针距部件：针距电机代替针距调节器，针距在操作面板上设定；倒缝按钮。
+      - 自动剪线部件：动刀、定刀和剪线电磁铁，停车时自动剪断面线和底线。
+      - 润滑部件、油泵部件：从油盘向旋梭和各轴供油。
+    en: |
+      The main parts of the head (named as in the parts manual):
+
+      - Machine housing: the upper part (arm and pillar) and the lower part (bed); the oil reservoir is under the bed.
+      - Upper shaft assembly: upper shaft, direct-drive motor (inside the handwheel), handwheel, upper shaft timing pulley.
+      - Thread take-up and needle bar assemblies: take-up lever, needle bar, needle (DB×1).
+      - Presser foot assembly: presser bar, presser foot, hand lifter; knee lifter assembly.
+      - Thread tension, pre-tension and tension release assemblies: they set the needle thread tension.
+      - Lower shaft assembly: lower shaft, driven by the timing belt; rotary hook assembly (low-oil type): hook, bobbin case, bobbin.
+      - Feed assembly: feed dog, feed lift and feed mechanism.
+      - Electronic stitch length assembly: a stitch motor replaces the stitch regulator; the stitch length is set on the panel; reverse button.
+      - Automatic thread trimmer: moving knife, fixed knife and trimmer solenoid; it cuts the needle and bobbin threads when the machine stops.
+      - Lubrication and oil pump assemblies: they feed oil from the reservoir to the hook and the shafts.
+  threading:
+    figures:
+      - {code: WQ88-1600, caption: 夹线部件 Thread tension assembly}
+      - {code: WQ88-1720, caption: 旋梭部件（少油型） Rotary hook assembly, low-oil type}
+    zh: |
+      穿线前关电源。转动手轮（向操作者方向转）使挑线杆升到最高点。
+
+      面线：
+      1. 线从线架引下，穿过机臂上的过线钩。
+      2. 穿过预夹线，再顺时针绕进夹线器的两片夹线盘之间。
+      3. 线挂进挑线簧，向上穿过挑线杆的孔。
+      4. 向下经过针杆上的线钩，从左向右穿过针孔，留出约 5 cm 线头。
+
+      绕底线：
+      1. 把梭芯装到绕线器轴上，线从线架经绕线器的夹线器绕几圈到梭芯上。
+      2. 抬起压脚，开机，绕线器绕满后自动停；梭芯绕到约八成满即可。
+
+      装梭芯：梭芯放进梭壳，线从槽里拉进梭壳簧下面，拉线时梭芯顺时针转；把梭壳装回旋梭，听到“咔”一声为止。
+    en: |
+      Switch off before threading. Turn the handwheel towards you until the take-up lever is at its highest point.
+
+      Needle thread:
+      1. Lead the thread down from the thread stand through the thread guide on the arm.
+      2. Pass it through the pre-tension, then clockwise between the two discs of the tension.
+      3. Hook it into the check spring and up through the hole of the take-up lever.
+      4. Down through the guide on the needle bar, then through the needle eye from left to right; leave about 5 cm.
+
+      Winding the bobbin:
+      1. Put the bobbin on the winder shaft; lead the thread from the stand through the winder's tension and wind a few turns onto the bobbin.
+      2. Raise the presser foot and run the machine; the winder stops by itself when the bobbin is full. About 80 % full is right.
+
+      Fitting the bobbin: put the bobbin into the bobbin case, draw the thread through the slot under the bobbin case spring so the bobbin turns clockwise as you pull; put the bobbin case back into the hook until it clicks.
+  operation:
+    figures:
+      - {code: WQ88-2400, caption: 电子针距部件 Electronic stitch length assembly}
+      - {code: WQ88-1500, caption: 压脚部件 Presser foot assembly}
+    zh: |
+      针距：TED 型用电子针距，在操作面板上设定，最大 5 mm，每档多少〔待填 to be filled〕。缝厚料、密针时先用低速试缝。
+
+      倒缝：按机头上的倒缝按钮，按住期间倒缝；松开恢复正缝。始缝、止缝的自动倒缝针数在操作面板上设定。
+
+      压脚：
+      - 手动：扳起机头后面的抬压脚扳手，压脚抬高 5.5 mm，可停在这个位置。
+      - 膝控：向右推膝靠板，压脚最高抬到 13 mm，松开即落下。
+      - 压脚压力用机头顶上的压力调节螺钉调，顺时针加大；薄料调小，厚料调大。
+
+      踏板：轻踩起动、越踩越快，最高转速 5000 r/min；踏板回到中位停车，针停位置在操作面板上选（针上或针下）；脚跟向后踩一下，自动剪线并抬压脚。
+
+      面线张力：夹线螺母顺时针拧紧张力加大。线迹应在两层布中间交结；面线浮在上面说明面线太紧或底线太松，反之亦然。
+    en: |
+      Stitch length: model TED has electronic stitch length, set on the operating panel, up to 5 mm, step size 〔to be filled〕. Try heavy materials and short stitches at low speed first.
+
+      Reverse: press the reverse button on the head and hold it to sew backwards; let go to sew forwards again. The number of automatic backtack stitches at the start and end of a seam is set on the panel.
+
+      Presser foot:
+      - By hand: raise the lifter lever at the back of the head; the foot rises 5.5 mm and stays up.
+      - By knee: push the knee lifter plate to the right; the foot rises up to 13 mm and drops when you let go.
+      - The pressure is set with the pressure regulating screw on top of the head, clockwise for more; less for thin materials, more for heavy ones.
+
+      Pedal: press lightly to start, further to go faster, up to 5000 r/min; back to the middle to stop. Where the needle stops (up or down) is chosen on the panel. Heel back once to trim the threads and raise the foot.
+
+      Needle thread tension: turn the tension nut clockwise for more. The threads should lock in the middle of the two layers; needle thread lying on top means the needle thread is too tight or the bobbin thread too loose, and the other way round.
+  maintenance:
+    figures:
+      - {code: WQ88-1910, caption: 油泵部件 Oil pump assembly}
+    zh: |
+      每天开机前：
+      1. 看油盘的油标，油面在上下线之间，不够就加〔油的牌号待填 to be filled〕。
+      2. 关电源，放倒机头，用刷子清掉送布牙、针板下面和旋梭周围的线头和布毛。
+      3. 擦干净机头和台板上的油污。
+
+      开机后看旋梭附近的油窗或纸片，少油旋梭只需少量油，纸片上应有细油线；完全没有油时停机检查油泵和油管。
+
+      每周：清洁自动剪线的动刀、定刀；检查同步带有无裂纹、松紧是否合适〔张紧量待填 to be filled〕。
+
+      换油：新机运转〔待填 to be filled〕小时后第一次换油，以后每〔待填 to be filled〕小时换一次。
+
+      长期不用：加油、空转几分钟，在旋梭处滴几滴油，盖好机罩。
+    en: |
+      Every day before starting:
+      1. Check the oil gauge of the reservoir; the level should be between the marks. Top up if needed 〔oil grade to be filled〕.
+      2. Switch off, tilt the head back and brush the thread ends and lint off the feed dog, under the needle plate and around the hook.
+      3. Wipe oil off the head and the table.
+
+      After starting, check the oil window or a slip of paper near the hook: the low-oil hook needs only a little oil, a fine line of oil on the paper. If there is none, stop and check the oil pump and pipes.
+
+      Every week: clean the trimmer's moving and fixed knives; check the timing belt for cracks and the right tension 〔tension to be filled〕.
+
+      Oil change: first after 〔to be filled〕 hours of running, then every 〔to be filled〕 hours.
+
+      Out of use for a long time: oil the machine, run it a few minutes, put a few drops of oil on the hook and cover the machine.
+  troubles:
+    figures:
+      - {code: WQ88-2000, caption: 自动剪线部件 Automatic thread trimmer}
+    zh: |
+      - 断面线：穿线错误 → 照第 4 章重穿；面线太紧 → 松夹线螺母；机针装反或弯 → 机针长槽朝左装到底，换新针；线太粗 → 换合适的针号（DB×1 #9–#18）。
+      - 跳针：机针装得不到底或弯 → 重装、换针；针和线不配 → 换针号；旋梭与机针的间隙不对 → 请维修人员按维修资料调整。
+      - 断底线：梭芯绕得太满或不齐 → 重绕；梭壳簧太紧 → 调松；梭壳有毛刺 → 换梭壳。
+      - 线迹不紧：面线和底线张力不配 → 照第 5 章调张力。
+      - 剪线剪不断：动刀、定刀变钝或有线头卡住 → 清洁、换刀；剪线电磁铁不动作 → 查电控箱的接线和报警代码。
+      - 送布不顺：送布牙太低或磨损 → 请维修人员调整；压脚压力太小 → 加大压力。
+      - 旋梭处没油：油面太低 → 加油；油泵或油管堵 → 清洗。
+      - 操作面板报警：按面板上的代码表处理〔代码表待填 to be filled〕。
+    en: |
+      - Needle thread breaks: wrong threading → rethread as in chapter 4; tension too tight → loosen the tension nut; needle in the wrong way or bent → fit it fully up with the long groove to the left, use a new needle; thread too thick → use the right needle size (DB×1 #9–#18).
+      - Skipped stitches: needle not fully up or bent → refit or replace it; needle and thread do not match → change the needle size; wrong clearance between hook and needle → have a mechanic adjust it from the service data.
+      - Bobbin thread breaks: bobbin wound too full or unevenly → rewind; bobbin case spring too tight → loosen it; burr on the bobbin case → replace it.
+      - Loose stitches: needle and bobbin thread tensions do not match → adjust them as in chapter 5.
+      - Threads not cut: moving or fixed knife blunt or jammed with thread → clean or replace the knives; trimmer solenoid does not work → check the wiring and the alarm code on the control box.
+      - Poor feeding: feed dog too low or worn → have a mechanic adjust it; presser foot pressure too low → increase it.
+      - No oil at the hook: oil level too low → top up; oil pump or pipe blocked → clean it.
+      - Alarm on the panel: see the code table 〔code table to be filled〕.
+  specs:
+    figures: []
+    zh: |
+      以下为 WQ-LS 示例设计值（未经实物试制）。
+
+      - 机型：WQ-8800D-TED 电脑直驱单针平缝机（自动剪线、电子针距、少油旋梭）
+      - 最高缝速：5000 r/min
+      - 最大针距：5 mm（电子针距，操作面板设定）
+      - 压脚抬起高度：手动 5.5 mm，膝控 13 mm
+      - 针杆行程：31 mm
+      - 机针：DB×1，#9–#18（常用 #14 / Nm 90）
+      - 旋梭：全回转旋梭，与上轴 2 : 1，少油型，自动供油
+      - 电机：交流伺服直驱，装在上轴右端（手轮内），550 W
+      - 电源：单相交流 110–250 V
+      - 机臂空间：机针到立柱 300 mm，台面到机臂下沿 160 mm
+      - 机座尺寸：517 mm × 178 mm
+      - 润滑油：〔待填 to be filled〕
+      - 机头重量：〔待填 to be filled〕
+      - 噪声：〔待填 to be filled〕
+    en: |
+      The values below are WQ-LS example design values (no prototype has been built).
+
+      - Model: WQ-8800D-TED computer-controlled direct-drive single-needle lockstitch machine (automatic thread trimmer, electronic stitch length, low-oil hook)
+      - Maximum sewing speed: 5000 r/min
+      - Maximum stitch length: 5 mm (electronic, set on the panel)
+      - Presser foot lift: 5.5 mm by hand, 13 mm by knee
+      - Needle bar stroke: 31 mm
+      - Needle: DB×1, #9–#18 (usually #14 / Nm 90)
+      - Hook: full rotary hook, 2 : 1 to the upper shaft, low-oil type, lubricated automatically
+      - Motor: AC servo direct drive on the right end of the upper shaft (inside the handwheel), 550 W
+      - Power supply: single-phase AC 110–250 V
+      - Arm space: 300 mm from the needle to the pillar, 160 mm from the table to the underside of the arm
+      - Bed: 517 mm × 178 mm
+      - Lubricating oil: 〔to be filled〕
+      - Head weight: 〔to be filled〕
+      - Noise: 〔to be filled〕

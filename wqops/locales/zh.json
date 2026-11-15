@@ -3536,5 +3536,17 @@
  "there is no exploded view waiting to be confirmed here": "这里没有待确认的爆炸图",
  "the BOM of {code} changed since the drawing was made: make it again": "{code} 的 BOM 在出图之后改过：请重新生成",
  "waiting to be confirmed": "待确认",
- "the manual's font is not installed on the server (fonts-wqy-microhei)": "服务器上没有装手册用的字体（fonts-wqy-microhei）"
+ "the manual's font is not installed on the server (fonts-wqy-microhei)": "服务器上没有装手册用的字体（fonts-wqy-microhei）",
+ "an instruction manual is made for a machine with a BOM": "使用说明书是给有 BOM 的整机做的",
+ "a chapter is at most {n} characters in each language": "每章每种语言最多 {n} 个字",
+ "a chapter has at most {n} pictures": "每章最多 {n} 张图",
+ "the pictures are not readable": "图的数据读不了",
+ "a picture is an exploded view of an assembly of this machine, or an uploaded one": "图只能是这台机器某个部件的爆炸图，或者上传的图",
+ "write the chapter in Chinese and English first": "先写好这一章的中文和英文",
+ "there is no AI here: write the chapter by hand": "这里没有 AI：请手写这一章",
+ "Instruction manual, {chapter}": "使用说明书：{chapter}",
+ "the model did not write the chapter": "模型没有写出这一章",
+ "no chapter is confirmed yet": "还没有确认过的章节",
+ "edition {n}, {p} chapters": "第 {n} 版，{p} 章",
+ "choose a picture": "请选一张图"
 }
