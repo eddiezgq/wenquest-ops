@@ -15,8 +15,8 @@ Everything is invented: the company, its people, suppliers, dealers, both machin
    softer at the point (still inside the limits); two dealers complain of broken thread; a corrective action is open
    with the root cause written. Whoever looks at the demo starts the design change from there. A finished design
    change (needle plate A to B) and a FreeCAD batch waiting in the design data inbox are there as well.
-4. The parts manual (round 124): the mechanism parts with 3D from the sewing design software, exploded views (3D or a
-   schematic), English names, and edition 1 of one lockstitch model's manual (sewing_manual.py).
+4. The parts manual (WenQuest rounds 124, 138): the head mechanism is WenQuest's real WQ-LS design, every part of it
+   in 3D where it sits; English names, and edition 1 of one lockstitch model's manual (sewing_manual.py).
 
 Plain code, no AI, no network beyond ERPNext. The texts are the company's (Chinese); this company has no English
 version yet. Signatures are accepted without passwords while it runs (demo_signing, demo companies only).
@@ -47,7 +47,7 @@ ENG, ENG2 = "caiming@demo.example", "yeqing@demo.example"
 HOOK = "WQ88-1711"                       # 旋梭 HSH-7.94A: the part of the story
 HOOK_SUPPLIER = "宁波精密旋梭（演示）"
 NEEDLE_PLATE = "WQ88-1812"               # 针板: the finished design change, A to B
-MANUAL_MODEL = "5TA"                     # the lockstitch model with a ready parts manual (round 124, 27d)
+MANUAL_MODEL = "TED"                     # the lockstitch model with a ready parts manual (WenQuest rounds 124, 138)
 
 # supplier of each bought part: the first rule whose words are in the part's name (else the standard parts maker)
 SUPPLIERS = [
@@ -65,14 +65,15 @@ DEALERS = ["东莞衣联缝纫设备（演示）", "杭州织锦服装机械（�
            "宁波海缝设备（演示）", "越南西贡缝纫设备（演示）", "达卡制衣机械（演示）", "义乌小商品缝纫（演示）"]
 
 # models: choice -> (name suffix shown in the story, price in yuan)
-LS_PRICE = {"5TA": 3980, "7TA": 4180, "5TK": 3680, "5NK": 3180}
+# lockstitch models (WenQuest round 138: options of WQ-LS): T/N trimmer, M/E stitch (mechanical, electronic), S/D hook
+LS_PRICE = {"TMS": 3980, "TMD": 4080, "TES": 4380, "TED": 4480, "NMS": 3180, "NMD": 3280, "NES": 3580, "NED": 3680}
 OL_PRICE = {"4": 3280, "5": 3880}
 
 # (day, model choice, quantity): lockstitch work orders finished on that day; the hook is used once per machine
-LS_RUNS = [(6, "5TA", 20), (13, "7TA", 20), (20, "5TA", 20), (27, "5TK", 20), (34, "5TA", 20), (41, "5NK", 20),
-           (48, "7TA", 20), (55, "5TA", 20), (62, "5TK", 20), (69, "7TA", 20), (76, "5TA", 20), (83, "5NK", 20)]
+LS_RUNS = [(6, "TMS", 20), (13, "TES", 20), (20, "TMS", 20), (27, "NES", 20), (34, "TMS", 20), (41, "NMS", 20),
+           (48, "TES", 20), (55, "TMS", 20), (62, "NES", 20), (69, "TES", 20), (76, "TMS", 20), (83, "NMS", 20)]
 OL_RUNS = [(9, "4", 20), (23, "5", 20), (37, "4", 20), (51, "4", 20), (65, "5", 20), (79, "4", 20)]
-LS_OPEN = [(86, "5TA", 20), (88, "7TA", 20)]            # work orders not started yet
+LS_OPEN = [(86, "TMS", 20), (88, "TES", 20)]            # work orders not started yet
 HOOK_OPENING = 100
 HOOK_LOTS = [(10, 80, False), (35, 60, False), (60, 60, True), (78, 60, True)]   # day, qty, after the material change
 HOOK_OPEN_PO = [(82, 60, 92), (86, 60, 99)]              # ordered on, qty, due (days from the start)
@@ -88,6 +89,8 @@ class SewingError(RuntimeError):
 
 def _walk(node, out: dict, links: dict) -> None:
     code, name, _qty, src, unit, kids = node
+    if code in out and kids:
+        return                       # an assembly used in two places (1850 in both feed assemblies): its lines once
     if code not in out:
         out[code] = {"key": code, "code": code, "name": name, "uom": unit, "source": "make" if src == "自制" else "buy"}
     for k in kids:
@@ -148,7 +151,7 @@ def _h(code: str, n: int) -> int:
     return int(hashlib.sha256(code.encode()).hexdigest()[:8], 16) % n
 
 
-MACHINES = {"WQ88-0000": ("WQ-8800D", "电脑直驱单针平缝机，自动剪线、自动抬压脚、自动倒缝（演示）"),
+MACHINES = {"WQ88-0000": ("WQ-8800D", "电脑直驱单针平缝机，自动剪线、电子针距、少油旋梭可选（演示）"),
             "WQ73-0000": ("WQ-737", "电脑直驱四线包缝机，差动送布（演示）")}
 
 BEARINGS = {"6202ZZ": (15, 35, 11), "6201ZZ": (12, 32, 10), "6200ZZ": (10, 30, 9), "6000ZZ": (10, 26, 8),
@@ -313,8 +316,8 @@ class Sewing:
         # every hook lot is inspected at receiving (the hardness of the point)
         self._again(lambda: self.erp.update("Item", HOOK, {"inspection_required_before_purchase": 1}))
         self.say(f"{self.out['parts']} parts written")
-        # the mechanism in 3D from the sewing design software, onto the draft parts (round 124, 27d)
-        self.out["models_3d"] = SM.mechanism(self.conn, self.u(ENG))
+        # the WQ-LS parts in 3D (WenQuest round 138), onto the draft parts, with where each use sits
+        self.out["models_3d"] = SM.models(self.conn, self.u(ENG))
 
     def suppliers(self) -> None:
         """Every bought part has an approved supplier (the BOM release checks it)."""
@@ -429,7 +432,7 @@ class Sewing:
             events.append((day + 2, 5, "deliver", (machine, key)))
         for machine, _cfg, day, key, q in opens:
             events.append((day, 4, "wo_open", (machine, key, q)))
-        for i, (machine, key, q) in enumerate([(LS, "5TA", 10), (LS, "7TA", 10), (LS, "5NK", 8)]):
+        for i, (machine, key, q) in enumerate([(LS, "TMS", 10), (LS, "TES", 10), (LS, "NMS", 8)]):
             events.append((84 + i * 2, 3, "so_open", (machine, key, q, 97 + i * 3)))
         self.sos: dict = {}
         pending = defaultdict(list)       # model code -> sales orders waiting to be delivered
@@ -479,7 +482,7 @@ class Sewing:
             code = self._model(machine, key)
             dealer = DEALERS[_h(f"{code}{day}", len(DEALERS))]
             if kind == "so_open":
-                dealer = DEALERS[{"5TA": 0, "7TA": 5, "5NK": 7}[key]]
+                dealer = DEALERS[{"TMS": 0, "TES": 5, "NMS": 7}[key]]
             rate = (LS_PRICE if machine is LS else OL_PRICE)[key]
             so = self.make({"doctype": "Sales Order", "customer": dealer, "company": self.company,
                             "transaction_date": str(day),
@@ -540,7 +543,7 @@ class Sewing:
         CH.update(conn, BUYER, a["id"], {"effectiveness": "换料后首批来料检验合格（梭尖硬度均在 58–62 HRC 内）。"})
         CH.close(conn, self.u(OWNER), a["id"], SIGN)
         # two dealers complain of broken thread
-        m5ta, m7ta = self._model(LS, "5TA"), self._model(LS, "7TA")
+        m5ta, m7ta = self._model(LS, "TMS"), self._model(LS, "TES")
         c1 = C.create(conn, SALES, {"received_on": str(self.day(74)), "customer": DEALERS[0],
                                    "description": f"{m5ta} 新机使用约两周后频繁断面线，高速时尤甚；更换旋梭后恢复正常。"
                                                   "客户共反映 3 台。",
