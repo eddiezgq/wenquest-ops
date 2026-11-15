@@ -694,6 +694,9 @@ class Sewing:
             self.knee_hole_change()
             self.out["manual"] = SM.manual(self.conn, self.u(ENG), self._model(LS, MANUAL_MODEL), self.today)
             self.say(f"parts manual: {self.out['manual']['pages']} pages")
+            self.out["instructions"] = SM.instructions(self.conn, self.u(ENG), self._model(LS, MANUAL_MODEL),
+                                                       self.today)
+            self.say(f"instruction manual: {self.out['instructions'].get('chapters', 0)} chapters")
             self.inbox()
         return self.out
 

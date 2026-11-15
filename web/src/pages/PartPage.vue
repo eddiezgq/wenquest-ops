@@ -159,6 +159,9 @@ const kb = (n) => (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB'
     <p v-if="v.model_of" class="wq-panel mb-5 p-5 text-sm">{{ t('A model of') }} <RouterLink :to="`/plm/parts/${v.model_of.id}`" class="wq-link">{{ v.model_of.item_code }}</RouterLink> {{ v.model_of.name }}</p>
     <PlmConfig v-else-if="v.part.source === 'make' && v.part.category === 'assembly'" :part-id="v.part.id" />
     <PlmManual v-if="v.part.source === 'make' && v.boms.length" :part-id="v.part.id" />
+    <p v-if="v.part.source === 'make' && v.boms.length" data-help="plm-user-manual-link" class="wq-panel mb-5 p-5 text-sm">
+      <RouterLink :to="`/plm/parts/${v.part.id}/user-manual`" class="wq-link">{{ t('Instruction manual') }}</RouterLink>
+      <span class="ms-2 text-ink-gray-6">{{ t('Eight chapters, Chinese and English: AI drafts, a person confirms.') }}</span></p>
 
     <section data-help="plm-where-used" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">{{ t('Where used') }}</h2>

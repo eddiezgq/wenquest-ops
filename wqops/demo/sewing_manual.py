@@ -10,6 +10,8 @@ lockstitch model.
    schematic, WenQuest round 135 rule 1).
 3. English names from a table people wrote (machines/lockstitch_en.py), confirmed by the engineer.
 4. Edition 1 of the manual of one lockstitch model.
+5. Its instruction manual (33d): eight chapters written in advance (manual/user/<model>.yaml), saved and confirmed by
+   the engineer as if the AI had drafted them; edition 1.
 
 No dealer link: its address is shown once, so whoever looks at the demo makes one."""
 
@@ -114,3 +116,23 @@ def manual(conn, user: dict, model_code: str, today) -> dict:
     return {"model": model_code, "edition": m["edition"], "pages": len(m["pages"]), "names": n,
             "model_pages": done["confirmed"], "pending": done["pending"],
             "no_picture": sum(1 for x in m["pages"] if not x.get("picture")), "names_open": m["names_open"]}
+
+
+def instructions(conn, user: dict, model_code: str, today) -> dict:
+    """The instruction manual of the model from manual/user/<code>.yaml: each chapter saved, then confirmed."""
+    import yaml  # noqa: PLC0415
+
+    from wqops.hub.plm import parts as PT  # noqa: PLC0415
+    from wqops.hub.plm import user_manual as UM  # noqa: PLC0415
+
+    f = HERE / "user" / f"{model_code}.yaml"
+    if not f.is_file():
+        return {}
+    d = yaml.safe_load(f.read_text(encoding="utf-8"))
+    pid = PT.by_code(conn, model_code)["id"]
+    for key, ch in d["chapters"].items():
+        figs = [{"kind": "explode", "code": x["code"], "caption": x.get("caption", "")}
+                for x in ch.get("figures") or []]
+        UM.save(conn, user, pid, key, {"body_zh": ch["zh"], "body_en": ch["en"], "figures": figs})
+        UM.confirm(conn, user, pid, key)
+    return UM.generate(conn, user, pid, today=today)
