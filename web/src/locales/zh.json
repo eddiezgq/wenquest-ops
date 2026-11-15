@@ -2416,5 +2416,7 @@
  "Made in FreeCAD and waiting to be confirmed: look at the line drawing and the colour picture; only a confirmed page goes into the parts manual.": "由 FreeCAD 生成，待确认：看一下线条图和彩色图，确认后这一页才进配件手册。",
  "Line drawing": "线条图",
  "Colour picture": "彩色图",
- "Open the drawing (vector)": "打开线条图（矢量）"
+ "Open the drawing (vector)": "打开线条图（矢量）",
+ "PDF (screen)": "PDF（电子版）",
+ "PDF (print)": "PDF（印刷版）"
 }

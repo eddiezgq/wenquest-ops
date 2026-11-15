@@ -298,9 +298,11 @@ def mount(app: FastAPI, conn_dep, user_dep, company, erp_client, ai_model=None) 
         return run(lambda: MAN.get(c, ident(mid)))
 
     @app.get("/api/plm/manuals/{mid}/pdf")
-    def manual_pdf(mid: int, u=Depends(user_dep), c=Depends(conn_dep)):
+    def manual_pdf(mid: int, kind: str = "screen", u=Depends(user_dep), c=Depends(conn_dep)):
         need(u, "plm:view")
-        name, data = run(lambda: MAN.pdf(c, ident(mid)))
+        if kind not in ("screen", "print"):
+            raise HTTPException(404, say("not found"))
+        name, data = run(lambda: MAN.pdf(c, ident(mid), kind))
         return Response(data, media_type="application/pdf",
                         headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}"})
 

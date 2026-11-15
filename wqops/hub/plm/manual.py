@@ -1,8 +1,8 @@
 """The parts manual (PLM step 27c, WenQuest round 124): from a machine (or any assembly whose BOM is released), one
 page per assembly in its BOM tree: the exploded view as saved and the table of parts, Chinese and English. Kept as
-editions: generating freezes what the BOMs and pages are then; a later change of a BOM needs a new edition. A PDF
-for printing, and read-only links for dealers (no sign-in, revocable, counted) that show the pictures and tables:
-never the 3D models, which are design data."""
+editions: generating freezes what the BOMs and pages are then; a later change of a BOM needs a new edition. Two
+PDFs (screen and print, 33c), and read-only links for dealers (no sign-in, revocable, counted) that show the pictures
+and tables: never the 3D models, which are design data."""
 
 from __future__ import annotations
 
@@ -68,8 +68,8 @@ def readiness(conn, pid: int) -> dict:
 def _page(conn, bid: int, page_of: dict[int, int]) -> dict:
     b = B.get(conn, bid)
     p = PT.get(conn, b["part_id"])
-    e = conn.execute("select snapshot_sha from plm_explodes where bom_id = %s and state = 'confirmed'",
-                     (bid,)).fetchone()
+    e = conn.execute("select snapshot_sha, svg_sha, line_sha from plm_explodes where bom_id = %s and "
+                     "state = 'confirmed'", (bid,)).fetchone()
     lines = []
     for ln in EX.lines(conn, bid):
         lines.append({"no": ln["no"], "code": ln["code"], "name": ln["name"],
@@ -77,7 +77,9 @@ def _page(conn, bid: int, page_of: dict[int, int]) -> dict:
                       "qty": ln["qty"], "uom": ln["uom"], "page": page_of.get(ln["part_id"]), "note": ln["note"]})
     return {"bom": bid, "revision": b["revision"], "code": p["item_code"], "name": p["name"],
             "name_en": p["name_en"] if p["name_en_state"] == "confirmed" else "",
-            "picture": e["snapshot_sha"] if e and e["snapshot_sha"] else None, "lines": lines}
+            "picture": e["snapshot_sha"] if e and e["snapshot_sha"] else None,
+            "svg": e["svg_sha"] if e and e["svg_sha"] else None,
+            "line": e["line_sha"] if e and e["line_sha"] else None, "lines": lines}
 
 
 def _changes(old: list[dict], new: list[dict]) -> list[dict]:
@@ -104,7 +106,7 @@ def _changes(old: list[dict], new: list[dict]) -> list[dict]:
 
 def generate(conn, user: dict, pid: int, *, today) -> dict:
     """A new edition: the pages frozen as they are now, the PDF made, the changes from the edition before."""
-    from wqops.hub.plm import manual_pdf as MP  # noqa: PLC0415 - ReportLab only when a manual is made
+    from wqops.hub.plm import manual_print as MP  # noqa: PLC0415 - ReportLab only when a manual is made
 
     r = readiness(conn, pid)
     if not r["ok"]:
@@ -121,12 +123,15 @@ def generate(conn, user: dict, pid: int, *, today) -> dict:
     changes = _changes(prev["pages"], pages) if prev else []
     head = {"code": part["item_code"], "name": part["name"],
             "name_en": part["name_en"] if part["name_en_state"] == "confirmed" else "", "edition": edition}
-    pdf = MP.build(head, pages, changes, picture=F.get, today=today)
+    try:
+        pdfs = MP.make(head, pages, changes, blob=F.get, today=today)
+    except MP.ManualFontMissing as exc:
+        raise PlmError(say("the manual's font is not installed on the server (fonts-wqy-microhei)")) from exc
     with conn.transaction():
-        row = conn.execute("insert into plm_manuals (part_id, edition, pages, changes, pdf_sha, names_open, "
-                           "created_by) values (%s, %s, %s, %s, %s, %s, %s) returning id",
-                           (pid, edition, Jsonb(pages), Jsonb(changes), F.put(pdf), r["names_open"],
-                            user["email"])).fetchone()
+        row = conn.execute("insert into plm_manuals (part_id, edition, pages, changes, pdf_sha, print_sha, "
+                           "names_open, created_by) values (%s, %s, %s, %s, %s, %s, %s, %s) returning id",
+                           (pid, edition, Jsonb(pages), Jsonb(changes), F.put(pdfs["screen"]), F.put(pdfs["print"]),
+                            r["names_open"], user["email"])).fetchone()
         PT.log(conn, "part", pid, user["email"], "parts manual",
                say("edition {n}, {p} pages", n=edition, p=len(pages)))
     return get(conn, row["id"])
@@ -142,7 +147,8 @@ def get(conn, mid: int) -> dict:
 
 def overview(conn, pid: int) -> dict:
     eds = [PT._iso(dict(r)) for r in conn.execute(
-        "select id, edition, created_by, created_at, names_open, jsonb_array_length(pages) as pages, "
+        "select id, edition, created_by, created_at, names_open, print_sha is not null as has_print, "
+        "jsonb_array_length(pages) as pages, "
         "jsonb_array_length(changes) as changes from plm_manuals where part_id = %s order by edition desc", (pid,))]
     links = [PT._iso(dict(r)) for r in conn.execute(
         "select id, label, created_by, created_at, revoked_at, revoked_by, views, last_view_at from "
@@ -150,8 +156,13 @@ def overview(conn, pid: int) -> dict:
     return {"readiness": readiness(conn, pid), "editions": eds, "links": links}
 
 
-def pdf(conn, mid: int) -> tuple[str, bytes]:
+def pdf(conn, mid: int, kind: str = "screen") -> tuple[str, bytes]:
+    """The edition's PDF: screen (colour, links) or print (line drawings, bleed; editions since 33c)."""
     m = get(conn, mid)
+    if kind == "print":
+        if not m.get("print_sha"):
+            raise KeyError(mid)
+        return f"{m['item_code']}-manual-{m['edition']}-print.pdf", F.get(m["print_sha"])
     return f"{m['item_code']}-manual-{m['edition']}.pdf", F.get(m["pdf_sha"])
 
 

@@ -22,7 +22,8 @@ watch(() => route.params.id, load, { immediate: true })
   <p v-if="error" class="wq-error mb-4">{{ error }}</p>
   <template v-if="m">
     <p class="mb-4 text-sm">{{ m.name }} · {{ m.created_by }} {{ m.created_at?.slice(0, 16).replace('T', ' ') }} ·
-      <a :href="`/api/plm/manuals/${m.id}/pdf`" target="_blank" class="wq-link">PDF</a></p>
+      <a :href="`/api/plm/manuals/${m.id}/pdf`" target="_blank" class="wq-link">{{ t('PDF (screen)') }}</a>
+      <a v-if="m.print_sha" :href="`/api/plm/manuals/${m.id}/pdf?kind=print`" target="_blank" class="wq-link ms-3">{{ t('PDF (print)') }}</a></p>
     <section v-if="m.changes.length" class="wq-panel mb-5 p-5">
       <h2 class="wq-h2">{{ t('Changes from the previous edition') }}</h2>
       <table class="wq-table text-sm"><thead><tr><th>{{ t('Assembly') }}</th><th>{{ t('Part') }}</th><th>{{ t('Change') }}</th><th>{{ t('Was') }}</th><th>{{ t('Now') }}</th></tr></thead>

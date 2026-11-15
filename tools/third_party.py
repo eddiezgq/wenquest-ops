@@ -32,8 +32,8 @@ IN_HUB = [
      "https://sources.debian.org/"),
     ("Tesseract OCR (tesseract-ocr, English and Simplified Chinese data)", "Apache-2.0",
      "https://github.com/tesseract-ocr/tesseract"),
-    ("Droid Sans Fallback font (fonts-droid-fallback, Chinese in the parts manual PDF)", "Apache-2.0",
-     "https://sources.debian.org/src/fonts-android/"),
+    ("WenQuanYi Micro Hei font (fonts-wqy-microhei, Chinese and English in the parts manual PDF)",
+     "Apache-2.0 or GPL-3.0-only with font exception", "https://sources.debian.org/src/fonts-wqy-microhei/"),
 ]
 PYTHON = {
     "pyyaml": ("MIT", "https://github.com/yaml/pyyaml"),

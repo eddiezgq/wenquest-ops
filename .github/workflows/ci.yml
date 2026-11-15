@@ -53,7 +53,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install
         run: |
-          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-chi-sim >/dev/null   # OCR of scans (ADR-0014, 0023)
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-chi-sim fonts-wqy-microhei >/dev/null   # OCR of scans (ADR-0014, 0023); the manual font
           pip install -e ".[dev]"
           npm ci --prefix web --no-audit --no-fund
       - name: Lint

@@ -55,7 +55,8 @@ async function revoke(id) {
       <table v-else class="wq-table text-sm"><thead><tr><th>{{ t('manual::Edition') }}</th><th>{{ t('Sections') }}</th><th>{{ t('manual::Changes') }}</th><th>{{ t('Made by') }}</th><th>{{ t('Made at') }}</th><th /></tr></thead>
         <tbody><tr v-for="e in v.editions" :key="e.id"><td><RouterLink :to="`/plm/manuals/${e.id}`" class="wq-link">{{ t('Edition {n}', { n: e.edition }) }}</RouterLink></td>
           <td>{{ e.pages }}</td><td>{{ e.edition === 1 ? '–' : e.changes }}</td><td>{{ e.created_by }}</td><td>{{ when(e.created_at) }}</td>
-          <td><a :href="`/api/plm/manuals/${e.id}/pdf`" target="_blank" class="wq-link">PDF</a></td></tr></tbody></table>
+          <td><a :href="`/api/plm/manuals/${e.id}/pdf`" target="_blank" class="wq-link">{{ t('PDF (screen)') }}</a>
+            <a v-if="e.has_print" :href="`/api/plm/manuals/${e.id}/pdf?kind=print`" target="_blank" class="wq-link ms-3">{{ t('PDF (print)') }}</a></td></tr></tbody></table>
 
       <h3 class="mt-5 mb-2 text-base font-medium">{{ t('Links for dealers') }}</h3>
       <p class="mb-2 text-sm text-ink-gray-6">{{ t('Anyone with the address sees the newest edition: pictures, tables and the PDF, never the 3D models. No sign-in.') }}</p>
